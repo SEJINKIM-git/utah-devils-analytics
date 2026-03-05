@@ -1,0 +1,71 @@
+/* ============================================
+   Utah Devils Brand Colors
+   --navy:       #141B3D  (primary background)
+   --navy-dark:  #0E1428  (deeper sections)
+   --red:        #DC2626  (primary accent)
+   --red-light:  #FF3B3B  (hover/highlight)
+   --white:      #E2E8F0  (text)
+   ============================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: #0E1428;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(220,38,38,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(220,38,38,0.4); }
+
+select option { background: #141B3D; color: #e2e8f0; }
+
+a { transition: opacity 0.15s; }
+a:hover { opacity: 0.85; }
+
+@media (max-width: 1024px) {
+  div[style*="repeat(6"] { grid-template-columns: repeat(3, 1fr) !important; }
+}
+
+@media (max-width: 768px) {
+  div[style*="repeat(6"] { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+  .lineup-grid { grid-template-columns: 1fr !important; }
+  .lineup-stats { display: none !important; }
+  table { min-width: 700px; }
+  td, th { padding: 8px 6px !important; font-size: 12px !important; }
+  div[style*="maxWidth: 440"] { max-width: 100% !important; margin: 10px !important; }
+}
+
+@media (max-width: 480px) {
+  h1 { font-size: 18px !important; }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  [draggable="true"] { cursor: pointer; }
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+@media print {
+  body { background: white !important; color: black !important; }
+}
