@@ -8,7 +8,7 @@
  *  - import 경로 대소문자 수정: './ThemeProvider' (ThemeProvider.tsx와 일치)
  */
 
-import { useTheme } from './Themeprovider';
+import { useTheme } from './ThemeProvider';
 
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
