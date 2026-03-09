@@ -342,7 +342,7 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
       </div>
 
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 200, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow)', maxHeight: 260, overflowY: 'auto' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 9999, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.4)', maxHeight: 320, overflowY: 'auto' }}>
           {filtered.length === 0 ? (
             <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>검색 결과 없음</div>
           ) : (
@@ -423,14 +423,14 @@ export default function ComparePage() {
         </div>
 
         {/* 검색창 */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 48px 1fr', gap: 12, alignItems: 'center', marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 48px 1fr', gap: 12, alignItems: 'center', marginBottom: 20, position: 'relative', zIndex: 100 }}>
           <PlayerSearch players={players} selected={p1} onSelect={setP1} placeholder="선수 1 검색…" accentColor="#DC2626" excludeId={p2?.id} />
           <div style={{ textAlign: 'center', fontWeight: 800, color: 'var(--text-dim)', fontSize: 18 }}>VS</div>
           <PlayerSearch players={players} selected={p2} onSelect={setP2} placeholder="선수 2 검색…" accentColor="#3b82f6" excludeId={p1?.id} />
         </div>
 
         {/* 빠른 선택 */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32, position: 'relative', zIndex: 1 }}>
           {players.map((p) => {
             const isP1 = p1?.id === p.id;
             const isP2 = p2?.id === p.id;
