@@ -1,4 +1,15 @@
+/* ====================================================
+   Utah Devils — 다크 / 라이트 모드 CSS 변수
+   globals.css 또는 별도 theme.css 에 추가하세요.
 
+   BUG-8 수정: 전역 transition 제거
+   기존: *, *::before, *::after { transition: background-color 0.25s ... }
+   문제: input, table row, SVG, scroll 컨테이너 등 모든 요소에 transition 이 적용되어
+        스크롤 버벅임, 의도치 않은 애니메이션, Lighthouse 성능 저하 발생
+   수정: transition을 테마 전환에 실제로 필요한 요소(body, 카드, 버튼 등)에만 적용
+   ==================================================== */
+
+/* ── 다크 모드 (기본) ───────────────────────────────── */
 :root,
 [data-theme="dark"] {
   --bg:            #0E1428;
@@ -18,7 +29,7 @@
   --table-stripe:  rgba(255, 255, 255, 0.03);
 }
 
-
+/* ── 라이트 모드 ────────────────────────────────────── */
 [data-theme="light"] {
   --bg:            #f1f5f9;
   --bg-secondary:  #e2e8f0;
@@ -37,14 +48,15 @@
   --table-stripe:  rgba(0, 0, 0, 0.025);
 }
 
-
+/* ── 기본 body ──────────────────────────────────────── */
 body {
   background-color: var(--bg);
   color:            var(--text);
-  
+  /* BUG-8 FIX: body 자체는 transition 제거 (스크롤 성능 영향) */
 }
 
-
+/* ── 테마 전환 transition — 실제로 색상이 바뀌는 요소만 적용 ── */
+/* BUG-8 FIX: 전역 * 선택자 대신 의미 있는 요소만 명시 */
 .theme-transition,
 nav, header, footer,
 [class*="card"], [class*="Card"],
@@ -57,3 +69,10 @@ input, select, textarea {
     border-color     0.22s ease;
 }
 
+/*
+  사용법:
+  테마 전환이 필요한 커스텀 컴포넌트에는 className="theme-transition" 을 추가하거나
+  위 선택자 목록에 추가하세요.
+
+  SVG, table, tr, td 등 애니메이션 불필요한 요소는 의도적으로 제외했습니다.
+*/
