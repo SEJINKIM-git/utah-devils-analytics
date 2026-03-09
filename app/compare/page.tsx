@@ -81,46 +81,69 @@ async function fetchPlayers(): Promise<Player[]> {
   return (data ?? []) as Player[];
   ─────────────────────────────────────────────────────────────────────── */
 
-  /* ── Mock 데이터 (Supabase 연결 전 테스트용) ── */
+  /* ── Mock 데이터 — 대시보드 전체 선수 동기화 ── */
   return [
-    { id: 1,  name: '이호원', number: 35, position: 'SS',
-      batting_stats:  [{ season: 2025, at_bats: 45, hits: 18, doubles: 4, triples: 1, home_runs: 2, rbi: 12, walks: 8,  strikeouts: 7,  runs: 14 },
+    { id: 1,  name: '이호원',  number: 35, position: 'SS',
+      batting_stats:  [{ season: 2025, at_bats: 14, hits: 9,  doubles: 5, triples: 1, home_runs: 1, rbi: 13, walks: 14, strikeouts: 1,  runs: 14 },
                        { season: 2024, at_bats: 40, hits: 14, doubles: 3, triples: 0, home_runs: 1, rbi: 9,  walks: 6,  strikeouts: 8,  runs: 11 }],
-      pitching_stats: [{ season: 2025, innings: 8,  hits: 6,  runs: 5, earned_runs: 4, walks: 3, strikeouts: 12 }] },
-    { id: 2,  name: '황서현', number: 82, position: 'CF',
-      batting_stats:  [{ season: 2025, at_bats: 50, hits: 16, doubles: 3, triples: 0, home_runs: 1, rbi: 8,  walks: 6,  strikeouts: 10, runs: 10 },
-                       { season: 2024, at_bats: 44, hits: 13, doubles: 2, triples: 0, home_runs: 0, rbi: 6,  walks: 5,  strikeouts: 9,  runs: 8  }],
+      pitching_stats: [{ season: 2025, innings: 19, hits: 29, runs: 12, earned_runs: 12, walks: 15, strikeouts: 30 }] },
+    { id: 2,  name: '박지민',  number: 56, position: 'OF',
+      batting_stats:  [{ season: 2025, at_bats: 6,  hits: 4,  doubles: 2, triples: 0, home_runs: 0, rbi: 6,  walks: 5,  strikeouts: 2,  runs: 3  }],
       pitching_stats: [] },
-    { id: 3,  name: '박상언', number: 6,  position: 'P',
-      batting_stats:  [{ season: 2025, at_bats: 30, hits: 9,  doubles: 2, triples: 0, home_runs: 0, rbi: 5,  walks: 4,  strikeouts: 6,  runs: 6  }],
-      pitching_stats: [{ season: 2025, innings: 18, hits: 12, runs: 8, earned_runs: 6, walks: 7, strikeouts: 22 },
-                       { season: 2024, innings: 14, hits: 10, runs: 7, earned_runs: 5, walks: 5, strikeouts: 18 }] },
-    { id: 4,  name: '조경민', number: 17, position: '3B',
-      batting_stats:  [{ season: 2025, at_bats: 42, hits: 13, doubles: 2, triples: 2, home_runs: 3, rbi: 14, walks: 5,  strikeouts: 9,  runs: 11 },
-                       { season: 2024, at_bats: 38, hits: 11, doubles: 1, triples: 1, home_runs: 2, rbi: 10, walks: 4,  strikeouts: 7,  runs: 9  }],
+    { id: 3,  name: '박상언',  number: 23, position: 'P',
+      batting_stats:  [{ season: 2025, at_bats: 14, hits: 7,  doubles: 1, triples: 0, home_runs: 0, rbi: 7,  walks: 7,  strikeouts: 3,  runs: 5  }],
+      pitching_stats: [{ season: 2025, innings: 6,  hits: 7,  runs: 8,  earned_runs: 8,  walks: 16, strikeouts: 7  }] },
+    { id: 4,  name: '조경민',  number: 14, position: '3B',
+      batting_stats:  [{ season: 2025, at_bats: 15, hits: 3,  doubles: 0, triples: 1, home_runs: 1, rbi: 6,  walks: 13, strikeouts: 10, runs: 10 }],
       pitching_stats: [] },
-    { id: 5,  name: '한형준', number: 21, position: '2B',
-      batting_stats:  [{ season: 2025, at_bats: 38, hits: 11, doubles: 1, triples: 0, home_runs: 1, rbi: 9,  walks: 3,  strikeouts: 8,  runs: 7  }],
+    { id: 5,  name: '한동헌',  number: 8,  position: 'IF',
+      batting_stats:  [{ season: 2025, at_bats: 4,  hits: 2,  doubles: 0, triples: 0, home_runs: 0, rbi: 3,  walks: 1,  strikeouts: 1,  runs: 0  }],
+      pitching_stats: [{ season: 2025, innings: 1,  hits: 4,  runs: 4,  earned_runs: 4,  walks: 4,  strikeouts: 1  }] },
+    { id: 6,  name: '이상민',  number: 66, position: 'OF',
+      batting_stats:  [{ season: 2025, at_bats: 4,  hits: 2,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 2,  strikeouts: 3,  runs: 4  }],
+      pitching_stats: [{ season: 2025, innings: 4,  hits: 7,  runs: 4,  earned_runs: 4,  walks: 5,  strikeouts: 4  }] },
+    { id: 7,  name: '이승운',  number: 38, position: 'IF',
+      batting_stats:  [{ season: 2025, at_bats: 3,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 1,  runs: 0  }],
       pitching_stats: [] },
-    { id: 6,  name: '임희찬', number: 14, position: 'C',
-      batting_stats:  [{ season: 2025, at_bats: 35, hits: 8,  doubles: 2, triples: 0, home_runs: 2, rbi: 7,  walks: 6,  strikeouts: 11, runs: 5  },
-                       { season: 2024, at_bats: 30, hits: 7,  doubles: 1, triples: 0, home_runs: 1, rbi: 5,  walks: 4,  strikeouts: 9,  runs: 4  }],
+    { id: 8,  name: '김태경',  number: 11, position: 'P',
+      batting_stats:  [{ season: 2025, at_bats: 8,  hits: 3,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 2,  strikeouts: 4,  runs: 6  }],
+      pitching_stats: [{ season: 2025, innings: 2,  hits: 2,  runs: 2,  earned_runs: 2,  walks: 5,  strikeouts: 3  }] },
+    { id: 9,  name: '임희찬',  number: 13, position: 'C',
+      batting_stats:  [{ season: 2025, at_bats: 10, hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 11, strikeouts: 8,  runs: 6  }],
       pitching_stats: [] },
-    { id: 7,  name: '이지성', number: 23, position: 'DH',
-      batting_stats:  [{ season: 2025, at_bats: 40, hits: 14, doubles: 3, triples: 1, home_runs: 1, rbi: 11, walks: 9,  strikeouts: 6,  runs: 9  }],
+    { id: 10, name: '한형준',  number: 9,  position: '2B',
+      batting_stats:  [{ season: 2025, at_bats: 7,  hits: 2,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 1,  strikeouts: 3,  runs: 1  }],
       pitching_stats: [] },
-    { id: 8,  name: '이상민', number: 31, position: 'LF',
-      batting_stats:  [{ season: 2025, at_bats: 36, hits: 10, doubles: 1, triples: 0, home_runs: 0, rbi: 6,  walks: 5,  strikeouts: 9,  runs: 8  }],
-      pitching_stats: [{ season: 2025, innings: 4,  hits: 5,  runs: 4, earned_runs: 4, walks: 3, strikeouts: 5  }] },
-    { id: 9,  name: '송정안', number: 44, position: '1B',
-      batting_stats:  [{ season: 2025, at_bats: 32, hits: 8,  doubles: 2, triples: 0, home_runs: 2, rbi: 8,  walks: 7,  strikeouts: 7,  runs: 6  }],
+    { id: 11, name: '황서현',  number: 82, position: 'CF',
+      batting_stats:  [{ season: 2025, at_bats: 24, hits: 5,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 7,  strikeouts: 7,  runs: 12 }],
+      pitching_stats: [{ season: 2025, innings: 10, hits: 13, runs: 9,  earned_runs: 9,  walks: 17, strikeouts: 15 }] },
+    { id: 12, name: '오스틴',  number: 19, position: 'IF',
+      batting_stats:  [{ season: 2025, at_bats: 2,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 2,  runs: 0  }],
       pitching_stats: [] },
-    { id: 10, name: '김민준', number: 7,  position: 'RF',
-      batting_stats:  [{ season: 2025, at_bats: 28, hits: 7,  doubles: 1, triples: 0, home_runs: 1, rbi: 4,  walks: 3,  strikeouts: 6,  runs: 5  }],
+    { id: 13, name: '소이어',  number: 1,  position: 'P',
+      batting_stats:  [{ season: 2025, at_bats: 8,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 4,  strikeouts: 6,  runs: 4  }],
+      pitching_stats: [{ season: 2025, innings: 3,  hits: 4,  runs: 3,  earned_runs: 3,  walks: 5,  strikeouts: 4  }] },
+    { id: 14, name: '이지성',  number: 15, position: 'IF',
+      batting_stats:  [{ season: 2025, at_bats: 8,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 4,  strikeouts: 7,  runs: 1  }],
       pitching_stats: [] },
-    { id: 11, name: '정우진', number: 11, position: 'P',
-      batting_stats:  [],
-      pitching_stats: [{ season: 2025, innings: 12, hits: 9,  runs: 6, earned_runs: 5, walks: 4, strikeouts: 15 }] },
+    { id: 15, name: '강배현',  number: 25, position: 'IF',
+      batting_stats:  [{ season: 2025, at_bats: 2,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 2,  runs: 2  }],
+      pitching_stats: [] },
+    { id: 16, name: '김민수',  number: 28, position: 'IF',
+      batting_stats:  [{ season: 2025, at_bats: 2,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 2,  runs: 0  }],
+      pitching_stats: [] },
+    { id: 17, name: '권혁준',  number: 46, position: 'OF',
+      batting_stats:  [{ season: 2025, at_bats: 5,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 3,  walks: 0,  strikeouts: 1,  runs: 0  }],
+      pitching_stats: [] },
+    { id: 18, name: '송정안',  number: 62, position: '1B',
+      batting_stats:  [{ season: 2025, at_bats: 17, hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 5,  strikeouts: 11, runs: 6  }],
+      pitching_stats: [] },
+    { id: 19, name: '헌담',    number: 5,  position: 'OF',
+      batting_stats:  [{ season: 2025, at_bats: 5,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 1,  strikeouts: 4,  runs: 0  }],
+      pitching_stats: [] },
+    { id: 20, name: '유병문',  number: 10, position: 'IF',
+      batting_stats:  [{ season: 2025, at_bats: 1,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 0,  strikeouts: 1,  runs: 0  }],
+      pitching_stats: [] },
   ];
 }
 
@@ -356,16 +379,16 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
       </div>
 
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 9999, background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.4)', maxHeight: 320, overflowY: 'auto' }}>
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 9999, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.4)', maxHeight: 320, overflowY: 'auto', overflow: 'hidden auto' }}>
           {filtered.length === 0 ? (
             <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>검색 결과 없음</div>
           ) : (
             filtered.map((p) => (
               <div key={p.id}
                 onClick={() => { onSelect(p); setOpen(false); setQuery(''); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--card-hover)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--card-bg)'; }}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', background: 'var(--card-item, var(--bg-secondary))' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = accentColor + '18'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--card-item, var(--bg-secondary))'; }}
               >
                 <div style={{ width: 32, height: 32, borderRadius: '50%', background: accentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                   {p.number}
