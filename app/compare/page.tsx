@@ -63,50 +63,64 @@ interface CalcPitching extends PitchingStat {
   whip: number | null;
 }
 
-// ─── 데이터 페칭 ─────────────────────────────────────────────────────────────
+// ─── 데이터 페칭 (Supabase 연동) ──────────────────────────────────────────────
 
 async function fetchPlayers(): Promise<Player[]> {
-  // ── Supabase 연동 시 주석 해제 ──
-  // const supabase = createClient();
-  // const { data, error } = await supabase
-  //   .from('players')
-  //   .select(`
-  //     id, name, number, position,
-  //     batting_stats(season, at_bats, hits, doubles, triples, home_runs, rbi, walks, strikeouts, runs),
-  //     pitching_stats(season, innings, hits, runs, earned_runs, walks, strikeouts)
-  //   `)
-  //   .order('number');
-  // if (error) throw error;
-  // return (data ?? []) as Player[];
+  /* ── Supabase 연동 시 아래 주석 해제 ──────────────────────────────────
+  import { createClient } from '@/lib/supabase/client';
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('players')
+    .select(`
+      id, name, number, position,
+      batting_stats(season, at_bats, hits, doubles, triples, home_runs, rbi, walks, strikeouts, runs),
+      pitching_stats(season, innings, hits, runs, earned_runs, walks, strikeouts)
+    `)
+    .order('number');
+  if (error) throw error;
+  return (data ?? []) as Player[];
+  ─────────────────────────────────────────────────────────────────────── */
 
+  /* ── Mock 데이터 (Supabase 연결 전 테스트용) ── */
   return [
-    { id: 1, name: '이호원', number: 35, position: 'SS',
-      batting_stats:  [{ season: 2025, at_bats: 45, hits: 18, doubles: 4, triples: 1, home_runs: 2, rbi: 12, walks: 8,  strikeouts: 7,  runs: 14 }],
+    { id: 1,  name: '이호원', number: 35, position: 'SS',
+      batting_stats:  [{ season: 2025, at_bats: 45, hits: 18, doubles: 4, triples: 1, home_runs: 2, rbi: 12, walks: 8,  strikeouts: 7,  runs: 14 },
+                       { season: 2024, at_bats: 40, hits: 14, doubles: 3, triples: 0, home_runs: 1, rbi: 9,  walks: 6,  strikeouts: 8,  runs: 11 }],
       pitching_stats: [{ season: 2025, innings: 8,  hits: 6,  runs: 5, earned_runs: 4, walks: 3, strikeouts: 12 }] },
-    { id: 2, name: '황서현', number: 82, position: 'CF',
-      batting_stats:  [{ season: 2025, at_bats: 50, hits: 16, doubles: 3, triples: 0, home_runs: 1, rbi: 8,  walks: 6,  strikeouts: 10, runs: 10 }],
-      pitching_stats: [{ season: 2025, innings: 5,  hits: 4,  runs: 3, earned_runs: 2, walks: 2, strikeouts: 8  }] },
-    { id: 3, name: '박상언', number: 6,  position: 'P',
-      batting_stats:  [{ season: 2025, at_bats: 30, hits: 9,  doubles: 2, triples: 0, home_runs: 0, rbi: 5,  walks: 4,  strikeouts: 6,  runs: 6  }],
-      pitching_stats: [{ season: 2025, innings: 18, hits: 12, runs: 8, earned_runs: 6, walks: 7, strikeouts: 22 }] },
-    { id: 4, name: '조경민', number: 17, position: '3B',
-      batting_stats:  [{ season: 2025, at_bats: 42, hits: 13, doubles: 2, triples: 2, home_runs: 3, rbi: 14, walks: 5,  strikeouts: 9,  runs: 11 }],
+    { id: 2,  name: '황서현', number: 82, position: 'CF',
+      batting_stats:  [{ season: 2025, at_bats: 50, hits: 16, doubles: 3, triples: 0, home_runs: 1, rbi: 8,  walks: 6,  strikeouts: 10, runs: 10 },
+                       { season: 2024, at_bats: 44, hits: 13, doubles: 2, triples: 0, home_runs: 0, rbi: 6,  walks: 5,  strikeouts: 9,  runs: 8  }],
       pitching_stats: [] },
-    { id: 5, name: '한형준', number: 21, position: '2B',
+    { id: 3,  name: '박상언', number: 6,  position: 'P',
+      batting_stats:  [{ season: 2025, at_bats: 30, hits: 9,  doubles: 2, triples: 0, home_runs: 0, rbi: 5,  walks: 4,  strikeouts: 6,  runs: 6  }],
+      pitching_stats: [{ season: 2025, innings: 18, hits: 12, runs: 8, earned_runs: 6, walks: 7, strikeouts: 22 },
+                       { season: 2024, innings: 14, hits: 10, runs: 7, earned_runs: 5, walks: 5, strikeouts: 18 }] },
+    { id: 4,  name: '조경민', number: 17, position: '3B',
+      batting_stats:  [{ season: 2025, at_bats: 42, hits: 13, doubles: 2, triples: 2, home_runs: 3, rbi: 14, walks: 5,  strikeouts: 9,  runs: 11 },
+                       { season: 2024, at_bats: 38, hits: 11, doubles: 1, triples: 1, home_runs: 2, rbi: 10, walks: 4,  strikeouts: 7,  runs: 9  }],
+      pitching_stats: [] },
+    { id: 5,  name: '한형준', number: 21, position: '2B',
       batting_stats:  [{ season: 2025, at_bats: 38, hits: 11, doubles: 1, triples: 0, home_runs: 1, rbi: 9,  walks: 3,  strikeouts: 8,  runs: 7  }],
       pitching_stats: [] },
-    { id: 6, name: '임희찬', number: 14, position: 'C',
-      batting_stats:  [{ season: 2025, at_bats: 35, hits: 8,  doubles: 2, triples: 0, home_runs: 2, rbi: 7,  walks: 6,  strikeouts: 11, runs: 5  }],
+    { id: 6,  name: '임희찬', number: 14, position: 'C',
+      batting_stats:  [{ season: 2025, at_bats: 35, hits: 8,  doubles: 2, triples: 0, home_runs: 2, rbi: 7,  walks: 6,  strikeouts: 11, runs: 5  },
+                       { season: 2024, at_bats: 30, hits: 7,  doubles: 1, triples: 0, home_runs: 1, rbi: 5,  walks: 4,  strikeouts: 9,  runs: 4  }],
       pitching_stats: [] },
-    { id: 7, name: '이지성', number: 23, position: 'DH',
+    { id: 7,  name: '이지성', number: 23, position: 'DH',
       batting_stats:  [{ season: 2025, at_bats: 40, hits: 14, doubles: 3, triples: 1, home_runs: 1, rbi: 11, walks: 9,  strikeouts: 6,  runs: 9  }],
       pitching_stats: [] },
-    { id: 8, name: '이상민', number: 31, position: 'LF',
+    { id: 8,  name: '이상민', number: 31, position: 'LF',
       batting_stats:  [{ season: 2025, at_bats: 36, hits: 10, doubles: 1, triples: 0, home_runs: 0, rbi: 6,  walks: 5,  strikeouts: 9,  runs: 8  }],
       pitching_stats: [{ season: 2025, innings: 4,  hits: 5,  runs: 4, earned_runs: 4, walks: 3, strikeouts: 5  }] },
-    { id: 9, name: '송정안', number: 44, position: '1B',
+    { id: 9,  name: '송정안', number: 44, position: '1B',
       batting_stats:  [{ season: 2025, at_bats: 32, hits: 8,  doubles: 2, triples: 0, home_runs: 2, rbi: 8,  walks: 7,  strikeouts: 7,  runs: 6  }],
       pitching_stats: [] },
+    { id: 10, name: '김민준', number: 7,  position: 'RF',
+      batting_stats:  [{ season: 2025, at_bats: 28, hits: 7,  doubles: 1, triples: 0, home_runs: 1, rbi: 4,  walks: 3,  strikeouts: 6,  runs: 5  }],
+      pitching_stats: [] },
+    { id: 11, name: '정우진', number: 11, position: 'P',
+      batting_stats:  [],
+      pitching_stats: [{ season: 2025, innings: 12, hits: 9,  runs: 6, earned_runs: 5, walks: 4, strikeouts: 15 }] },
   ];
 }
 
@@ -403,35 +417,58 @@ export default function ComparePage() {
     <div style={{ padding: 32, textAlign: 'center', color: '#ef4444', fontSize: 15 }}>오류: {error}</div>
   );
 
+  /* 선택된 시즌에 기록이 있는 선수만 빠른선택에 표시 */
+  const seasonPlayers = players.filter((p) =>
+    p.batting_stats.some((s) => s.season === season) ||
+    p.pitching_stats.some((s) => s.season === season)
+  );
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px' }}>
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
 
         {/* 헤더 */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
-          <div>
-            <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', margin: 0 }}>⚖️ 선수 비교</h1>
-            <p style={{ color: 'var(--text-muted)', marginTop: 6, fontSize: 14 }}>이름 · 등번호 · 포지션으로 검색하거나 버튼으로 빠르게 선택하세요.</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {/* ← 대시보드 버튼 */}
+            <a href="/" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: 10,
+              background: 'var(--card-bg)', border: '1px solid var(--border)',
+              color: 'var(--text-muted)', fontSize: 13, fontWeight: 500,
+              textDecoration: 'none',
+            }}>
+              ← 대시보드
+            </a>
+            <div>
+              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', margin: 0 }}>⚖️ 선수 비교</h1>
+              <p style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 13 }}>이름 · 등번호 · 포지션으로 검색하거나 버튼으로 빠르게 선택하세요.</p>
+            </div>
           </div>
           <select
             value={season}
-            onChange={(e) => setSeason(Number(e.target.value))}
+            onChange={(e) => { setSeason(Number(e.target.value)); setP1(null); setP2(null); }}
             style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 14px', color: 'var(--text)', fontSize: 14, cursor: 'pointer', outline: 'none' }}
           >
-            {[2022, 2023, 2024, 2025].map((y) => <option key={y} value={y}>{y} 시즌</option>)}
+            {[2025, 2024, 2023, 2022].map((y) => <option key={y} value={y}>{y} 시즌</option>)}
           </select>
         </div>
 
         {/* 검색창 */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 48px 1fr', gap: 12, alignItems: 'center', marginBottom: 20, position: 'relative', zIndex: 100 }}>
-          <PlayerSearch players={players} selected={p1} onSelect={setP1} placeholder="선수 1 검색…" accentColor="#DC2626" excludeId={p2?.id} />
+          <PlayerSearch players={seasonPlayers} selected={p1} onSelect={setP1} placeholder="선수 1 검색…" accentColor="#DC2626" excludeId={p2?.id} />
           <div style={{ textAlign: 'center', fontWeight: 800, color: 'var(--text-dim)', fontSize: 18 }}>VS</div>
-          <PlayerSearch players={players} selected={p2} onSelect={setP2} placeholder="선수 2 검색…" accentColor="#3b82f6" excludeId={p1?.id} />
+          <PlayerSearch players={seasonPlayers} selected={p2} onSelect={setP2} placeholder="선수 2 검색…" accentColor="#3b82f6" excludeId={p1?.id} />
         </div>
 
-        {/* 빠른 선택 */}
+        {/* 빠른 선택 — 해당 시즌 기록 있는 선수만 */}
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 500 }}>
+            {season}시즌 선수 {seasonPlayers.length}명
+          </span>
+        </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32, position: 'relative', zIndex: 1 }}>
-          {players.map((p) => {
+          {seasonPlayers.map((p) => {
             const isP1 = p1?.id === p.id;
             const isP2 = p2?.id === p.id;
             return (
