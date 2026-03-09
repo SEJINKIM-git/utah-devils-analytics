@@ -1,0 +1,59 @@
+
+:root,
+[data-theme="dark"] {
+  --bg:            #0E1428;
+  --bg-secondary:  #141B3D;
+  --card-bg:       #1a2147;
+  --card-hover:    #1e2850;
+  --border:        rgba(255, 255, 255, 0.08);
+  --text:          #E2E8F0;
+  --text-muted:    #94a3b8;
+  --text-dim:      #64748b;
+  --accent:        #DC2626;
+  --accent-light:  #ef4444;
+  --success:       #22c55e;
+  --warning:       #eab308;
+  --shadow:        0 4px 24px rgba(0, 0, 0, 0.4);
+  --input-bg:      rgba(255, 255, 255, 0.05);
+  --table-stripe:  rgba(255, 255, 255, 0.03);
+}
+
+
+[data-theme="light"] {
+  --bg:            #f1f5f9;
+  --bg-secondary:  #e2e8f0;
+  --card-bg:       #ffffff;
+  --card-hover:    #f8fafc;
+  --border:        rgba(0, 0, 0, 0.10);
+  --text:          #1e293b;
+  --text-muted:    #475569;
+  --text-dim:      #94a3b8;
+  --accent:        #DC2626;
+  --accent-light:  #ef4444;
+  --success:       #16a34a;
+  --warning:       #ca8a04;
+  --shadow:        0 4px 24px rgba(0, 0, 0, 0.08);
+  --input-bg:      rgba(0, 0, 0, 0.04);
+  --table-stripe:  rgba(0, 0, 0, 0.025);
+}
+
+
+body {
+  background-color: var(--bg);
+  color:            var(--text);
+  
+}
+
+
+.theme-transition,
+nav, header, footer,
+[class*="card"], [class*="Card"],
+[class*="sidebar"], [class*="nav"],
+button, a,
+input, select, textarea {
+  transition:
+    background-color 0.22s ease,
+    color            0.22s ease,
+    border-color     0.22s ease;
+}
+
