@@ -15,7 +15,6 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-// import { createClient } from '@/lib/supabase/client';
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────────
 
@@ -63,25 +62,27 @@ interface CalcPitching extends PitchingStat {
   whip: number | null;
 }
 
-// ─── 데이터 페칭 (Supabase 연동) ──────────────────────────────────────────────
+// ─── 데이터 페칭 (Supabase 실시간 연동 + Mock 폴백) ─────────────────────────────
 
 async function fetchPlayers(): Promise<Player[]> {
-  /* ── Supabase 연동 시 아래 주석 해제 ──────────────────────────────────
-  import { createClient } from '@/lib/supabase/client';
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from('players')
-    .select(`
-      id, name, number, position,
-      batting_stats(season, at_bats, hits, doubles, triples, home_runs, rbi, walks, strikeouts, runs),
-      pitching_stats(season, innings, hits, runs, earned_runs, walks, strikeouts)
-    `)
-    .order('number');
-  if (error) throw error;
-  return (data ?? []) as Player[];
-  ─────────────────────────────────────────────────────────────────────── */
+  /* ── Supabase 실시간 연동 ─────────────────────────────────────────────────── */
+  try {
+    const { createClient } = await import('@/lib/supabase/client');
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('players')
+      .select(`
+        id, name, number, position,
+        batting_stats(season, at_bats, hits, doubles, triples, home_runs, rbi, walks, strikeouts, runs),
+        pitching_stats(season, innings, hits, runs, earned_runs, walks, strikeouts)
+      `)
+      .order('number');
+    if (!error && data && data.length > 0) return data as Player[];
+  } catch {
+    // Supabase 연결 실패 → Mock 데이터로 폴백
+  }
 
-  /* ── Mock 데이터 — 대시보드 전체 선수 동기화 ── */
+  /* ── Mock 데이터 — Supabase 미연결 시 폴백 ── */
   return [
     { id: 1,  name: '이호원',  number: 35, position: 'SS',
       batting_stats:  [{ season: 2025, at_bats: 14, hits: 9,  doubles: 5, triples: 1, home_runs: 1, rbi: 13, walks: 14, strikeouts: 1,  runs: 14 },
