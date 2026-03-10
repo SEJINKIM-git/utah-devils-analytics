@@ -65,21 +65,25 @@ interface CalcPitching extends PitchingStat {
 // ─── 데이터 페칭 (Supabase 실시간 연동 + Mock 폴백) ─────────────────────────────
 
 async function fetchPlayers(): Promise<Player[]> {
-  /* ── Supabase 실시간 연동 ─────────────────────────────────────────────────── */
+  /* ── Supabase 인라인 연동 (별도 client 파일 불필요) ── */
   try {
-    const { createClient } = await import('@/lib/supabase/client');
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('players')
-      .select(`
-        id, name, number, position,
-        batting_stats(season, at_bats, hits, doubles, triples, home_runs, rbi, walks, strikeouts, runs),
-        pitching_stats(season, innings, hits, runs, earned_runs, walks, strikeouts)
-      `)
-      .order('number');
-    if (!error && data && data.length > 0) return data as Player[];
+    const { createClient } = await import('@supabase/supabase-js') as typeof import('@supabase/supabase-js');
+    const url  = (process.env.NEXT_PUBLIC_SUPABASE_URL  ?? '') as string;
+    const key  = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '') as string;
+    if (url && key) {
+      const supabase = createClient(url, key);
+      const { data, error } = await supabase
+        .from('players')
+        .select(`
+          id, name, number, position,
+          batting_stats(season, at_bats, hits, doubles, triples, home_runs, rbi, walks, strikeouts, runs),
+          pitching_stats(season, innings, hits, runs, earned_runs, walks, strikeouts)
+        `)
+        .order('number');
+      if (!error && data && data.length > 0) return data as Player[];
+    }
   } catch {
-    // Supabase 연결 실패 → Mock 데이터로 폴백
+    // 연결 실패 → Mock 폴백
   }
 
   /* ── Mock 데이터 — Supabase 미연결 시 폴백 ── */

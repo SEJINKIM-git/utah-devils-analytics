@@ -69,3 +69,134 @@ a:hover { opacity: 0.85; }
 @media print {
   body { background: white !important; color: black !important; }
 }
+
+/* =====================================================================
+   THEME PATCH — 이 내용을 globals.css 맨 아래에 추가하세요
+   ===================================================================== */
+
+/* ── CSS 변수 정의 ── */
+:root,
+[data-theme="dark"] {
+  --bg:           #0E1428;
+  --bg-secondary: #141B3D;
+  --card-bg:      #1a2147;
+  --card-hover:   #1e2850;
+  --card-item:    #1e2850;
+  --border:       rgba(255, 255, 255, 0.08);
+  --text:         #E2E8F0;
+  --text-muted:   #94a3b8;
+  --text-dim:     #64748b;
+  --accent:       #DC2626;
+  --success:      #22c55e;
+  --warning:      #eab308;
+  --shadow:       0 4px 24px rgba(0, 0, 0, 0.4);
+  --input-bg:     rgba(255, 255, 255, 0.05);
+  --nav-bg:       #141B3D;
+  --table-stripe: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="light"] {
+  --bg:           #ffffff;
+  --bg-secondary: #f1f5f9;
+  --card-bg:      #f8fafc;
+  --card-hover:   #f1f5f9;
+  --card-item:    #ffffff;
+  --border:       rgba(0, 0, 0, 0.10);
+  --text:         #1e293b;
+  --text-muted:   #475569;
+  --text-dim:     #94a3b8;
+  --accent:       #DC2626;
+  --success:      #16a34a;
+  --warning:      #ca8a04;
+  --shadow:       0 4px 24px rgba(0, 0, 0, 0.10);
+  --input-bg:     rgba(0, 0, 0, 0.04);
+  --nav-bg:       #1e40af;
+  --table-stripe: rgba(0, 0, 0, 0.025);
+}
+
+/* ── 라이트 모드: 하드코딩된 네이비 배경을 흰색으로 강제 전환 ── */
+/* 페이지 최상위 */
+[data-theme="light"] html,
+[data-theme="light"] body {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+}
+
+/* 네이비 배경 클래스들 강제 오버라이드 */
+[data-theme="light"] .bg-\[\#0E1428\],
+[data-theme="light"] .bg-\[\#141B3D\],
+[data-theme="light"] .bg-\[\#1a2147\],
+[data-theme="light"] .bg-\[\#0e1428\],
+[data-theme="light"] [class*="bg-navy"],
+[data-theme="light"] [class*="bg-dark"] {
+  background-color: #ffffff !important;
+}
+
+/* min-h-screen 등 페이지 컨테이너 */
+[data-theme="light"] [style*="background: #0E1428"],
+[data-theme="light"] [style*="background: #141B3D"],
+[data-theme="light"] [style*="background: #1a2147"],
+[data-theme="light"] [style*="background:#0E1428"],
+[data-theme="light"] [style*="background:#141B3D"],
+[data-theme="light"] [style*="background:#1a2147"],
+[data-theme="light"] [style*="background-color: #0E1428"],
+[data-theme="light"] [style*="background-color: #141B3D"],
+[data-theme="light"] [style*="background-color: #1a2147"],
+[data-theme="light"] [style*="background-color:#0E1428"],
+[data-theme="light"] [style*="background-color:#141B3D"] {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+}
+
+/* 카드/패널 */
+[data-theme="light"] [style*="background: #1a2147"],
+[data-theme="light"] [style*="background: #1e2850"],
+[data-theme="light"] [style*="background: #141b3d"],
+[data-theme="light"] [style*="background:#1a2147"],
+[data-theme="light"] [style*="background:#1e2850"] {
+  background-color: #f8fafc !important;
+  background: #f8fafc !important;
+}
+
+/* 텍스트: 밝은 색 → 어두운 색 */
+[data-theme="light"] [style*="color: #E2E8F0"],
+[data-theme="light"] [style*="color: #e2e8f0"],
+[data-theme="light"] [style*="color:#E2E8F0"],
+[data-theme="light"] [style*="color:#e2e8f0"] {
+  color: #1e293b !important;
+}
+
+[data-theme="light"] [style*="color: #94a3b8"],
+[data-theme="light"] [style*="color:#94a3b8"] {
+  color: #475569 !important;
+}
+
+[data-theme="light"] [style*="color: #64748b"],
+[data-theme="light"] [style*="color:#64748b"] {
+  color: #94a3b8 !important;
+}
+
+/* 테이블 행 */
+[data-theme="light"] tr:hover {
+  background-color: #f1f5f9 !important;
+}
+
+/* 네비게이션 */
+[data-theme="light"] nav {
+  background-color: #1e40af !important;
+  border-bottom-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 입력창 */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* 보더 */
+[data-theme="light"] [style*="border"] {
+  border-color: rgba(0, 0, 0, 0.10) !important;
+}
