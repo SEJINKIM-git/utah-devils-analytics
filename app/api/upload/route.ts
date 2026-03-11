@@ -11,6 +11,26 @@ const supabase = createClient(
 
 const TARGET_SEASON = "2026";
 
+// ── 업로드 기록 저장
+async function saveUploadRecord(
+  filename: string,
+  players: { number: number; name: string }[],
+  addedCount: number,
+  updatedCount: number,
+  source: "file" | "manual"
+) {
+  await supabase.from("roster_uploads").insert({
+    filename,
+    player_count: players.length,
+    added_count: addedCount,
+    updated_count: updatedCount,
+    source,
+    players_snapshot: JSON.stringify(players),
+    uploaded_at: new Date().toISOString(),
+  });
+}
+
+
 type RosterPlayer = { number: number; name: string; position?: string; is_pitcher?: boolean };
 type ConflictPlayer = RosterPlayer & { existingId: string; existingName: string; existingNumber: number };
 
@@ -154,6 +174,7 @@ export async function POST(request: NextRequest) {
       }
 
       const r = await initializeRosterSeason(players, overwrite);
+      await saveUploadRecord("직접 입력", players, r.players, r.updated, "manual");
       const skipped = r.skipped_batting > 0 ? ` (기존 기록 ${r.skipped_batting}건 유지)` : "";
       return NextResponse.json({
         success: true,
@@ -195,6 +216,7 @@ export async function POST(request: NextRequest) {
         : rosterPlayers;
 
       const r = await initializeRosterSeason(toProcess, overwrite);
+      await saveUploadRecord(file.name, toProcess, r.players, r.updated, "file");
       const skipped = r.skipped_batting > 0 ? ` (기존 기록 ${r.skipped_batting}건 유지)` : "";
       const skippedCount = skipConflicts && conflicts.length > 0 ? ` · 중복 ${conflicts.length}명 제외` : "";
       return NextResponse.json({
