@@ -200,3 +200,36 @@ a:hover { opacity: 0.85; }
 [data-theme="light"] [style*="border"] {
   border-color: rgba(0, 0, 0, 0.10) !important;
 }
+
+/* ── 라이트 모드 범용 텍스트 강제: 보이지 않는 밝은 글자 전부 덮어씌움 ── */
+/* inline style로 밝은 색이 박혀있는 텍스트 노드 강제 오버라이드 */
+[data-theme="light"] td,
+[data-theme="light"] th,
+[data-theme="light"] p,
+[data-theme="light"] h1,
+[data-theme="light"] h2,
+[data-theme="light"] h3,
+[data-theme="light"] h4,
+[data-theme="light"] h5,
+[data-theme="light"] h6,
+[data-theme="light"] li,
+[data-theme="light"] span:not([style*="background"]):not([style*="#22c55e"]):not([style*="#4ade80"]):not([style*="#60a5fa"]):not([style*="#eab308"]):not([style*="#f97316"]):not([style*="#a78bfa"]):not([style*="#DC2626"]):not([style*="#FF3B3B"]):not([style*="#ef4444"]):not([style*="color: #"]):not([style*="color:#"]),
+[data-theme="light"] div:not([style*="background"]) {
+  color: var(--text);
+}
+
+/* 컬러 하이라이트(초록, 파랑, 빨강 등 통계 강조색)는 유지 */
+[data-theme="light"] [style*="color: #22c55e"],
+[data-theme="light"] [style*="color:#22c55e"],
+[data-theme="light"] [style*="color: #4ade80"],
+[data-theme="light"] [style*="color: #60a5fa"],
+[data-theme="light"] [style*="color: #eab308"],
+[data-theme="light"] [style*="color: #f97316"],
+[data-theme="light"] [style*="color: #a78bfa"],
+[data-theme="light"] [style*="color: #DC2626"],
+[data-theme="light"] [style*="color: #FF3B3B"],
+[data-theme="light"] [style*="color: #ef4444"],
+[data-theme="light"] [style*="color: #fb923c"] {
+  /* 통계 강조 색상은 그대로 유지 */
+  color: inherit;
+}
