@@ -5,20 +5,21 @@ import Image from "next/image";
 import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import LangToggle from "@/app/components/LangToggle";
+import NewPlayerButton from "@/app/components/NewPlayerButton";
 import { t, Lang } from "@/lib/translations";
 
-/* ── 팀 컬러 ── */
+/* ── 팀 컬러 — CSS 변수 우선, 라이트/다크 모두 대응 ── */
 const C = {
-  navyDark: "#0E1428",
-  navy: "#141B3D",
+  navyDark: "var(--bg)",
+  navy: "var(--bg-secondary)",
   red: "#DC2626",
   redDark: "#991B1B",
   redLight: "#FF3B3B",
-  white: "#E2E8F0",
-  whiteDim: "rgba(255,255,255,0.4)",
-  border: "rgba(220,38,38,0.08)",
-  borderSubtle: "rgba(255,255,255,0.06)",
-  cardBg: "rgba(255,255,255,0.03)",
+  white: "var(--text)",
+  whiteDim: "var(--text-muted)",
+  border: "var(--border)",
+  borderSubtle: "var(--border)",
+  cardBg: "var(--card-bg)",
 };
 
 export default async function Dashboard({
@@ -44,6 +45,7 @@ export default async function Dashboard({
   allBatting?.forEach((b) => { if (b.season) seasonSet.add(b.season); });
   allPitching?.forEach((p) => { if (p.season) seasonSet.add(p.season); });
   if (!seasonSet.has("2025")) seasonSet.add("2025");
+  if (!seasonSet.has("2026")) seasonSet.add("2026"); // 2026 시즌 항상 표시
   const sorted = Array.from(seasonSet).filter((s) => s !== "Career").sort();
   if (seasonSet.has("Career")) sorted.push("Career");
 
@@ -126,6 +128,7 @@ export default async function Dashboard({
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <NewPlayerButton lang={lang} />
               <Link href="/compare" style={{ padding: "8px 16px", borderRadius: 8, background: `rgba(220,38,38,0.12)`, color: C.redLight, fontSize: 13, fontWeight: 600, textDecoration: "none" }}>{lang === "ko" ? "⚔️ 선수 비교" : "⚔️ Compare"}</Link>
               <Link href="/team-analysis" style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(34,197,94,0.12)", color: "#4ade80", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>{lang === "ko" ? "🏟️ 팀 분석" : "🏟️ Team"}</Link>
               <Link href="/game-review" style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(249,115,22,0.12)", color: "#fb923c", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>{lang === "ko" ? "📋 경기 리뷰" : "📋 Review"}</Link>
