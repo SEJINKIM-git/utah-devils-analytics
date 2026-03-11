@@ -128,7 +128,7 @@ export default async function Dashboard({
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <Link
-                href="/upload"
+                href="/import"
                 style={{
                   padding: "8px 16px",
                   borderRadius: 8,
