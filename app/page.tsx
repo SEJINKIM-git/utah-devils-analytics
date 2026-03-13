@@ -36,7 +36,15 @@ export default async function Dashboard({
   const cookieStore = await cookies();
   const lang = (cookieStore.get("lang")?.value || "ko") as Lang;
 
-  const { data: players } = await supabase.from("players").select("*").order("number");
+  const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
+  // 등번호 기준 중복 제거 (같은 선수가 다른 id로 여러 번 등록된 경우 방어)
+  const playersMap = new Map<number, any>();
+  for (const p of rawPlayers || []) {
+    if (!playersMap.has(p.number) || p.id > playersMap.get(p.number).id) {
+      playersMap.set(p.number, p);
+    }
+  }
+  const players = Array.from(playersMap.values());
   const { data: allBatting } = await supabase.from("batting_stats").select("*");
   const { data: allPitching } = await supabase.from("pitching_stats").select("*");
 
