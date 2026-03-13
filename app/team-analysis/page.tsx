@@ -1,8 +1,9 @@
 // app/team-analysis/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 function getCookie(name: string) {
   if (typeof document === "undefined") return null;
@@ -11,12 +12,40 @@ function getCookie(name: string) {
 }
 
 export default function TeamAnalysisPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<any>(null);
   const [error, setError] = useState("");
-  const [season, setSeason] = useState("2025");
+  const [season, setSeason] = useState(searchParams.get("season") || "2025");
+  const [seasons, setSeasons] = useState<string[]>(["2025"]);
 
   const lang = getCookie("lang") === "en" ? "en" : "ko";
+
+  useEffect(() => {
+    const requestedSeason = searchParams.get("season");
+    fetch("/api/seasons", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        const available = data?.seasons?.length ? data.seasons : ["2025"];
+        setSeasons(available);
+        const nextSeason = requestedSeason && available.includes(requestedSeason)
+          ? requestedSeason
+          : (data?.preferredSeason || data?.latestSeason || available[0] || "2025");
+        setSeason(nextSeason);
+      })
+      .catch(() => {
+        if (requestedSeason) setSeason(requestedSeason);
+      });
+  }, [searchParams]);
+
+  const changeSeason = (nextSeason: string) => {
+    setSeason(nextSeason);
+    setReport(null);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("season", nextSeason);
+    router.replace(`/team-analysis?${params.toString()}`);
+  };
 
   const analyze = async () => {
     setLoading(true);
@@ -96,7 +125,7 @@ export default function TeamAnalysisPage() {
       >
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <Link
-            href="/"
+            href={`/?season=${season}`}
             style={{
               color: "rgba(255,255,255,0.4)",
               textDecoration: "none",
@@ -119,13 +148,10 @@ export default function TeamAnalysisPage() {
             </div>
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {["2022", "2023", "2024", "2025"].map((s) => (
+              {seasons.map((s) => (
                 <button
                   key={s}
-                  onClick={() => {
-                    setSeason(s);
-                    setReport(null);
-                  }}
+                  onClick={() => changeSeason(s)}
                   style={{
                     padding: "6px 14px",
                     borderRadius: 8,

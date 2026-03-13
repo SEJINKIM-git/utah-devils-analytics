@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 
 function getCookie(name: string) {
   if (typeof document === "undefined") return null;
@@ -10,10 +12,13 @@ function getCookie(name: string) {
 }
 
 export default function GameReviewPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [lang, setLang] = useState<"ko" | "en">("ko");
   const [file, setFile] = useState<File | null>(null);
   const [opponent, setOpponent] = useState("");
   const [gameDate, setGameDate] = useState("");
+  const [season, setSeason] = useState(searchParams.get("season") || getCookie(ACTIVE_SEASON_COOKIE) || "2025");
   const [loading, setLoading] = useState(false);
   const [review, setReview] = useState<any>(null);
   const [battingData, setBattingData] = useState<any[]>([]);
@@ -41,12 +46,20 @@ export default function GameReviewPage() {
 
   useEffect(() => {
     setLang(getCookie("lang") === "en" ? "en" : "ko");
-    fetchPastGames();
   }, []);
 
-  const fetchPastGames = async () => {
+  useEffect(() => {
+    const nextSeason = searchParams.get("season") || getCookie(ACTIVE_SEASON_COOKIE) || "2025";
+    setSeason(nextSeason);
+  }, [searchParams]);
+
+  useEffect(() => {
+    fetchPastGames(season);
+  }, [season]);
+
+  const fetchPastGames = async (targetSeason: string) => {
     try {
-      const res = await fetch("/api/game-review");
+      const res = await fetch(`/api/game-review?season=${encodeURIComponent(targetSeason)}`, { cache: "no-store" });
       const data = await res.json();
       setPastGames(data.records || []);
     } catch (e) { console.error(e); }
@@ -62,6 +75,7 @@ export default function GameReviewPage() {
       fd.append("lang", lang);
       fd.append("opponent", opponent);
       fd.append("gameDate", gameDate);
+      fd.append("season", season);
 
       const res = await fetch("/api/game-review", { method: "POST", body: fd });
       const data = await res.json();
@@ -70,7 +84,12 @@ export default function GameReviewPage() {
       setBattingData(data.battingData || []);
       setPitchingData(data.pitchingData || []);
       setViewingPast(false);
-      await fetchPastGames();
+      const nextSeason = data.season || season;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("season", nextSeason);
+      router.replace(`/game-review?${params.toString()}`);
+      setSeason(nextSeason);
+      await fetchPastGames(nextSeason);
     } catch {
       setError(lang === "ko" ? "네트워크 오류" : "Network error");
     } finally {
@@ -84,6 +103,12 @@ export default function GameReviewPage() {
     setPitchingData(game.pitching_data || []);
     setOpponent(game.opponent || "");
     setGameDate(game.game_date || "");
+    if (game.season) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("season", game.season);
+      router.replace(`/game-review?${params.toString()}`);
+      setSeason(game.season);
+    }
     setViewingPast(true);
     setViewingGameId(game.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -95,7 +120,7 @@ export default function GameReviewPage() {
     if (!confirm(msg)) return;
     try {
       await fetch(`/api/game-review?id=${gameId}`, { method: "DELETE" });
-      await fetchPastGames();
+      await fetchPastGames(season);
       if (viewingGameId === gameId) {
         setReview(null);
         setViewingPast(false);
@@ -119,9 +144,12 @@ export default function GameReviewPage() {
     <div style={{ minHeight: "100vh", background: "#0a0e17", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
       <div style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)", padding: "28px 40px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <Link href="/" style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{lang === "ko" ? "← 대시보드로 돌아가기" : "← Back to Dashboard"}</Link>
+          <Link href={`/?season=${season}`} style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{lang === "ko" ? "← 대시보드로 돌아가기" : "← Back to Dashboard"}</Link>
           <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>📋 {lang === "ko" ? "경기 기록 AI 리뷰" : "Game Record AI Review"}</h1>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "6px 0 0 0" }}>{lang === "ko" ? "경기 기록 엑셀을 업로드하면 AI가 수치 기반 분석과 전략적 시사점을 제공합니다" : "Upload game record Excel for AI-powered statistical analysis and strategic insights"}</p>
+          <div style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 999, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.22)", fontSize: 12, color: "#93c5fd", fontWeight: 700 }}>
+            🔗 {lang === "ko" ? "현재 연결 시즌" : "Connected season"}: {season}
+          </div>
         </div>
       </div>
 

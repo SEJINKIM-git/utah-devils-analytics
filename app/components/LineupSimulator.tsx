@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 
 const POSITIONS = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"];
 
@@ -30,10 +30,12 @@ export default function LineupSimulator({
   players,
   savedLineups,
   lang,
+  season,
 }: {
   players: Player[];
   savedLineups: SavedLineup[];
   lang: string;
+  season: string;
 }) {
   const [lineup, setLineup] = useState<LineupSlot[]>(
     Array.from({ length: 9 }, () => ({ player: null, position: "" }))
@@ -46,6 +48,14 @@ export default function LineupSimulator({
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [showSaved, setShowSaved] = useState(false);
   const dragRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setSaved(savedLineups);
+    setLineup(Array.from({ length: 9 }, () => ({ player: null, position: "" })));
+    setLineupName("");
+    setSearchQuery("");
+    setShowSaved(false);
+  }, [savedLineups, season]);
 
   const usedPlayerIds = new Set(
     lineup.filter((s) => s.player).map((s) => s.player!.id)
@@ -158,7 +168,7 @@ export default function LineupSimulator({
         body: JSON.stringify({
           name: lineupName,
           batting_order: battingOrder,
-          season: "2025",
+          season,
         }),
       });
       if (res.ok) {

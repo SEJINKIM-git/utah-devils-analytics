@@ -14,6 +14,8 @@
  *  6. map/filter 콜백 파라미터 타입 명시
  */
 
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────────
@@ -50,6 +52,13 @@ interface Player {
   pitching_stats: PitchingStat[];
 }
 
+interface RawPlayer {
+  id: number;
+  name: string;
+  number: number;
+  position?: string | null;
+}
+
 interface CalcBatting extends BattingStat {
   avg: number;
   obp: number;
@@ -62,94 +71,102 @@ interface CalcPitching extends PitchingStat {
   whip: number | null;
 }
 
-// ─── 데이터 페칭 (Supabase 실시간 연동 + Mock 폴백) ─────────────────────────────
+// ─── 데이터 페칭 (실제 업로드 데이터 기준) ────────────────────────────────────
 
 async function fetchPlayers(): Promise<Player[]> {
-  /* ── Supabase 인라인 연동 (별도 client 파일 불필요) ── */
-  try {
-    const { createClient } = await import('@supabase/supabase-js') as typeof import('@supabase/supabase-js');
-    const url  = (process.env.NEXT_PUBLIC_SUPABASE_URL  ?? '') as string;
-    const key  = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '') as string;
-    if (url && key) {
-      const supabase = createClient(url, key);
-      const { data, error } = await supabase
-        .from('players')
-        .select(`
-          id, name, number, position,
-          batting_stats(season, at_bats, hits, doubles, triples, home_runs, rbi, walks, strikeouts, runs),
-          pitching_stats(season, innings, hits, runs, earned_runs, walks, strikeouts)
-        `)
-        .order('number');
-      if (!error && data && data.length > 0) return data as Player[];
-    }
-  } catch {
-    // 연결 실패 → Mock 폴백
+  const res = await fetch('/api/compare-data', { cache: 'no-store' });
+  if (!res.ok) throw new Error('비교 데이터 로드 실패');
+
+  const { players: rawPlayers, batting, pitching }: {
+    players: RawPlayer[];
+    batting: any[];
+    pitching: any[];
+  } = await res.json();
+
+  const uniquePlayers: RawPlayer[] = Array.from(
+    (rawPlayers || []).reduce((map: Map<number, RawPlayer>, player: RawPlayer) => {
+      const existing = map.get(player.number);
+      if (!existing || player.id > existing.id) map.set(player.number, player);
+      return map;
+    }, new Map<number, RawPlayer>()).values()
+  );
+
+  const playerIdToRepresentativeId = new Map<number, number>();
+  for (const player of rawPlayers || []) {
+    const representative = uniquePlayers.find((entry) => entry.number === player.number);
+    if (representative) playerIdToRepresentativeId.set(player.id, representative.id);
   }
 
-  /* ── Mock 데이터 — Supabase 미연결 시 폴백 ── */
-  return [
-    { id: 1,  name: '이호원',  number: 35, position: 'SS',
-      batting_stats:  [{ season: 2025, at_bats: 14, hits: 9,  doubles: 5, triples: 1, home_runs: 1, rbi: 13, walks: 14, strikeouts: 1,  runs: 14 },
-                       { season: 2024, at_bats: 40, hits: 14, doubles: 3, triples: 0, home_runs: 1, rbi: 9,  walks: 6,  strikeouts: 8,  runs: 11 }],
-      pitching_stats: [{ season: 2025, innings: 19, hits: 29, runs: 12, earned_runs: 12, walks: 15, strikeouts: 30 }] },
-    { id: 2,  name: '박지민',  number: 56, position: 'OF',
-      batting_stats:  [{ season: 2025, at_bats: 6,  hits: 4,  doubles: 2, triples: 0, home_runs: 0, rbi: 6,  walks: 5,  strikeouts: 2,  runs: 3  }],
-      pitching_stats: [] },
-    { id: 3,  name: '박상언',  number: 23, position: 'P',
-      batting_stats:  [{ season: 2025, at_bats: 14, hits: 7,  doubles: 1, triples: 0, home_runs: 0, rbi: 7,  walks: 7,  strikeouts: 3,  runs: 5  }],
-      pitching_stats: [{ season: 2025, innings: 6,  hits: 7,  runs: 8,  earned_runs: 8,  walks: 16, strikeouts: 7  }] },
-    { id: 4,  name: '조경민',  number: 14, position: '3B',
-      batting_stats:  [{ season: 2025, at_bats: 15, hits: 3,  doubles: 0, triples: 1, home_runs: 1, rbi: 6,  walks: 13, strikeouts: 10, runs: 10 }],
-      pitching_stats: [] },
-    { id: 5,  name: '한동헌',  number: 8,  position: 'IF',
-      batting_stats:  [{ season: 2025, at_bats: 4,  hits: 2,  doubles: 0, triples: 0, home_runs: 0, rbi: 3,  walks: 1,  strikeouts: 1,  runs: 0  }],
-      pitching_stats: [{ season: 2025, innings: 1,  hits: 4,  runs: 4,  earned_runs: 4,  walks: 4,  strikeouts: 1  }] },
-    { id: 6,  name: '이상민',  number: 66, position: 'OF',
-      batting_stats:  [{ season: 2025, at_bats: 4,  hits: 2,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 2,  strikeouts: 3,  runs: 4  }],
-      pitching_stats: [{ season: 2025, innings: 4,  hits: 7,  runs: 4,  earned_runs: 4,  walks: 5,  strikeouts: 4  }] },
-    { id: 7,  name: '이승운',  number: 38, position: 'IF',
-      batting_stats:  [{ season: 2025, at_bats: 3,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 1,  runs: 0  }],
-      pitching_stats: [] },
-    { id: 8,  name: '김태경',  number: 11, position: 'P',
-      batting_stats:  [{ season: 2025, at_bats: 8,  hits: 3,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 2,  strikeouts: 4,  runs: 6  }],
-      pitching_stats: [{ season: 2025, innings: 2,  hits: 2,  runs: 2,  earned_runs: 2,  walks: 5,  strikeouts: 3  }] },
-    { id: 9,  name: '임희찬',  number: 13, position: 'C',
-      batting_stats:  [{ season: 2025, at_bats: 10, hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 11, strikeouts: 8,  runs: 6  }],
-      pitching_stats: [] },
-    { id: 10, name: '한형준',  number: 9,  position: '2B',
-      batting_stats:  [{ season: 2025, at_bats: 7,  hits: 2,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 1,  strikeouts: 3,  runs: 1  }],
-      pitching_stats: [] },
-    { id: 11, name: '황서현',  number: 82, position: 'CF',
-      batting_stats:  [{ season: 2025, at_bats: 24, hits: 5,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 7,  strikeouts: 7,  runs: 12 }],
-      pitching_stats: [{ season: 2025, innings: 10, hits: 13, runs: 9,  earned_runs: 9,  walks: 17, strikeouts: 15 }] },
-    { id: 12, name: '오스틴',  number: 19, position: 'IF',
-      batting_stats:  [{ season: 2025, at_bats: 2,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 2,  runs: 0  }],
-      pitching_stats: [] },
-    { id: 13, name: '소이어',  number: 1,  position: 'P',
-      batting_stats:  [{ season: 2025, at_bats: 8,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 4,  strikeouts: 6,  runs: 4  }],
-      pitching_stats: [{ season: 2025, innings: 3,  hits: 4,  runs: 3,  earned_runs: 3,  walks: 5,  strikeouts: 4  }] },
-    { id: 14, name: '이지성',  number: 15, position: 'IF',
-      batting_stats:  [{ season: 2025, at_bats: 8,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 4,  strikeouts: 7,  runs: 1  }],
-      pitching_stats: [] },
-    { id: 15, name: '강배현',  number: 25, position: 'IF',
-      batting_stats:  [{ season: 2025, at_bats: 2,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 2,  runs: 2  }],
-      pitching_stats: [] },
-    { id: 16, name: '김민수',  number: 28, position: 'IF',
-      batting_stats:  [{ season: 2025, at_bats: 2,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 2,  strikeouts: 2,  runs: 0  }],
-      pitching_stats: [] },
-    { id: 17, name: '권혁준',  number: 46, position: 'OF',
-      batting_stats:  [{ season: 2025, at_bats: 5,  hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 3,  walks: 0,  strikeouts: 1,  runs: 0  }],
-      pitching_stats: [] },
-    { id: 18, name: '송정안',  number: 62, position: '1B',
-      batting_stats:  [{ season: 2025, at_bats: 17, hits: 1,  doubles: 0, triples: 0, home_runs: 0, rbi: 2,  walks: 5,  strikeouts: 11, runs: 6  }],
-      pitching_stats: [] },
-    { id: 19, name: '헌담',    number: 5,  position: 'OF',
-      batting_stats:  [{ season: 2025, at_bats: 5,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 1,  strikeouts: 4,  runs: 0  }],
-      pitching_stats: [] },
-    { id: 20, name: '유병문',  number: 10, position: 'IF',
-      batting_stats:  [{ season: 2025, at_bats: 1,  hits: 0,  doubles: 0, triples: 0, home_runs: 0, rbi: 0,  walks: 0,  strikeouts: 1,  runs: 0  }],
-      pitching_stats: [] },
-  ];
+  const battingByPlayerSeason = new Map<string, BattingStat>();
+  for (const row of batting || []) {
+    const playerId = playerIdToRepresentativeId.get(row.player_id) ?? row.player_id;
+    const season = Number(row.season || 2025);
+    const key = `${playerId}:${season}`;
+    const current = battingByPlayerSeason.get(key) || {
+      season,
+      at_bats: 0,
+      hits: 0,
+      doubles: 0,
+      triples: 0,
+      home_runs: 0,
+      rbi: 0,
+      walks: 0,
+      strikeouts: 0,
+      runs: 0,
+    };
+    battingByPlayerSeason.set(key, {
+      season,
+      at_bats: current.at_bats + (row.ab || 0),
+      hits: current.hits + (row.hits || 0),
+      doubles: current.doubles + (row.doubles || 0),
+      triples: current.triples + (row.triples || 0),
+      home_runs: current.home_runs + (row.hr || 0),
+      rbi: current.rbi + (row.rbi || 0),
+      walks: current.walks + (row.bb || 0),
+      strikeouts: current.strikeouts + (row.so || 0),
+      runs: current.runs + (row.runs || 0),
+    });
+  }
+
+  const pitchingByPlayerSeason = new Map<string, PitchingStat>();
+  for (const row of pitching || []) {
+    const playerId = playerIdToRepresentativeId.get(row.player_id) ?? row.player_id;
+    const season = Number(row.season || 2025);
+    const key = `${playerId}:${season}`;
+    const current = pitchingByPlayerSeason.get(key) || {
+      season,
+      innings: 0,
+      hits: 0,
+      runs: 0,
+      earned_runs: 0,
+      walks: 0,
+      strikeouts: 0,
+    };
+    pitchingByPlayerSeason.set(key, {
+      season,
+      innings: current.innings + (parseFloat(String(row.ip || 0)) || 0),
+      hits: current.hits + (row.ha || 0),
+      runs: current.runs + (row.runs_allowed || 0),
+      earned_runs: current.earned_runs + (row.er || 0),
+      walks: current.walks + (row.bb || 0),
+      strikeouts: current.strikeouts + (row.so || 0),
+    });
+  }
+
+  return uniquePlayers.map((player: any) => ({
+    id: player.id,
+    name: player.name,
+    number: player.number,
+    position: player.position || '-',
+    batting_stats: Array.from(battingByPlayerSeason.entries())
+      .filter(([key]) => key.startsWith(`${player.id}:`))
+      .map(([, value]) => value)
+      .sort((a, b) => b.season - a.season),
+    pitching_stats: Array.from(pitchingByPlayerSeason.entries())
+      .filter(([key]) => key.startsWith(`${player.id}:`))
+      .map(([, value]) => value)
+      .sort((a, b) => b.season - a.season),
+  }));
 }
 
 // ─── 통계 계산 ────────────────────────────────────────────────────────────────
@@ -440,20 +457,42 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
 // ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 
 export default function ComparePage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   // FIX: useState<Player[]>([]) — 타입 명시로 'never[]' 추론 방지
   const [players, setPlayers] = useState<Player[]>([]);
+  const [availableSeasons, setAvailableSeasons] = useState<number[]>([]);
   const [p1, setP1]           = useState<Player | null>(null);
   const [p2, setP2]           = useState<Player | null>(null);
-  const [season, setSeason]   = useState<number>(new Date().getFullYear());
+  const [season, setSeason]   = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
+  const requestedSeason = Number(searchParams.get('season') || 0);
 
   useEffect(() => {
-    fetchPlayers()
-      .then((data) => setPlayers(data))
+    Promise.all([
+      fetchPlayers(),
+      fetch("/api/seasons", { cache: "no-store" }).then((res) => res.ok ? res.json() : null).catch(() => null),
+    ])
+      .then(([data, seasonMeta]) => {
+        setPlayers(data);
+        const seasons = [...new Set(data.flatMap((player) => [
+          ...player.batting_stats.map((stat) => stat.season),
+          ...player.pitching_stats.map((stat) => stat.season),
+        ]))].sort((a, b) => b - a);
+        setAvailableSeasons(seasons);
+        const preferredSeason = Number(seasonMeta?.preferredSeason || seasonMeta?.latestSeason || 0);
+        setSeason(
+          requestedSeason && seasons.includes(requestedSeason)
+            ? requestedSeason
+            : preferredSeason && seasons.includes(preferredSeason)
+              ? preferredSeason
+              : seasons[0] || preferredSeason || new Date().getFullYear()
+        );
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [requestedSeason]);
 
   const b1  = p1 ? calcBatting(p1.batting_stats,   season) : null;
   const b2  = p2 ? calcBatting(p2.batting_stats,   season) : null;
@@ -482,7 +521,7 @@ export default function ComparePage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {/* ← 대시보드 버튼 */}
-            <a href="/" style={{
+            <Link href={season ? `/?season=${season}` : '/'} style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '7px 14px', borderRadius: 10,
               background: 'var(--card-bg)', border: '1px solid var(--border)',
@@ -490,7 +529,7 @@ export default function ComparePage() {
               textDecoration: 'none',
             }}>
               ← 대시보드
-            </a>
+            </Link>
             <div>
               <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', margin: 0 }}>⚖️ 선수 비교</h1>
               <p style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 13 }}>이름 · 등번호 · 포지션으로 검색하거나 버튼으로 빠르게 선택하세요.</p>
@@ -498,10 +537,14 @@ export default function ComparePage() {
           </div>
           <select
             value={season}
-            onChange={(e) => { setSeason(Number(e.target.value)); }}
+            onChange={(e) => {
+              const nextSeason = Number(e.target.value);
+              setSeason(nextSeason);
+              router.replace(`/compare?season=${nextSeason}`);
+            }}
             style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 14px', color: 'var(--text)', fontSize: 14, cursor: 'pointer', outline: 'none' }}
           >
-            {[...new Set(players.flatMap(p => [...p.batting_stats.map(b=>b.season), ...p.pitching_stats.map(p=>p.season)])).values()].sort((a,b)=>b-a).map((y) => <option key={y} value={y}>{y} 시즌</option>)}
+            {availableSeasons.map((y) => <option key={y} value={y}>{y} 시즌</option>)}
           </select>
         </div>
 

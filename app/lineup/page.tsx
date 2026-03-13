@@ -4,26 +4,47 @@ import Link from "next/link";
 import Image from "next/image";
 import LangToggle from "@/app/components/LangToggle";
 import LineupSimulator from "@/app/components/LineupSimulator";
+import SeasonFilter from "@/app/components/SeasonFilter";
+import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason, sortSeasons } from "@/lib/season";
 import { Lang } from "@/lib/translations";
 
-export default async function LineupPage() {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export default async function LineupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ season?: string }>;
+}) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""
   );
 
+  const params = await searchParams;
   const cookieStore = await cookies();
   const lang = (cookieStore.get("lang")?.value || "ko") as Lang;
+  const preferredSeason = cookieStore.get(ACTIVE_SEASON_COOKIE)?.value;
 
   const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const { data: allBattingRaw } = await supabase.from("batting_stats").select("season");
-  const seasons = [...new Set((allBattingRaw || []).map((b: any) => b.season).filter(Boolean))].sort().reverse();
-  const latestSeason = (seasons[0] as string) || "2026";
-  const { data: batting } = await supabase.from("batting_stats").select("*").eq("season", latestSeason);
+  const { data: allPitchingRaw } = await supabase.from("pitching_stats").select("season");
+  const sortedSeasons = sortSeasons([
+    ...(allBattingRaw || []).map((b: any) => b.season),
+    ...(allPitchingRaw || []).map((p: any) => p.season),
+    preferredSeason,
+  ]);
+  const seasons = sortedSeasons.length > 0 ? sortedSeasons : [preferredSeason || "2026"];
+  const selectedSeason = normalizeSelectedSeason(params.season, seasons, preferredSeason || "2026", preferredSeason);
+  const { data: batting } = await supabase.from("batting_stats").select("*").eq("season", selectedSeason);
 
   let lineups: any[] = [];
   try {
-    const { data } = await supabase.from("lineups").select("*").order("created_at", { ascending: false });
+    const { data } = await supabase
+      .from("lineups")
+      .select("*")
+      .eq("season", selectedSeason)
+      .order("created_at", { ascending: false });
     if (data) lineups = data;
   } catch (e) {}
 
@@ -74,27 +95,33 @@ export default async function LineupPage() {
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Link href="/" style={{ textDecoration: "none" }}>
+              <Link href={`/?season=${selectedSeason}`} style={{ textDecoration: "none" }}>
                 <Image src="/logos/cap-logo.png" alt="Utah Devils" width={42} height={42} style={{ borderRadius: 12 }} />
               </Link>
               <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
-                {lang === "ko" ? "라인업 시뮬레이터" : "Lineup Simulator"}
+                {lang === "ko" ? `라인업 시뮬레이터 · ${selectedSeason}` : `Lineup Simulator · ${selectedSeason}`}
               </h1>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <Link href="/" style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
+              <Link href={`/?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
                 {lang === "ko" ? "← 대시보드" : "← Dashboard"}
               </Link>
-              <Link href="/schedule" style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(34,197,94,0.12)", color: "#4ade80", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
+              <Link href={`/schedule?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(34,197,94,0.12)", color: "#4ade80", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
                 {lang === "ko" ? "📅 일정" : "📅 Schedule"}
+              </Link>
+              <Link href={`/team-analysis?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(59,130,246,0.12)", color: "#60a5fa", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
+                {lang === "ko" ? "🤖 팀 분석" : "🤖 Analysis"}
               </Link>
               <LangToggle lang={lang} />
             </div>
           </div>
+          <div style={{ marginTop: 14 }}>
+            <SeasonFilter seasons={seasons} basePath="/lineup" />
+          </div>
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
-        <LineupSimulator players={playersWithStats} savedLineups={lineups} lang={lang} />
+        <LineupSimulator players={playersWithStats} savedLineups={lineups} lang={lang} season={selectedSeason} />
       </div>
     </div>
   );

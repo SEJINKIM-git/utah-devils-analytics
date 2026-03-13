@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type ConflictPlayer = {
   existingId: string; existingName: string; existingNumber: number;
@@ -9,7 +10,7 @@ type ConflictPlayer = {
 type UploadResult = {
   success?: boolean; message?: string; error?: string;
   needsConfirm?: boolean; conflicts?: ConflictPlayer[]; total?: number;
-  details?: { games?: number; batting?: number; pitching?: number; players?: number; updated?: number };
+  details?: { games?: number; batting?: number; pitching?: number; players?: number; updated?: number; seasons?: string[] };
 };
 
 const FORMATS = [
@@ -22,7 +23,7 @@ const FORMATS = [
   {
     emoji: "⚾", title: "경기 기록 파일 (성적 업데이트)",
     color: "#60a5fa", bg: "rgba(59,130,246,0.08)", border: "rgba(59,130,246,0.2)",
-    desc: "경기 후 기록 업로드. 업로드하면 대시보드에 즉시 누적 반영됩니다.",
+    desc: "경기 후 기록 업로드. 같은 시즌은 이전 업로드와 무관하게 최신 파일 기준으로 통째로 다시 반영됩니다.",
     sheets: [
       { name: "경기 시트 (필수)", cols: "날짜 | 상대팀 | 시즌" },
       { name: "타자 시트", cols: "날짜 | 상대팀 | 시즌 | 배번 | 이름 | 포지션 | 타석 | 타수 | 득점 | 안타 | 2루타 | 3루타 | 홈런 | 타점 | 볼넷 | 사구 | 삼진 | 도루" },
@@ -34,18 +35,27 @@ const FORMATS = [
 const TIPS = [
   "1행은 반드시 헤더(컬럼명)여야 합니다. 제목 행이 있으면 인식하지 못합니다.",
   "경기 기록: '경기' 시트에 날짜·상대팀·시즌이 있어야 타자/투수 기록이 해당 경기에 연결됩니다.",
-  "같은 날짜·상대팀 경기는 중복 등록되지 않아 재업로드해도 안전합니다.",
-  "기록은 경기별로 누적 합산되어 대시보드에 표시됩니다.",
+  "같은 시즌 파일을 다시 올리면 기존 시즌 데이터는 지워지고 새 파일 내용으로 교체됩니다.",
+  "기록은 업로드된 최신 파일을 기준으로 시즌별 대시보드에 표시됩니다.",
   "시즌 컬럼 값이 '2026'이어야 2026 탭에 반영됩니다.",
 ];
 
 export default function UploadPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [conflicts, setConflicts] = useState<ConflictPlayer[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const currentSeason = searchParams.get("season");
+
+  const getPrimarySeason = (data: UploadResult | null) => {
+    const seasons = data?.details?.seasons || [];
+    if (seasons.length === 0) return currentSeason || "2025";
+    return [...seasons].filter(Boolean).sort((a, b) => b.localeCompare(a))[0];
+  };
 
   const handleFile = useCallback((f: File) => {
     setFile(f); setResult(null); setConflicts([]);
@@ -61,7 +71,17 @@ export default function UploadPage() {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data: UploadResult = await res.json();
       if (data.needsConfirm && data.conflicts) { setConflicts(data.conflicts); }
-      else { setResult(data); setConflicts([]); }
+      else {
+        setResult(data);
+        setConflicts([]);
+        if (data.success) {
+          const nextSeason = getPrimarySeason(data);
+          const params = new URLSearchParams(searchParams.toString());
+          params.set("season", nextSeason);
+          router.replace(`/upload?${params.toString()}`);
+          router.refresh();
+        }
+      }
     } catch { setResult({ error: "업로드 실패. 네트워크를 확인해주세요." }); }
     finally { setLoading(false); }
   };
@@ -74,24 +94,35 @@ export default function UploadPage() {
     fd.append(mode === "overwrite" ? "overwrite" : "skipConflicts", "true");
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
-      setResult(await res.json()); setConflicts([]);
+      const data: UploadResult = await res.json();
+      setResult(data);
+      setConflicts([]);
+      if (data.success) {
+        const nextSeason = getPrimarySeason(data);
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("season", nextSeason);
+        router.replace(`/upload?${params.toString()}`);
+        router.refresh();
+      }
     } catch { setResult({ error: "업로드 실패." }); }
     finally { setLoading(false); }
   };
+
+  const primarySeason = getPrimarySeason(result);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px" }}>
 
         {/* 헤더 */}
-        <Link href="/" style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20 }}>
+        <Link href={currentSeason ? `/?season=${currentSeason}` : "/"} style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20 }}>
           ← 대시보드로 돌아가기
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 36 }}>
           <div style={{ width: 54, height: 54, borderRadius: 16, background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>📤</div>
           <div>
             <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>선수 등록 / 기록 업로드</h1>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "4px 0 0" }}>모든 선수 등록·수정·기록 업데이트는 엑셀 파일로 진행합니다</p>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "4px 0 0" }}>파일을 다시 올리면 해당 시즌 대시보드는 항상 최신 업로드 기준으로 바뀝니다</p>
           </div>
         </div>
 
@@ -219,9 +250,21 @@ export default function UploadPage() {
               </div>
             )}
             {result.success && (
-              <div style={{ display: "flex", gap: 10 }}>
-                <Link href="/" style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+                <Link href={`/?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
                   📊 대시보드에서 확인
+                </Link>
+                <Link href={`/lineup?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.28)", color: "#facc15", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
+                  ⚾ 라인업 반영 보기
+                </Link>
+                <Link href={`/schedule?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.28)", color: "#60a5fa", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
+                  📅 일정 반영 보기
+                </Link>
+                <Link href={`/compare?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.28)", color: "#f87171", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
+                  ⚔️ 선수 비교 보기
+                </Link>
+                <Link href={`/team-analysis?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.28)", color: "#c4b5fd", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
+                  🤖 팀 분석 보기
                 </Link>
                 <button
                   onClick={() => { setFile(null); setResult(null); if (fileRef.current) fileRef.current.value = ""; }}

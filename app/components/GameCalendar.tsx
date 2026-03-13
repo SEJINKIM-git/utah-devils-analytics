@@ -39,9 +39,11 @@ const INITIAL_MONTH = 2; // 3월 (0-indexed)
 export default function GameCalendar({
   games: initialGames,
   lang,
+  season,
 }: {
   games: Game[];
   lang: string;
+  season: string;
 }) {
   const ko = lang === "ko";
 
@@ -72,6 +74,13 @@ export default function GameCalendar({
     setMonth(now.getMonth());
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setGames(initialGames);
+    setSelectedDate(null);
+    setShowForm(false);
+    setEditGame(null);
+  }, [initialGames]);
 
   // ✅ mounted 전에는 고정값 사용
   const today = mounted
@@ -190,7 +199,7 @@ export default function GameCalendar({
       score_us: form.score_us ? Number(form.score_us) : null,
       score_them: form.score_them ? Number(form.score_them) : null,
       notes: form.notes || null,
-      season: "2025",
+      season,
     };
 
     try {

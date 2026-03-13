@@ -1,6 +1,9 @@
 import { ThemeProvider } from '@/app/components/ThemeProvider';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import MobileNav from '@/app/components/MobileNav';
+import SeasonNavLinks from '@/app/components/SeasonNavLinks';
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import "./globals.css";
 
@@ -31,7 +34,10 @@ export const viewport: Viewport = {
   themeColor: "#141B3D",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const cookieStore = await cookies();
+  const lang = cookieStore.get("lang")?.value || "ko";
+
   return (
     <html lang="ko" suppressHydrationWarning>
       <head>
@@ -60,40 +66,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" style={{ fontWeight: 800, fontSize: 16, color: '#DC2626', textDecoration: 'none', letterSpacing: '-0.3px' }}>
                 ⚾ Utah Devils
               </Link>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[
-                  { href: '/',              label: '대시보드' },
-                  { href: '/compare',       label: '선수 비교' },
-                  { href: '/lineup',        label: '라인업' },
-                  { href: '/schedule',      label: '일정' },
-                  { href: '/team-analysis', label: 'AI 분석' },
-                  { href: '/game-review',   label: '경기 리뷰' },
-                ].map(({ href, label }) => (
-                  <Link key={href} href={href} style={{
-                    padding: '6px 12px',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: 'var(--text-muted)',
-                    textDecoration: 'none',
-                    transition: 'color 0.15s',
-                  }}>
-                    {label}
-                  </Link>
-                ))}
-                <Link href="/upload" style={{
-                  padding: '6px 14px',
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: '#60a5fa',
-                  textDecoration: 'none',
-                  background: 'rgba(59,130,246,0.14)',
-                  border: '1px solid rgba(59,130,246,0.28)',
-                }}>
-                  📤 업로드
-                </Link>
-              </div>
+              <SeasonNavLinks />
             </div>
 
             {/* 오른쪽: 다크/라이트 모드 토글 */}
@@ -102,6 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           {/* 페이지 콘텐츠 */}
           {children}
+          <MobileNav lang={lang} />
         </ThemeProvider>
       </body>
     </html>

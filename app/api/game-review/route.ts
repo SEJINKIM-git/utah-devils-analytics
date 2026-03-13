@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
+import { revalidatePath } from "next/cache";
 import { NextRequest } from "next/server";
 import * as XLSX from "xlsx";
 
@@ -12,6 +13,24 @@ const supabase = createClient(
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
+function inferSeason(gameDate: string, fallback = "2025") {
+  const match = gameDate.match(/\b(20\d{2})\b/);
+  return match ? match[1] : fallback;
+}
+
+async function saveGameRecord(record: Record<string, unknown>) {
+  const withSeason = await supabase.from("game_records").insert(record).select().single();
+  if (!withSeason.error) return withSeason;
+
+  if ("season" in record) {
+    const { season, ...withoutSeason } = record;
+    const fallbackInsert = await supabase.from("game_records").insert(withoutSeason).select().single();
+    if (!fallbackInsert.error) return fallbackInsert;
+  }
+
+  return withSeason;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -19,6 +38,7 @@ export async function POST(request: NextRequest) {
     const lang = (formData.get("lang") as string) || "ko";
     const opponent = (formData.get("opponent") as string) || "";
     const gameDate = (formData.get("gameDate") as string) || "";
+    const season = (formData.get("season") as string) || inferSeason(gameDate);
 
     if (!file) return Response.json({ error: "파일이 없습니다" }, { status: 400 });
 
@@ -179,19 +199,21 @@ export async function POST(request: NextRequest) {
     }
 
     // DB 저장
-    const { data: saved, error: dbError } = await supabase.from("game_records").insert({
+    const { data: saved, error: dbError } = await saveGameRecord({
       game_date: gameDate,
       opponent,
+      season,
       score: `${teamR}`,
       batting_data: battingData,
       pitching_data: pitchingData,
       highlights,
       ai_review: review,
-    }).select().single();
+    });
 
     if (dbError) console.error("DB save error:", dbError);
+    revalidatePath("/game-review");
 
-    return Response.json({ review, battingData, pitchingData, highlights, gameId: saved?.id });
+    return Response.json({ review, battingData, pitchingData, highlights, gameId: saved?.id, season });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "알 수 없는 에러";
     console.error("Game review error:", message);
@@ -200,12 +222,16 @@ export async function POST(request: NextRequest) {
 }
 
 // 과거 기록 조회
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const season = request.nextUrl.searchParams.get("season");
   const { data } = await supabase
     .from("game_records")
     .select("*")
     .order("created_at", { ascending: false });
-  return Response.json({ records: data || [] });
+  const records = !season
+    ? (data || [])
+    : (data || []).filter((record: any) => !("season" in record) || record.season === season);
+  return Response.json({ records });
 }
 
 // 기록 삭제
@@ -213,5 +239,6 @@ export async function DELETE(request: NextRequest) {
   const id = request.nextUrl.searchParams.get("id");
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
   await supabase.from("game_records").delete().eq("id", id);
+  revalidatePath("/game-review");
   return Response.json({ success: true });
 }

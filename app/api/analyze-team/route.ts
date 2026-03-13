@@ -55,15 +55,54 @@ export async function POST(request: NextRequest) {
     const safeBatting = batting ?? [];
     const safePitching = pitching ?? [];
 
-    // ✅ O(1) lookup을 위한 Map (find() 제거)
-    const battingByPlayer = new Map<string, (typeof safeBatting)[number]>();
-    for (const b of safeBatting) battingByPlayer.set(String(b.player_id), b);
-
-    const pitchingByPlayer = new Map<string, (typeof safePitching)[number]>();
-    for (const p of safePitching) pitchingByPlayer.set(String(p.player_id), p);
-
     // ✅ 숫자 안전 변환 유틸
     const n = (v: any) => (typeof v === "number" ? v : parseFloat(String(v ?? 0)) || 0);
+
+    // ✅ O(1) lookup을 위한 Map (find() 제거)
+    const battingByPlayer = new Map<string, (typeof safeBatting)[number]>();
+    for (const row of safeBatting) {
+      const key = String(row.player_id);
+      const current = battingByPlayer.get(key);
+      if (current) {
+        battingByPlayer.set(key, {
+          ...current,
+          pa: n(current.pa) + n(row.pa),
+          ab: n(current.ab) + n(row.ab),
+          hits: n(current.hits) + n(row.hits),
+          hr: n(current.hr) + n(row.hr),
+          rbi: n(current.rbi) + n(row.rbi),
+          bb: n(current.bb) + n(row.bb),
+          hbp: n(current.hbp) + n(row.hbp),
+          so: n(current.so) + n(row.so),
+          sb: n(current.sb) + n(row.sb),
+          doubles: n(current.doubles) + n(row.doubles),
+          triples: n(current.triples) + n(row.triples),
+        });
+      } else {
+        battingByPlayer.set(key, row);
+      }
+    }
+
+    const pitchingByPlayer = new Map<string, (typeof safePitching)[number]>();
+    for (const row of safePitching) {
+      const key = String(row.player_id);
+      const current = pitchingByPlayer.get(key);
+      if (current) {
+        pitchingByPlayer.set(key, {
+          ...current,
+          ip: n(current.ip) + n(row.ip),
+          er: n(current.er) + n(row.er),
+          w: n(current.w) + n(row.w),
+          l: n(current.l) + n(row.l),
+          sv: n(current.sv) + n(row.sv),
+          so: n(current.so) + n(row.so),
+          bb: n(current.bb) + n(row.bb),
+          ha: n(current.ha) + n(row.ha),
+        });
+      } else {
+        pitchingByPlayer.set(key, row);
+      }
+    }
 
     // 팀 종합 스탯 계산 (batting)
     const teamPA = safeBatting.reduce((a, b) => a + n(b.pa), 0);

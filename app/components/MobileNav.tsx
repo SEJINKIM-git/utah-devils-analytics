@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 
 const NAV_ITEMS = [
   { href: "/", icon: "📊", labelKo: "대시보드", labelEn: "Stats" },
@@ -13,7 +14,20 @@ const NAV_ITEMS = [
 
 export default function MobileNav({ lang }: { lang: string }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const ko = lang === "ko";
+  const season = searchParams.get("season") || (() => {
+    if (typeof document === "undefined") return null;
+    const match = document.cookie.match(new RegExp(`(?:^|; )${ACTIVE_SEASON_COOKIE}=([^;]+)`));
+    return match ? decodeURIComponent(match[1]) : null;
+  })();
+
+  const buildHref = (path: string) => {
+    if (!season) return path;
+    const params = new URLSearchParams();
+    params.set("season", season);
+    return `${path}?${params.toString()}`;
+  };
 
   return (
     <>
@@ -46,7 +60,7 @@ export default function MobileNav({ lang }: { lang: string }) {
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={buildHref(item.href)}
                 style={{
                   display: "flex",
                   flexDirection: "column",
