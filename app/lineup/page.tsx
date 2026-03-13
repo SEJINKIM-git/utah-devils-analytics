@@ -27,14 +27,26 @@ export default async function LineupPage() {
     if (data) lineups = data;
   } catch (e) {}
 
+  // 타자 기록 누적합산
   const battingMap = new Map<number, any>();
   for (const b of batting || []) {
-    if (!battingMap.has(b.player_id) || b.pa > battingMap.get(b.player_id).pa) {
-      battingMap.set(b.player_id, b);
-    }
+    if (battingMap.has(b.player_id)) {
+      const acc = battingMap.get(b.player_id);
+      battingMap.set(b.player_id, {
+        ...acc,
+        pa: acc.pa + (b.pa||0), ab: acc.ab + (b.ab||0),
+        hits: acc.hits + (b.hits||0), doubles: acc.doubles + (b.doubles||0),
+        triples: acc.triples + (b.triples||0), hr: acc.hr + (b.hr||0),
+        bb: acc.bb + (b.bb||0), hbp: acc.hbp + (b.hbp||0),
+      });
+    } else { battingMap.set(b.player_id, { ...b }); }
   }
 
-  const playersWithStats = (players || []).map((p) => {
+  // id 기준 중복 제거
+  const uniquePlayers = Array.from(
+    new Map((players || []).map((p) => [p.id, p])).values()
+  );
+  const playersWithStats = uniquePlayers.map((p) => {
     const b = battingMap.get(p.id);
     const avg = b && b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
     const obp = b && b.pa > 0 ? ((b.hits + b.bb + b.hbp) / b.pa).toFixed(3) : "---";

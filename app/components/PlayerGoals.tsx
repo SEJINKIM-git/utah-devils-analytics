@@ -58,13 +58,16 @@ const PITCHING_PRESETS = {
 
 export default function PlayerGoals({
   playerId,
+  season: propSeason,
   isPitcher,
   lang = "ko",
 }: {
   playerId: number;
+  season?: string;
   isPitcher: boolean;
   lang?: "ko" | "en";
 }) {
+  const currentSeason = propSeason || String(new Date().getFullYear());
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -79,14 +82,14 @@ export default function PlayerGoals({
 
   const fetchGoals = async () => {
     try {
-      const res = await fetch(`/api/goals?playerId=${playerId}&season=2025`);
+      const res = await fetch(`/api/goals?playerId=${playerId}&season=${currentSeason}`);
       const data = await res.json();
       setGoals(data.goals || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchGoals(); }, [playerId]);
+  useEffect(() => { fetchGoals(); }, [playerId, currentSeason]);
 
   const addGoal = async () => {
     if (!selectedType || !targetValue) return;
@@ -98,7 +101,7 @@ export default function PlayerGoals({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           playerId,
-          season: "2025",
+          season: currentSeason,
           statType: selectedType,
           statLabel: preset?.label || selectedType,
           targetValue: parseFloat(targetValue),
@@ -188,7 +191,14 @@ export default function PlayerGoals({
         </div>
       ) : (
         <div style={{ textAlign: "center", padding: "20px 0", color: "rgba(255,255,255,0.25)", fontSize: 13, marginBottom: 16 }}>
-          {lang === "ko" ? "아직 설정된 목표가 없습니다" : "No goals set yet"}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 14, color: "rgba(255,255,255,0.4)", marginBottom: 12 }}>
+              {lang === "ko" ? `${currentSeason} 시즌 목표가 없습니다` : `No goals set for ${currentSeason}`}
+            </div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", marginBottom: 16 }}>
+              {lang === "ko" ? "아래 버튼으로 시즌 목표를 추가해보세요" : "Add your first goal for this season"}
+            </div>
+          </div>
         </div>
       )}
 

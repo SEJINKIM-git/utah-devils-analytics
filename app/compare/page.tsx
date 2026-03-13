@@ -164,26 +164,52 @@ function getLatestSeason(stats: BattingStat[] | PitchingStat[], season?: number)
 }
 
 function calcBatting(stats: BattingStat[], season?: number): CalcBatting | null {
-  const s = getLatestSeason(stats, season) as BattingStat | null;
-  if (!s) return null;
-  const ab      = s.at_bats   || 0;
-  const h       = s.hits      || 0;
-  const bb      = s.walks     || 0;
-  const singles = h - (s.doubles || 0) - (s.triples || 0) - (s.home_runs || 0);
-  const tb      = singles + (s.doubles || 0) * 2 + (s.triples || 0) * 3 + (s.home_runs || 0) * 4;
-  const avg     = ab > 0 ? h / ab : 0;
-  const obp     = (ab + bb) > 0 ? (h + bb) / (ab + bb) : 0;
-  const slg     = ab > 0 ? tb / ab : 0;
-  return { ...s, avg, obp, slg, ops: obp + slg };
+  // 해당 시즌 레코드 전부 합산
+  const seasonStats = season
+    ? stats.filter((s) => s.season === season)
+    : [...stats].sort((a, b) => b.season - a.season).filter((s) => s.season === [...stats].sort((a,b)=>b.season-a.season)[0]?.season);
+  if (!seasonStats.length) return null;
+  const merged = seasonStats.reduce((acc, s) => ({
+    ...acc,
+    at_bats:    (acc.at_bats    || 0) + (s.at_bats    || 0),
+    hits:       (acc.hits       || 0) + (s.hits       || 0),
+    doubles:    (acc.doubles    || 0) + (s.doubles    || 0),
+    triples:    (acc.triples    || 0) + (s.triples    || 0),
+    home_runs:  (acc.home_runs  || 0) + (s.home_runs  || 0),
+    rbi:        (acc.rbi        || 0) + (s.rbi        || 0),
+    walks:      (acc.walks      || 0) + (s.walks      || 0),
+    strikeouts: (acc.strikeouts || 0) + (s.strikeouts || 0),
+    runs:       (acc.runs       || 0) + (s.runs       || 0),
+  }), { ...seasonStats[0], at_bats:0, hits:0, doubles:0, triples:0, home_runs:0, rbi:0, walks:0, strikeouts:0, runs:0 });
+  const ab = merged.at_bats || 0;
+  const h  = merged.hits    || 0;
+  const bb = merged.walks   || 0;
+  const singles = h - (merged.doubles||0) - (merged.triples||0) - (merged.home_runs||0);
+  const tb = singles + (merged.doubles||0)*2 + (merged.triples||0)*3 + (merged.home_runs||0)*4;
+  const avg = ab > 0 ? h / ab : 0;
+  const obp = (ab + bb) > 0 ? (h + bb) / (ab + bb) : 0;
+  const slg = ab > 0 ? tb / ab : 0;
+  return { ...merged, avg, obp, slg, ops: obp + slg };
 }
 
 function calcPitching(stats: PitchingStat[], season?: number): CalcPitching | null {
-  const s = getLatestSeason(stats, season) as PitchingStat | null;
-  if (!s) return null;
-  const inn  = s.innings || 0;
-  const era  = inn > 0 ? ((s.earned_runs || 0) * 9) / inn : null;
-  const whip = inn > 0 ? ((s.walks || 0) + (s.hits || 0)) / inn : null;
-  return { ...s, era, whip };
+  const seasonStats = season
+    ? stats.filter((s) => s.season === season)
+    : [...stats].sort((a, b) => b.season - a.season).filter((s) => s.season === [...stats].sort((a,b)=>b.season-a.season)[0]?.season);
+  if (!seasonStats.length) return null;
+  const merged = seasonStats.reduce((acc, s) => ({
+    ...acc,
+    innings:      (acc.innings      || 0) + (s.innings      || 0),
+    hits:         (acc.hits         || 0) + (s.hits         || 0),
+    runs:         (acc.runs         || 0) + (s.runs         || 0),
+    earned_runs:  (acc.earned_runs  || 0) + (s.earned_runs  || 0),
+    walks:        (acc.walks        || 0) + (s.walks        || 0),
+    strikeouts:   (acc.strikeouts   || 0) + (s.strikeouts   || 0),
+  }), { ...seasonStats[0], innings:0, hits:0, runs:0, earned_runs:0, walks:0, strikeouts:0 });
+  const inn  = merged.innings || 0;
+  const era  = inn > 0 ? ((merged.earned_runs || 0) * 9) / inn : null;
+  const whip = inn > 0 ? ((merged.walks || 0) + (merged.hits || 0)) / inn : null;
+  return { ...merged, era, whip };
 }
 
 // ─── 포맷 헬퍼 ───────────────────────────────────────────────────────────────
@@ -418,7 +444,7 @@ export default function ComparePage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [p1, setP1]           = useState<Player | null>(null);
   const [p2, setP2]           = useState<Player | null>(null);
-  const [season, setSeason]   = useState<number>(2025);
+  const [season, setSeason]   = useState<number>(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
@@ -445,11 +471,8 @@ export default function ComparePage() {
     <div style={{ padding: 32, textAlign: 'center', color: '#ef4444', fontSize: 15 }}>오류: {error}</div>
   );
 
-  /* 선택된 시즌에 기록이 있는 선수만 빠른선택에 표시 */
-  const seasonPlayers = players.filter((p) =>
-    p.batting_stats.some((s) => s.season === season) ||
-    p.pitching_stats.some((s) => s.season === season)
-  );
+  /* 모든 선수 표시 — 선택한 시즌 기록 없으면 해당 시즌 최근 기록 사용 */
+  const seasonPlayers = players;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px' }}>
@@ -475,10 +498,10 @@ export default function ComparePage() {
           </div>
           <select
             value={season}
-            onChange={(e) => { setSeason(Number(e.target.value)); setP1(null); setP2(null); }}
+            onChange={(e) => { setSeason(Number(e.target.value)); }}
             style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 14px', color: 'var(--text)', fontSize: 14, cursor: 'pointer', outline: 'none' }}
           >
-            {[2025, 2024, 2023, 2022].map((y) => <option key={y} value={y}>{y} 시즌</option>)}
+            {[...new Set(players.flatMap(p => [...p.batting_stats.map(b=>b.season), ...p.pitching_stats.map(p=>p.season)])).values()].sort((a,b)=>b-a).map((y) => <option key={y} value={y}>{y} 시즌</option>)}
           </select>
         </div>
 

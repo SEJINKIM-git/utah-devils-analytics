@@ -190,7 +190,7 @@ export default async function PlayerDetail({ params }: { params: Promise<{ id: s
         })()}
 
         {/* 🎯 개인 목표 달성도 */}
-        <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} />
+        <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} season={latestSeason} />
 
         {/* 📈 시즌 성장 그래프 */}
         <SeasonChart batting={allBatting || []} pitching={allPitching || []} lang={lang} />
