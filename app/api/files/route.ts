@@ -14,7 +14,10 @@ export async function GET() {
     .order("uploaded_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ files: data || [] });
+  const files = (data || []).filter(
+    (row) => !String(row.filename || "").startsWith("[season-activation]")
+  );
+  return NextResponse.json({ files });
 }
 
 // 파일 삭제

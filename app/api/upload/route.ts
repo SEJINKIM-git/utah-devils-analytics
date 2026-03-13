@@ -320,16 +320,21 @@ async function saveUploadRecord(
   players: { number: number; name: string }[],
   addedCount: number,
   updatedCount: number,
-  source: "file" | "manual"
+  source: "file" | "manual",
+  seasons: string[] = [TARGET_SEASON]
 ) {
   try {
+    const snapshotSeasons = Array.from(new Set(seasons.filter(Boolean)));
     await supabase.from("roster_uploads").insert({
       filename,
       player_count: players.length,
       added_count: addedCount,
       updated_count: updatedCount,
       source,
-      players_snapshot: JSON.stringify(players),
+      players_snapshot: JSON.stringify({
+        seasons: snapshotSeasons,
+        players,
+      }),
       uploaded_at: new Date().toISOString(),
     });
   } catch (error) {
@@ -1110,7 +1115,7 @@ export async function POST(request: NextRequest) {
       }
 
       const initialized = await initializeRosterSeason(players, overwrite);
-      await saveUploadRecord("직접 입력", players, initialized.players, initialized.updated, "manual");
+      await saveUploadRecord("직접 입력", players, initialized.players, initialized.updated, "manual", [TARGET_SEASON]);
       revalidateConnectedViews();
 
       const skipped =
@@ -1195,7 +1200,7 @@ export async function POST(request: NextRequest) {
         : rosterPlayers;
 
       const initialized = await initializeRosterSeason(playersToProcess, overwrite);
-      await saveUploadRecord(file.name, playersToProcess, initialized.players, initialized.updated, "file");
+      await saveUploadRecord(file.name, playersToProcess, initialized.players, initialized.updated, "file", [TARGET_SEASON]);
       revalidateConnectedViews();
 
       const skipped =

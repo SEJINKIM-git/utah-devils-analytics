@@ -156,7 +156,10 @@ export async function POST(request: NextRequest) {
         added_count: registerResult.players_added,
         updated_count: 0,
         source: file ? "file" : "manual",
-        players_snapshot: JSON.stringify(players),
+        players_snapshot: JSON.stringify({
+          seasons: [TARGET_SEASON],
+          players,
+        }),
         uploaded_at: new Date().toISOString(),
       });
     }

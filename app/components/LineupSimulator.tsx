@@ -26,6 +26,18 @@ interface SavedLineup {
   batting_order: { player_id: number; position: string }[];
 }
 
+const LINEUP_WEIGHTS = [1.16, 1.12, 1.08, 1.04, 1.0, 0.96, 0.92, 0.88, 0.84];
+const NEUTRAL_ERA = 4.5;
+
+function parseMetric(value: string) {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 export default function LineupSimulator({
   players,
   savedLineups,
@@ -44,6 +56,7 @@ export default function LineupSimulator({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(savedLineups);
   const [searchQuery, setSearchQuery] = useState("");
+  const [opponentEraInput, setOpponentEraInput] = useState("4.50");
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [showSaved, setShowSaved] = useState(false);
@@ -54,6 +67,7 @@ export default function LineupSimulator({
     setLineup(Array.from({ length: 9 }, () => ({ player: null, position: "" })));
     setLineupName("");
     setSearchQuery("");
+    setOpponentEraInput("4.50");
     setShowSaved(false);
   }, [savedLineups, season]);
 
@@ -121,6 +135,10 @@ export default function LineupSimulator({
 
   // --- 예상 팀 스탯 ---
   const filledSlots = lineup.filter((s) => s.player);
+  const parsedOpponentEra = parseFloat(opponentEraInput);
+  const opponentEra = Number.isFinite(parsedOpponentEra) && parsedOpponentEra > 0
+    ? parsedOpponentEra
+    : NEUTRAL_ERA;
   const projAvg =
     filledSlots.length > 0
       ? (
@@ -148,6 +166,103 @@ export default function LineupSimulator({
           ) / filledSlots.length
         ).toFixed(3)
       : "---";
+  const lineupProjection = (() => {
+    if (filledSlots.length === 0) {
+      return {
+        projRuns: "---",
+        baseRuns: 0,
+        adjustedRuns: 0,
+        adjustmentFactor: 1,
+        contributions: [] as Array<{
+          order: number;
+          name: string;
+          value: number;
+          share: number;
+        }>,
+      };
+    }
+
+    const slotScores = lineup
+      .map((slot, index) => {
+        if (!slot.player) return null;
+
+        const weight = LINEUP_WEIGHTS[index] || 1;
+        const avg = parseMetric(slot.player.avg);
+        const obp = parseMetric(slot.player.obp);
+        const ops = parseMetric(slot.player.ops);
+        const slg = Math.max(ops - obp, 0);
+        const score = ((obp * 1.8) + (slg * 1.15) + (avg * 0.45)) * weight;
+
+        return {
+          order: index + 1,
+          name: slot.player.name,
+          weight,
+          avg,
+          obp,
+          slg,
+          score,
+        };
+      })
+      .filter(Boolean) as Array<{
+        order: number;
+        name: string;
+        weight: number;
+        avg: number;
+        obp: number;
+        slg: number;
+        score: number;
+      }>;
+
+    const weighted = slotScores.reduce(
+      (acc, slot) => ({
+        weightedObp: acc.weightedObp + slot.obp * slot.weight,
+        weightedSlg: acc.weightedSlg + slot.slg * slot.weight,
+        totalWeight: acc.totalWeight + slot.weight,
+      }),
+      { weightedObp: 0, weightedSlg: 0, totalWeight: 0 }
+    );
+
+    if (weighted.totalWeight === 0) {
+      return {
+        projRuns: "---",
+        baseRuns: 0,
+        adjustedRuns: 0,
+        adjustmentFactor: 1,
+        contributions: [] as Array<{
+          order: number;
+          name: string;
+          value: number;
+          share: number;
+        }>,
+      };
+    }
+
+    const avgWeightedObp = weighted.weightedObp / weighted.totalWeight;
+    const avgWeightedSlg = weighted.weightedSlg / weighted.totalWeight;
+    const completeness = filledSlots.length / 9;
+    const baseRuns = Math.max(
+      0,
+      (((2.2 * avgWeightedObp) + avgWeightedSlg) * 9 - 5.3) * completeness
+    );
+    const adjustmentFactor = clamp(1 + ((opponentEra - NEUTRAL_ERA) * 0.08), 0.72, 1.28);
+    const adjustedRuns = Math.max(0, baseRuns * adjustmentFactor);
+    const totalScore = slotScores.reduce((sum, slot) => sum + slot.score, 0);
+    const contributions = slotScores.map((slot) => ({
+      order: slot.order,
+      name: slot.name,
+      share: totalScore > 0 ? slot.score / totalScore : 0,
+      value: totalScore > 0 ? adjustedRuns * (slot.score / totalScore) : 0,
+    }));
+
+    return {
+      projRuns: adjustedRuns.toFixed(1),
+      baseRuns,
+      adjustedRuns,
+      adjustmentFactor,
+      contributions,
+    };
+  })();
+  const projRuns = lineupProjection.projRuns;
 
   // --- 저장 ---
   const saveLineup = async () => {
@@ -222,6 +337,7 @@ export default function LineupSimulator({
           { label: ko ? "예상 타율" : "Proj. AVG", value: projAvg, color: "#22c55e" },
           { label: ko ? "예상 출루율" : "Proj. OBP", value: projOBP, color: "#60a5fa" },
           { label: ko ? "예상 OPS" : "Proj. OPS", value: projOPS, color: "#eab308" },
+          { label: ko ? "예상 득점" : "Proj. Runs", value: projRuns, color: "#f97316" },
           { label: ko ? "등록 선수" : "In Lineup", value: `${filledSlots.length}/9`, color: "#a78bfa" },
         ].map((s, i) => (
           <div
@@ -249,6 +365,134 @@ export default function LineupSimulator({
             </div>
           </div>
         ))}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(220px, 280px) 1fr",
+          gap: 14,
+          alignItems: "start",
+          marginTop: -8,
+          marginBottom: 20,
+        }}
+        className="lineup-projection-grid"
+      >
+        <div
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 14,
+            padding: "16px 16px 14px",
+          }}
+        >
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+            {ko ? "상대 선발 보정" : "Opponent Adjustment"}
+          </div>
+          <label style={{ display: "block", fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 8 }}>
+            {ko ? "상대 선발 ERA" : "Opponent Starter ERA"}
+          </label>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            value={opponentEraInput}
+            onChange={(e) => setOpponentEraInput(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.04)",
+              color: "#e2e8f0",
+              fontSize: 14,
+              fontWeight: 700,
+              outline: "none",
+              boxSizing: "border-box",
+              marginBottom: 10,
+            }}
+          />
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.6 }}>
+            {ko
+              ? `기준 ERA ${NEUTRAL_ERA.toFixed(2)} 대비 낮으면 예상 득점이 줄고, 높으면 늘어납니다.`
+              : `Runs are adjusted against a neutral ERA of ${NEUTRAL_ERA.toFixed(2)}.`}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, fontSize: 12 }}>
+            <span style={{ color: "rgba(255,255,255,0.42)" }}>{ko ? "보정 계수" : "Adj. Factor"}</span>
+            <span style={{ color: "#f97316", fontWeight: 800 }}>
+              {filledSlots.length > 0 ? `${lineupProjection.adjustmentFactor.toFixed(2)}x` : "---"}
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 14,
+            padding: "16px 16px 14px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
+                {ko ? "타순별 예상 기여도" : "Lineup Run Contribution"}
+              </div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>
+                {ko
+                  ? "출루율·장타력·타순 가중치를 합쳐 각 타순의 득점 기여를 나눠 봅니다."
+                  : "Each slot's share is split from weighted OBP, slugging, and batting-order value."}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)" }}>
+              {filledSlots.length > 0 ? (
+                <>
+                  <span>{ko ? "기준" : "Base"} </span>
+                  <span style={{ fontWeight: 700, color: "#93c5fd" }}>{lineupProjection.baseRuns.toFixed(1)}</span>
+                  <span> R</span>
+                </>
+              ) : (
+                "---"
+              )}
+            </div>
+          </div>
+
+          {lineupProjection.contributions.length === 0 ? (
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.28)", fontStyle: "italic", padding: "8px 0 2px" }}>
+              {ko ? "라인업을 채우면 타순별 예상 득점 기여도가 표시됩니다." : "Fill the lineup to see expected run contribution by slot."}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {lineupProjection.contributions.map((slot) => (
+                <div key={slot.order} style={{ display: "grid", gridTemplateColumns: "64px minmax(120px, 1fr) 56px", gap: 10, alignItems: "center" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#93c5fd" }}>
+                    {slot.order}{ko ? "번" : "th"}
+                  </div>
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{slot.name}</span>
+                      <span style={{ color: "rgba(255,255,255,0.38)" }}>{(slot.share * 100).toFixed(0)}%</span>
+                    </div>
+                    <div style={{ width: "100%", height: 8, borderRadius: 999, overflow: "hidden", background: "rgba(255,255,255,0.06)" }}>
+                      <div
+                        style={{
+                          width: `${Math.max(slot.share * 100, 4)}%`,
+                          height: "100%",
+                          borderRadius: 999,
+                          background: "linear-gradient(90deg, #f97316, #fb923c)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", fontSize: 12, fontWeight: 800, color: "#f97316" }}>
+                    {slot.value.toFixed(1)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div
@@ -737,6 +981,9 @@ export default function LineupSimulator({
       <style>{`
         @media (max-width: 768px) {
           .lineup-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .lineup-projection-grid {
             grid-template-columns: 1fr !important;
           }
           .lineup-stats {

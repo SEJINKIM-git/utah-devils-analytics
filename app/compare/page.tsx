@@ -17,6 +17,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
+import { inferRosterSnapshotSeasons, parseRosterSnapshot, type RosterSnapshotPlayer } from '@/lib/rosterSnapshot';
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────────
 
@@ -59,6 +60,38 @@ interface RawPlayer {
   position?: string | null;
 }
 
+interface RawBattingRow {
+  player_id: number;
+  season?: string | number | null;
+  ab?: number | null;
+  hits?: number | null;
+  doubles?: number | null;
+  triples?: number | null;
+  hr?: number | null;
+  rbi?: number | null;
+  bb?: number | null;
+  so?: number | null;
+  runs?: number | null;
+}
+
+interface RawPitchingRow {
+  player_id: number;
+  season?: string | number | null;
+  ip?: string | number | null;
+  ha?: number | null;
+  runs_allowed?: number | null;
+  er?: number | null;
+  bb?: number | null;
+  so?: number | null;
+}
+
+interface RosterUploadRow {
+  filename: string;
+  players_snapshot?: string | null;
+  source?: "file" | "manual" | null;
+  uploaded_at?: string | null;
+}
+
 interface CalcBatting extends BattingStat {
   avg: number;
   obp: number;
@@ -71,36 +104,98 @@ interface CalcPitching extends PitchingStat {
   whip: number | null;
 }
 
+interface ComparePayload {
+  players: Player[];
+  seasonRosters: Record<string, Player[]>;
+}
+
 // ─── 데이터 페칭 (실제 업로드 데이터 기준) ────────────────────────────────────
 
-async function fetchPlayers(): Promise<Player[]> {
+function normalizeName(name: string) {
+  return name.replace(/\s+/g, '').trim().toLowerCase();
+}
+
+function buildRosterKey(number: number | null | undefined, name: string) {
+  return `${number || 0}:${normalizeName(name)}`;
+}
+
+function parseSeasonNumber(value: unknown) {
+  const season = Number(value);
+  return Number.isFinite(season) && season > 0 ? season : 0;
+}
+
+function playerHasSeasonStats(player: Player, season: number) {
+  return (
+    player.batting_stats.some((stat) => stat.season === season) ||
+    player.pitching_stats.some((stat) => stat.season === season)
+  );
+}
+
+function findRosterPlayerMatch(players: Player[], snapshotPlayer: RosterSnapshotPlayer, season: number) {
+  const normalized = normalizeName(snapshotPlayer.name);
+  const exactSeasonMatch = players.find(
+    (player) =>
+      player.number === snapshotPlayer.number &&
+      normalizeName(player.name) === normalized &&
+      playerHasSeasonStats(player, season)
+  );
+  if (exactSeasonMatch) return exactSeasonMatch;
+
+  const nameSeasonMatch = players.find(
+    (player) => normalizeName(player.name) === normalized && playerHasSeasonStats(player, season)
+  );
+  if (nameSeasonMatch) return nameSeasonMatch;
+
+  const exactAnyMatch = players.find(
+    (player) =>
+      player.number === snapshotPlayer.number &&
+      normalizeName(player.name) === normalized
+  );
+  if (exactAnyMatch) return exactAnyMatch;
+
+  const nameAnyMatch = players.find((player) => normalizeName(player.name) === normalized);
+  return nameAnyMatch || null;
+}
+
+function createSyntheticPlayer(snapshotPlayer: RosterSnapshotPlayer, season: number, seed: number): Player {
+  return {
+    id: -1 * (season * 10000 + seed),
+    name: snapshotPlayer.name,
+    number: snapshotPlayer.number,
+    position: snapshotPlayer.position || '-',
+    batting_stats: [],
+    pitching_stats: [],
+  };
+}
+
+async function fetchPlayers(): Promise<ComparePayload> {
   const res = await fetch('/api/compare-data', { cache: 'no-store' });
   if (!res.ok) throw new Error('비교 데이터 로드 실패');
 
-  const { players: rawPlayers, batting, pitching }: {
+  const { players: rawPlayers, batting, pitching, rosterUploads }: {
     players: RawPlayer[];
-    batting: any[];
-    pitching: any[];
+    batting: RawBattingRow[];
+    pitching: RawPitchingRow[];
+    rosterUploads: RosterUploadRow[];
   } = await res.json();
 
-  const uniquePlayers: RawPlayer[] = Array.from(
-    (rawPlayers || []).reduce((map: Map<number, RawPlayer>, player: RawPlayer) => {
-      const existing = map.get(player.number);
-      if (!existing || player.id > existing.id) map.set(player.number, player);
-      return map;
-    }, new Map<number, RawPlayer>()).values()
-  );
-
-  const playerIdToRepresentativeId = new Map<number, number>();
+  const playerMap = new Map<number, Player>();
   for (const player of rawPlayers || []) {
-    const representative = uniquePlayers.find((entry) => entry.number === player.number);
-    if (representative) playerIdToRepresentativeId.set(player.id, representative.id);
+    playerMap.set(player.id, {
+      id: player.id,
+      name: player.name,
+      number: player.number,
+      position: player.position || '-',
+      batting_stats: [],
+      pitching_stats: [],
+    });
   }
 
   const battingByPlayerSeason = new Map<string, BattingStat>();
   for (const row of batting || []) {
-    const playerId = playerIdToRepresentativeId.get(row.player_id) ?? row.player_id;
-    const season = Number(row.season || 2025);
+    const playerId = Number(row.player_id);
+    const season = parseSeasonNumber(row.season || 2025);
+    if (!playerMap.has(playerId) || !season) continue;
     const key = `${playerId}:${season}`;
     const current = battingByPlayerSeason.get(key) || {
       season,
@@ -116,22 +211,23 @@ async function fetchPlayers(): Promise<Player[]> {
     };
     battingByPlayerSeason.set(key, {
       season,
-      at_bats: current.at_bats + (row.ab || 0),
-      hits: current.hits + (row.hits || 0),
-      doubles: current.doubles + (row.doubles || 0),
-      triples: current.triples + (row.triples || 0),
-      home_runs: current.home_runs + (row.hr || 0),
-      rbi: current.rbi + (row.rbi || 0),
-      walks: current.walks + (row.bb || 0),
-      strikeouts: current.strikeouts + (row.so || 0),
-      runs: current.runs + (row.runs || 0),
+      at_bats: current.at_bats + Number(row.ab || 0),
+      hits: current.hits + Number(row.hits || 0),
+      doubles: current.doubles + Number(row.doubles || 0),
+      triples: current.triples + Number(row.triples || 0),
+      home_runs: current.home_runs + Number(row.hr || 0),
+      rbi: current.rbi + Number(row.rbi || 0),
+      walks: current.walks + Number(row.bb || 0),
+      strikeouts: current.strikeouts + Number(row.so || 0),
+      runs: current.runs + Number(row.runs || 0),
     });
   }
 
   const pitchingByPlayerSeason = new Map<string, PitchingStat>();
   for (const row of pitching || []) {
-    const playerId = playerIdToRepresentativeId.get(row.player_id) ?? row.player_id;
-    const season = Number(row.season || 2025);
+    const playerId = Number(row.player_id);
+    const season = parseSeasonNumber(row.season || 2025);
+    if (!playerMap.has(playerId) || !season) continue;
     const key = `${playerId}:${season}`;
     const current = pitchingByPlayerSeason.get(key) || {
       season,
@@ -145,28 +241,88 @@ async function fetchPlayers(): Promise<Player[]> {
     pitchingByPlayerSeason.set(key, {
       season,
       innings: current.innings + (parseFloat(String(row.ip || 0)) || 0),
-      hits: current.hits + (row.ha || 0),
-      runs: current.runs + (row.runs_allowed || 0),
-      earned_runs: current.earned_runs + (row.er || 0),
-      walks: current.walks + (row.bb || 0),
-      strikeouts: current.strikeouts + (row.so || 0),
+      hits: current.hits + Number(row.ha || 0),
+      runs: current.runs + Number(row.runs_allowed || 0),
+      earned_runs: current.earned_runs + Number(row.er || 0),
+      walks: current.walks + Number(row.bb || 0),
+      strikeouts: current.strikeouts + Number(row.so || 0),
     });
   }
 
-  return uniquePlayers.map((player: any) => ({
-    id: player.id,
-    name: player.name,
-    number: player.number,
-    position: player.position || '-',
-    batting_stats: Array.from(battingByPlayerSeason.entries())
-      .filter(([key]) => key.startsWith(`${player.id}:`))
-      .map(([, value]) => value)
-      .sort((a, b) => b.season - a.season),
-    pitching_stats: Array.from(pitchingByPlayerSeason.entries())
-      .filter(([key]) => key.startsWith(`${player.id}:`))
-      .map(([, value]) => value)
-      .sort((a, b) => b.season - a.season),
-  }));
+  for (const [key, stat] of battingByPlayerSeason.entries()) {
+    const playerId = Number(key.split(':')[0]);
+    const player = playerMap.get(playerId);
+    if (player) player.batting_stats.push(stat);
+  }
+
+  for (const [key, stat] of pitchingByPlayerSeason.entries()) {
+    const playerId = Number(key.split(':')[0]);
+    const player = playerMap.get(playerId);
+    if (player) player.pitching_stats.push(stat);
+  }
+
+  const players = Array.from(playerMap.values())
+    .map((player) => ({
+      ...player,
+      batting_stats: [...player.batting_stats].sort((a, b) => b.season - a.season),
+      pitching_stats: [...player.pitching_stats].sort((a, b) => b.season - a.season),
+    }))
+    .sort((a, b) => a.number - b.number || a.name.localeCompare(b.name, 'ko'));
+
+  const rosterBySeason = new Map<number, Map<string, Player>>();
+  const ensureSeasonMap = (season: number) => {
+    if (!rosterBySeason.has(season)) rosterBySeason.set(season, new Map());
+    return rosterBySeason.get(season)!;
+  };
+
+  for (const player of players) {
+    const seasons = new Set([
+      ...player.batting_stats.map((stat) => stat.season),
+      ...player.pitching_stats.map((stat) => stat.season),
+    ]);
+
+    for (const season of seasons) {
+      ensureSeasonMap(season).set(buildRosterKey(player.number, player.name), player);
+    }
+  }
+
+  let syntheticSeed = 1;
+  for (const upload of [...(rosterUploads || [])].sort((a, b) =>
+    String(b.uploaded_at || '').localeCompare(String(a.uploaded_at || ''))
+  )) {
+    const snapshot = parseRosterSnapshot(
+      upload.players_snapshot,
+      inferRosterSnapshotSeasons(upload.filename, upload.source)
+    );
+
+    if (snapshot.players.length === 0) continue;
+
+    for (const seasonValue of snapshot.seasons) {
+      const season = parseSeasonNumber(seasonValue);
+      if (!season) continue;
+
+      const seasonMap = ensureSeasonMap(season);
+      for (const snapshotPlayer of snapshot.players) {
+        const rosterKey = buildRosterKey(snapshotPlayer.number, snapshotPlayer.name);
+        if (seasonMap.has(rosterKey)) continue;
+
+        const matched = findRosterPlayerMatch(players, snapshotPlayer, season);
+        seasonMap.set(
+          rosterKey,
+          matched || createSyntheticPlayer(snapshotPlayer, season, syntheticSeed++)
+        );
+      }
+    }
+  }
+
+  const seasonRosters = Object.fromEntries(
+    Array.from(rosterBySeason.entries()).map(([season, roster]) => [
+      String(season),
+      Array.from(roster.values()).sort((a, b) => a.number - b.number || a.name.localeCompare(b.name, 'ko')),
+    ])
+  );
+
+  return { players, seasonRosters };
 }
 
 // ─── 통계 계산 ────────────────────────────────────────────────────────────────
@@ -459,8 +615,7 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
 export default function ComparePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // FIX: useState<Player[]>([]) — 타입 명시로 'never[]' 추론 방지
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [seasonRosters, setSeasonRosters] = useState<Record<string, Player[]>>({});
   const [availableSeasons, setAvailableSeasons] = useState<number[]>([]);
   const [lockedSeasons, setLockedSeasons] = useState<number[]>([]);
   const [p1, setP1]           = useState<Player | null>(null);
@@ -475,15 +630,16 @@ export default function ComparePage() {
       fetchPlayers(),
       fetch("/api/seasons", { cache: "no-store" }).then((res) => res.ok ? res.json() : null).catch(() => null),
     ])
-      .then(([data, seasonMeta]) => {
-        setPlayers(data);
-        const seasonsFromData = [...new Set(data.flatMap((player) => [
+      .then(([payload, seasonMeta]) => {
+        setSeasonRosters(payload.seasonRosters);
+        const seasonsFromData = [...new Set(payload.players.flatMap((player) => [
           ...player.batting_stats.map((stat) => stat.season),
           ...player.pitching_stats.map((stat) => stat.season),
         ]))];
+        const seasonsFromRoster = Object.keys(payload.seasonRosters).map((value) => Number(value)).filter(Boolean);
         const seasonsFromMeta = (seasonMeta?.seasons || []).map((value: string | number) => Number(value)).filter(Boolean);
         const lockedFromMeta = (seasonMeta?.lockedSeasons || []).map((value: string | number) => Number(value)).filter(Boolean);
-        const seasons = [...new Set([...seasonsFromData, ...seasonsFromMeta])].sort((a, b) => b - a);
+        const seasons = [...new Set([...seasonsFromData, ...seasonsFromRoster, ...seasonsFromMeta])].sort((a, b) => b - a);
         setAvailableSeasons(seasons);
         setLockedSeasons(lockedFromMeta);
         const preferredSeason = Number(seasonMeta?.preferredSeason || seasonMeta?.latestSeason || 0);
@@ -500,10 +656,9 @@ export default function ComparePage() {
   }, [requestedSeason]);
 
   useEffect(() => {
-    if (!lockedSeasons.includes(season)) return;
     setP1(null);
     setP2(null);
-  }, [season, lockedSeasons]);
+  }, [season]);
 
   const b1  = p1 ? calcBatting(p1.batting_stats,   season) : null;
   const b2  = p2 ? calcBatting(p2.batting_stats,   season) : null;
@@ -521,13 +676,15 @@ export default function ComparePage() {
     <div style={{ padding: 32, textAlign: 'center', color: '#ef4444', fontSize: 15 }}>오류: {error}</div>
   );
 
-  /* 모든 선수 표시 — 선택한 시즌 기록 없으면 해당 시즌 최근 기록 사용 */
   const seasonPlayers = lockedSeasons.includes(season)
     ? []
-    : players.filter((player) =>
-        player.batting_stats.some((stat) => stat.season === season) ||
-        player.pitching_stats.some((stat) => stat.season === season)
-      );
+    : (seasonRosters[String(season)] || []);
+
+  useEffect(() => {
+    const seasonIds = new Set(seasonPlayers.map((player) => player.id));
+    if (p1 && !seasonIds.has(p1.id)) setP1(null);
+    if (p2 && !seasonIds.has(p2.id)) setP2(null);
+  }, [seasonPlayers, p1, p2]);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px' }}>

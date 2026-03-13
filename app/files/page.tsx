@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { inferRosterSnapshotSeasons, parseRosterSnapshot } from "@/lib/rosterSnapshot";
 
 type UploadedFile = {
   id: string;
@@ -15,6 +16,13 @@ type UploadedFile = {
 
 type RosterPlayer = { number: number; name: string; position?: string; is_pitcher?: boolean };
 type ConflictPlayer = RosterPlayer & { existingId: string; existingName: string; existingNumber: number };
+
+function readSnapshotPlayers(file: UploadedFile) {
+  return parseRosterSnapshot(
+    file.players_snapshot,
+    inferRosterSnapshotSeasons(file.filename, file.source)
+  ).players;
+}
 
 /* ── 수동 입력 파서 ── */
 function parseManualInput(raw: string): RosterPlayer[] {
@@ -238,7 +246,7 @@ export default function FilesPage() {
 
       {/* 재등록 모달 */}
       {reAddModal && (() => {
-        const players: RosterPlayer[] = JSON.parse(reAddModal.players_snapshot || "[]");
+        const players = readSnapshotPlayers(reAddModal);
         return (
           <div onClick={() => setReAddModal(null)} style={{ position: "fixed", inset: 0, zIndex: 9997, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
             <div onClick={e => e.stopPropagation()} style={{ background: "#0f1629", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 20, width: "100%", maxWidth: 460, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
@@ -359,7 +367,7 @@ export default function FilesPage() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column" as const, gap: 14 }}>
             {files.map((f) => {
-              const players: RosterPlayer[] = JSON.parse(f.players_snapshot || "[]");
+              const players = readSnapshotPlayers(f);
               const isExpanded = expandedId === f.id;
               return (
                 <div key={f.id} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, overflow: "hidden", transition: "border-color 0.2s" }}
