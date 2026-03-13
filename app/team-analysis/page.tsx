@@ -19,6 +19,7 @@ export default function TeamAnalysisPage() {
   const [error, setError] = useState("");
   const [season, setSeason] = useState(searchParams.get("season") || "2025");
   const [seasons, setSeasons] = useState<string[]>(["2025"]);
+  const [lockedSeasons, setLockedSeasons] = useState<string[]>([]);
 
   const lang = getCookie("lang") === "en" ? "en" : "ko";
 
@@ -29,10 +30,12 @@ export default function TeamAnalysisPage() {
       .then((data) => {
         const available = data?.seasons?.length ? data.seasons : ["2025"];
         setSeasons(available);
+        setLockedSeasons(data?.lockedSeasons || []);
         const nextSeason = requestedSeason && available.includes(requestedSeason)
           ? requestedSeason
           : (data?.preferredSeason || data?.latestSeason || available[0] || "2025");
         setSeason(nextSeason);
+        setReport(null);
       })
       .catch(() => {
         if (requestedSeason) setSeason(requestedSeason);
@@ -48,6 +51,7 @@ export default function TeamAnalysisPage() {
   };
 
   const analyze = async () => {
+    if (lockedSeasons.includes(season)) return;
     setLoading(true);
     setError("");
     try {
@@ -160,7 +164,7 @@ export default function TeamAnalysisPage() {
                     cursor: "pointer",
                     border: "none",
                     background: season === s ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
-                    color: season === s ? "#60a5fa" : "rgba(255,255,255,0.4)",
+                    color: season === s ? "#60a5fa" : lockedSeasons.includes(s) ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.4)",
                   }}
                 >
                   {s}
@@ -172,6 +176,13 @@ export default function TeamAnalysisPage() {
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 40px" }}>
+        {lockedSeasons.includes(season) && (
+          <div style={{ marginBottom: 20, padding: "18px 20px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.7 }}>
+            {lang === "ko"
+              ? `${season} 시즌은 공식 기록 업로드 전까지 팀 분석을 잠시 비워 둡니다.`
+              : `The ${season} team analysis stays blank until official records are uploaded.`}
+          </div>
+        )}
         {!report && !loading && (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
             <div style={{ fontSize: 56, marginBottom: 16 }}>🏟️</div>
@@ -188,15 +199,18 @@ export default function TeamAnalysisPage() {
 
             <button
               onClick={analyze}
+              disabled={lockedSeasons.includes(season)}
               style={{
                 padding: "14px 36px",
                 borderRadius: 12,
                 border: "none",
-                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-                color: "#fff",
+                background: lockedSeasons.includes(season)
+                  ? "rgba(255,255,255,0.06)"
+                  : "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+                color: lockedSeasons.includes(season) ? "rgba(255,255,255,0.28)" : "#fff",
                 fontSize: 15,
                 fontWeight: 700,
-                cursor: "pointer",
+                cursor: lockedSeasons.includes(season) ? "not-allowed" : "pointer",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 10,

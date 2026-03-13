@@ -5,7 +5,8 @@ import Image from "next/image";
 import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import LangToggle from "@/app/components/LangToggle";
-import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason, sortSeasons } from "@/lib/season";
+import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
+import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
 
 export const dynamic = "force-dynamic";
@@ -52,15 +53,26 @@ export default async function Dashboard({
   const { data: allBatting } = await supabase.from("batting_stats").select("*");
   const { data: allPitching } = await supabase.from("pitching_stats").select("*");
 
-  const seasonSet = new Set<string>();
-  allBatting?.forEach((b) => { if (b.season) seasonSet.add(b.season); });
-  allPitching?.forEach((p) => { if (p.season) seasonSet.add(p.season); });
-  const sorted = sortSeasons([...Array.from(seasonSet), preferredSeason]);
-  const seasons = sorted.length > 0 ? sorted : [preferredSeason || "2025"];
+  const visibility = await getSeasonVisibility(
+    supabase,
+    [
+      ...(allBatting || []).map((row) => row.season),
+      ...(allPitching || []).map((row) => row.season),
+      preferredSeason,
+    ],
+    preferredSeason,
+    "2025"
+  );
+  const seasons = visibility.seasons.length > 0 ? visibility.seasons : [preferredSeason || "2025"];
   const season = normalizeSelectedSeason(params.season, seasons, preferredSeason || "2025", preferredSeason);
+  const isPlaceholderSeason = isLockedSeason(season, visibility.activatedSeasons);
 
-  const batting = allBatting?.filter((b) => (b.season || "2025") === season) || [];
-  const pitching = allPitching?.filter((p) => (p.season || "2025") === season) || [];
+  const batting = isPlaceholderSeason
+    ? []
+    : allBatting?.filter((b) => (b.season || "2025") === season) || [];
+  const pitching = isPlaceholderSeason
+    ? []
+    : allPitching?.filter((p) => (p.season || "2025") === season) || [];
 
   // ── 타자: 경기별 기록 전부 누적 합산 ──
   const battingByPlayer = new Map<number, any>();
@@ -113,6 +125,14 @@ export default async function Dashboard({
     }
   }
   const uniquePitching = Array.from(pitchingByPlayer.values());
+  const hasSeasonData = uniqueBatting.length > 0 || uniquePitching.length > 0;
+  const seasonPlayerIds = new Set([
+    ...uniqueBatting.map((record) => record.player_id),
+    ...uniquePitching.map((record) => record.player_id),
+  ]);
+  const seasonPlayers = seasonPlayerIds.size > 0
+    ? uniquePlayers.filter((player) => seasonPlayerIds.has(player.id))
+    : [];
 
   const battingWithPlayers = uniqueBatting
     .map((b) => {
@@ -170,7 +190,7 @@ export default async function Dashboard({
               <Image src="/logos/cap-logo.png" alt="Utah Devils" width={48} height={48} style={{ borderRadius: 12 }} />
               <div>
                 <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>{t("site.title", lang)}</h1>
-                <p style={{ fontSize: 13, color: C.whiteDim, margin: 0 }}>{seasonLabel} · {uniquePlayers.length} {t("site.players", lang)}</p>
+                <p style={{ fontSize: 13, color: C.whiteDim, margin: 0 }}>{seasonLabel} · {seasonPlayers.length} {t("site.players", lang)}</p>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -184,7 +204,7 @@ export default async function Dashboard({
               <LangToggle lang={lang} />
             </div>
           </div>
-          <div style={{ flex: 1 }}><SearchBar players={uniquePlayers} batting={allBatting || []} pitching={allPitching || []} /></div>
+          <div style={{ flex: 1 }}><SearchBar players={seasonPlayers} batting={batting} pitching={pitching} /></div>
           <div style={{ marginTop: 16 }}><SeasonFilter seasons={seasons} basePath="/" /></div>
         </div>
       </div>
@@ -197,9 +217,9 @@ export default async function Dashboard({
             { label: t("stats.teamAvg", lang), value: teamAvg, color: "#22c55e" },
             { label: t("stats.teamOBP", lang), value: teamOBP, color: "#60a5fa" },
             { label: t("stats.teamERA", lang), value: teamERA, color: "#eab308" },
-            { label: t("stats.sb", lang), value: teamSB, color: "#a78bfa" },
-            { label: t("stats.wls", lang), value: `${teamW}-${teamL}-${teamSV}`, color: "#f97316" },
-            { label: t("stats.so", lang), value: teamSO, color: C.red },
+            { label: t("stats.sb", lang), value: hasSeasonData ? teamSB : "---", color: "#a78bfa" },
+            { label: t("stats.wls", lang), value: hasSeasonData ? `${teamW}-${teamL}-${teamSV}` : "---", color: "#f97316" },
+            { label: t("stats.so", lang), value: hasSeasonData ? teamSO : "---", color: C.red },
           ].map((stat, i) => (
             <div key={i} style={{ background: C.cardBg, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 16px" }}>
               <div style={{ fontSize: 11, color: C.whiteDim, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 6 }}>{stat.label}</div>
@@ -207,6 +227,19 @@ export default async function Dashboard({
             </div>
           ))}
         </div>
+
+        {isPlaceholderSeason && (
+          <div style={{ marginBottom: 28, padding: "18px 20px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+              {lang === "ko" ? "2026 시즌은 공식 기록 업로드 전까지 비워 둡니다." : "The 2026 season stays blank until official records are uploaded."}
+            </div>
+            <div style={{ fontSize: 12, color: C.whiteDim }}>
+              {lang === "ko"
+                ? "임시 테스트 데이터는 대시보드에서 표시하지 않도록 처리했습니다. 공식 파일 업로드가 시작되면 이 상태를 해제하면 됩니다."
+                : "Temporary test data is intentionally hidden from the dashboard. This can be lifted once official uploads begin."}
+            </div>
+          </div>
+        )}
 
         {/* ═══ 타격 테이블 ═══ */}
         <div style={{ marginBottom: 40 }}>

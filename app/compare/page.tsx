@@ -462,6 +462,7 @@ export default function ComparePage() {
   // FIX: useState<Player[]>([]) — 타입 명시로 'never[]' 추론 방지
   const [players, setPlayers] = useState<Player[]>([]);
   const [availableSeasons, setAvailableSeasons] = useState<number[]>([]);
+  const [lockedSeasons, setLockedSeasons] = useState<number[]>([]);
   const [p1, setP1]           = useState<Player | null>(null);
   const [p2, setP2]           = useState<Player | null>(null);
   const [season, setSeason]   = useState<number>(0);
@@ -476,11 +477,15 @@ export default function ComparePage() {
     ])
       .then(([data, seasonMeta]) => {
         setPlayers(data);
-        const seasons = [...new Set(data.flatMap((player) => [
+        const seasonsFromData = [...new Set(data.flatMap((player) => [
           ...player.batting_stats.map((stat) => stat.season),
           ...player.pitching_stats.map((stat) => stat.season),
-        ]))].sort((a, b) => b - a);
+        ]))];
+        const seasonsFromMeta = (seasonMeta?.seasons || []).map((value: string | number) => Number(value)).filter(Boolean);
+        const lockedFromMeta = (seasonMeta?.lockedSeasons || []).map((value: string | number) => Number(value)).filter(Boolean);
+        const seasons = [...new Set([...seasonsFromData, ...seasonsFromMeta])].sort((a, b) => b - a);
         setAvailableSeasons(seasons);
+        setLockedSeasons(lockedFromMeta);
         const preferredSeason = Number(seasonMeta?.preferredSeason || seasonMeta?.latestSeason || 0);
         setSeason(
           requestedSeason && seasons.includes(requestedSeason)
@@ -493,6 +498,12 @@ export default function ComparePage() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [requestedSeason]);
+
+  useEffect(() => {
+    if (!lockedSeasons.includes(season)) return;
+    setP1(null);
+    setP2(null);
+  }, [season, lockedSeasons]);
 
   const b1  = p1 ? calcBatting(p1.batting_stats,   season) : null;
   const b2  = p2 ? calcBatting(p2.batting_stats,   season) : null;
@@ -511,7 +522,12 @@ export default function ComparePage() {
   );
 
   /* 모든 선수 표시 — 선택한 시즌 기록 없으면 해당 시즌 최근 기록 사용 */
-  const seasonPlayers = players;
+  const seasonPlayers = lockedSeasons.includes(season)
+    ? []
+    : players.filter((player) =>
+        player.batting_stats.some((stat) => stat.season === season) ||
+        player.pitching_stats.some((stat) => stat.season === season)
+      );
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px' }}>
@@ -547,6 +563,12 @@ export default function ComparePage() {
             {availableSeasons.map((y) => <option key={y} value={y}>{y} 시즌</option>)}
           </select>
         </div>
+
+        {lockedSeasons.includes(season) && (
+          <div style={{ marginBottom: 20, padding: '16px 18px', borderRadius: 14, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.7 }}>
+            {season} 시즌은 공식 기록 업로드 전까지 선수 비교를 비워 둡니다.
+          </div>
+        )}
 
         {/* 검색창 */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 48px 1fr', gap: 12, alignItems: 'center', marginBottom: 20, position: 'relative', zIndex: 100 }}>

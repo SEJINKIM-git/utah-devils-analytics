@@ -5,7 +5,8 @@ import Image from "next/image";
 import LangToggle from "@/app/components/LangToggle";
 import GameCalendar from "@/app/components/GameCalendar";
 import SeasonFilter from "@/app/components/SeasonFilter";
-import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason, sortSeasons } from "@/lib/season";
+import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
+import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { Lang } from "@/lib/translations";
 
 export const dynamic = "force-dynamic";
@@ -37,10 +38,18 @@ export default async function SchedulePage({
     console.error("games query error:", e);
   }
 
-  const sortedSeasons = sortSeasons([...games.map((game) => game.season), preferredSeason]);
-  const seasons = sortedSeasons.length > 0 ? sortedSeasons : [preferredSeason || "2025"];
+  const visibility = await getSeasonVisibility(
+    supabase,
+    [...games.map((game) => game.season), preferredSeason],
+    preferredSeason,
+    "2025"
+  );
+  const seasons = visibility.seasons.length > 0 ? visibility.seasons : [preferredSeason || "2025"];
   const selectedSeason = normalizeSelectedSeason(params.season, seasons, preferredSeason || seasons[0] || "2025", preferredSeason);
-  const seasonGames = games.filter((game) => (game.season || "2025") === selectedSeason);
+  const isPlaceholderSeason = isLockedSeason(selectedSeason, visibility.activatedSeasons);
+  const seasonGames = isPlaceholderSeason
+    ? []
+    : games.filter((game) => (game.season || "2025") === selectedSeason);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0E1428", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
@@ -74,6 +83,13 @@ export default async function SchedulePage({
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
+        {isPlaceholderSeason && (
+          <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.7 }}>
+            {lang === "ko"
+              ? "2026 시즌 일정/경기 결과는 공식 업로드 전까지 비워 둡니다."
+              : "The 2026 schedule stays blank until official uploads begin."}
+          </div>
+        )}
         <GameCalendar games={seasonGames} lang={lang} season={selectedSeason} />
       </div>
     </div>

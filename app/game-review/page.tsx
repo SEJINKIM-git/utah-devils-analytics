@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
+import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
 
 function getCookie(name: string) {
   if (typeof document === "undefined") return null;
@@ -30,18 +31,9 @@ export default function GameReviewPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const extractFromFilename = (filename: string) => {
-    // "Oct_24_VS_사회인.xlsx" → date: "Oct 24", opponent: "사회인"
-    const name = filename.replace(/\.(xlsx|xls)$/i, "");
-    const vsMatch = name.match(/[Vv][Ss][_\s\-]?(.+)/);
-    if (vsMatch) {
-      const opp = vsMatch[1].replace(/[_\-]/g, " ").trim();
-      if (!opponent) setOpponent(opp);
-    }
-    const dateMatch = name.match(/^(.+?)[_\s\-]*[Vv][Ss]/);
-    if (dateMatch) {
-      const d = dateMatch[1].replace(/[_]/g, ".").trim();
-      if (!gameDate) setGameDate(d);
-    }
+    const meta = extractGameMetaFromFilename(filename, season);
+    if (!opponent && meta.opponent) setOpponent(meta.opponent);
+    if (!gameDate && meta.date) setGameDate(meta.date);
   };
 
   useEffect(() => {
@@ -146,7 +138,7 @@ export default function GameReviewPage() {
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <Link href={`/?season=${season}`} style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{lang === "ko" ? "← 대시보드로 돌아가기" : "← Back to Dashboard"}</Link>
           <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>📋 {lang === "ko" ? "경기 기록 AI 리뷰" : "Game Record AI Review"}</h1>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "6px 0 0 0" }}>{lang === "ko" ? "경기 기록 엑셀을 업로드하면 AI가 수치 기반 분석과 전략적 시사점을 제공합니다" : "Upload game record Excel for AI-powered statistical analysis and strategic insights"}</p>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "6px 0 0 0" }}>{lang === "ko" ? "경기 기록 엑셀 또는 현장 메모 docx를 업로드하면 AI가 수치와 흐름을 함께 분석합니다" : "Upload a game record Excel or field-notes docx for AI-powered statistical and flow analysis"}</p>
           <div style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 999, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.22)", fontSize: 12, color: "#93c5fd", fontWeight: 700 }}>
             🔗 {lang === "ko" ? "현재 연결 시즌" : "Connected season"}: {season}
           </div>
@@ -180,7 +172,7 @@ export default function GameReviewPage() {
                 background: file ? "rgba(34,197,94,0.04)" : "rgba(255,255,255,0.01)", marginBottom: 20, transition: "all 0.2s",
               }}
             >
-              <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); extractFromFilename(f.name); } }} style={{ display: "none" }} />
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.docx" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); extractFromFilename(f.name); } }} style={{ display: "none" }} />
               {file ? (
                 <div>
                   <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
@@ -190,8 +182,8 @@ export default function GameReviewPage() {
               ) : (
                 <div>
                   <div style={{ fontSize: 40, marginBottom: 8 }}>📋</div>
-                  <div style={{ fontSize: 14, color: "rgba(255,255,255,0.4)" }}>{lang === "ko" ? "경기 기록 엑셀 파일을 드래그하거나 클릭" : "Drag or click to select game record Excel"}</div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 8 }}>{lang === "ko" ? "타자 기록 · 투수 기록 · 주요 기록 시트가 포함된 .xlsx 파일" : ".xlsx with batting, pitching, and highlights sheets"}</div>
+                  <div style={{ fontSize: 14, color: "rgba(255,255,255,0.4)" }}>{lang === "ko" ? "경기 기록 엑셀 또는 현장 메모 docx 파일을 드래그하거나 클릭" : "Drag or click to select a game record Excel or field-notes docx"}</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 8 }}>{lang === "ko" ? "타자 기록 · 투수 기록 · 주요 기록 시트의 .xlsx 또는 경기 메모용 .docx 파일" : ".xlsx with batting/pitching/highlights or a .docx field-notes file"}</div>
                 </div>
               )}
             </div>

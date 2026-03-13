@@ -5,10 +5,8 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import {
   ACTIVE_SEASON_COOKIE,
-  getLatestSeason,
-  getPreferredSeason,
-  sortSeasons,
 } from "@/lib/season";
+import { getSeasonVisibility } from "@/lib/seasonVisibility";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,16 +22,18 @@ export async function GET() {
     supabase.from("games").select("season"),
   ]);
 
-  const seasons = sortSeasons([
+  const visibility = await getSeasonVisibility(supabase, [
     ...(batting || []).map((row) => row.season),
     ...(pitching || []).map((row) => row.season),
     ...(games || []).map((row) => row.season),
     preferredFromCookie,
-  ]);
+  ], preferredFromCookie, "2025");
 
   return Response.json({
-    seasons,
-    latestSeason: getLatestSeason(seasons, "2025"),
-    preferredSeason: getPreferredSeason(seasons, preferredFromCookie, "2025"),
+    seasons: visibility.seasons,
+    latestSeason: visibility.latestSeason,
+    preferredSeason: visibility.preferredSeason,
+    lockedSeasons: visibility.lockedSeasons,
+    activatedSeasons: visibility.activatedSeasons,
   });
 }

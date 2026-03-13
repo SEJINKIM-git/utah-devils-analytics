@@ -5,7 +5,8 @@ import Image from "next/image";
 import LangToggle from "@/app/components/LangToggle";
 import LineupSimulator from "@/app/components/LineupSimulator";
 import SeasonFilter from "@/app/components/SeasonFilter";
-import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason, sortSeasons } from "@/lib/season";
+import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
+import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { Lang } from "@/lib/translations";
 
 export const dynamic = "force-dynamic";
@@ -29,24 +30,29 @@ export default async function LineupPage({
   const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const { data: allBattingRaw } = await supabase.from("batting_stats").select("season");
   const { data: allPitchingRaw } = await supabase.from("pitching_stats").select("season");
-  const sortedSeasons = sortSeasons([
+  const visibility = await getSeasonVisibility(supabase, [
     ...(allBattingRaw || []).map((b: any) => b.season),
     ...(allPitchingRaw || []).map((p: any) => p.season),
     preferredSeason,
-  ]);
-  const seasons = sortedSeasons.length > 0 ? sortedSeasons : [preferredSeason || "2026"];
+  ], preferredSeason, "2026");
+  const seasons = visibility.seasons.length > 0 ? visibility.seasons : [preferredSeason || "2026"];
   const selectedSeason = normalizeSelectedSeason(params.season, seasons, preferredSeason || "2026", preferredSeason);
-  const { data: batting } = await supabase.from("batting_stats").select("*").eq("season", selectedSeason);
+  const isPlaceholderSeason = isLockedSeason(selectedSeason, visibility.activatedSeasons);
+  const { data: batting } = isPlaceholderSeason
+    ? { data: [] as any[] }
+    : await supabase.from("batting_stats").select("*").eq("season", selectedSeason);
 
   let lineups: any[] = [];
-  try {
+  if (!isPlaceholderSeason) {
+    try {
     const { data } = await supabase
       .from("lineups")
       .select("*")
       .eq("season", selectedSeason)
       .order("created_at", { ascending: false });
     if (data) lineups = data;
-  } catch (e) {}
+    } catch (e) {}
+  }
 
   // 등번호(number) 기준 중복 제거 — DB에 같은 선수가 다른 id로 중복 저장된 경우 방어
   // 같은 등번호 선수는 가장 최근 id(큰 값) 기준으로 대표 선수 선택
@@ -80,7 +86,7 @@ export default async function LineupPage({
       });
     } else { battingMap.set(repId, { ...b }); }
   }
-  const playersWithStats = uniquePlayers.map((p) => {
+  const playersWithStats = (isPlaceholderSeason ? [] : uniquePlayers).map((p) => {
     const b = battingMap.get(p.id);
     const avg = b && b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
     const obp = b && b.pa > 0 ? ((b.hits + b.bb + b.hbp) / b.pa).toFixed(3) : "---";
@@ -121,6 +127,13 @@ export default async function LineupPage({
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
+        {isPlaceholderSeason && (
+          <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.7 }}>
+            {lang === "ko"
+              ? "2026 시즌은 공식 기록 업로드 전까지 라인업 시뮬레이터를 비워 둡니다."
+              : "The 2026 lineup simulator stays blank until official records are uploaded."}
+          </div>
+        )}
         <LineupSimulator players={playersWithStats} savedLineups={lineups} lang={lang} season={selectedSeason} />
       </div>
     </div>

@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
+import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,6 +27,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const lang: Lang = body?.lang === "en" ? "en" : "ko";
     const season: string = String(body?.season ?? "2025");
+    const activatedSeasons = await getActivatedPlaceholderSeasons(supabase);
+
+    if (isLockedSeason(season, activatedSeasons)) {
+      return Response.json(
+        { error: lang === "ko" ? `${season} 시즌은 공식 기록 업로드 전까지 팀 분석을 비워 둡니다` : `${season} analysis is locked until official records are uploaded` },
+        { status: 400 }
+      );
+    }
 
     // ✅ 필요한 컬럼만 + DB에서 시즌 필터
     const [{ data: players, error: playersErr }, { data: batting, error: batErr }, { data: pitching, error: pitErr }] =

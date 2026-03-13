@@ -3,8 +3,18 @@ export const runtime = "nodejs";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import mammoth from "mammoth";
 import * as XLSX from "xlsx";
+import {
+  isOfficialLiveGameWorkbook,
+  parseOfficialGameBattingSheet,
+  parseOfficialGameHighlights,
+  parseOfficialGamePitchingSheet,
+} from "@/lib/officialGameWorkbook";
+import { parseGameLines } from "@/lib/parseDocxGameRecord";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason } from "@/lib/season";
+import { ensureSeasonActivated } from "@/lib/seasonVisibility";
+import { extractGameMetaFromFilename, extractSeasonFromFilename } from "@/lib/gameFileMeta";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -74,21 +84,19 @@ function normalizeDateValue(value: unknown): string | null {
 
 function seasonFromSheetName(sheetName: string): string | null {
   const trimmed = sheetName.trim();
+  if (trimmed === "Career Totals") return "Career";
   if (/^\d{4}$/.test(trimmed)) return trimmed;
 
-  const shortYear = trimmed.match(/^(\d{2})\s*(Spring|Fall)/i);
+  const shortYear = trimmed.match(/^(\d{2})\b/);
   if (shortYear) return `20${shortYear[1]}`;
 
-  const longYear = trimmed.match(/^(\d{4})\s*(Spring|Fall)/i);
+  const longYear = trimmed.match(/^(\d{4})\b/);
   if (longYear) return longYear[1];
 
   return null;
 }
 
-function seasonFromFileName(fileName: string): string | null {
-  const match = fileName.match(/\b(20\d{2})\b/);
-  return match ? match[1] : null;
-}
+let syntheticNumberCursor: number | null = null;
 
 function isStatSheet(sheet: XLSX.WorkSheet): boolean {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
@@ -185,15 +193,29 @@ function collectStructuredStatSeasons(workbook: XLSX.WorkBook): string[] {
   return Array.from(seasons);
 }
 
-function collectFlexibleStatSeasons(workbook: XLSX.WorkBook, fileName: string): string[] {
+function collectFlexibleStatSeasons(
+  workbook: XLSX.WorkBook,
+  fileName: string,
+  fallbackSeason: string
+): string[] {
   const structured = collectStructuredStatSeasons(workbook);
   if (structured.length > 0) return structured;
 
+  if (isOfficialLiveGameWorkbook(workbook)) {
+    return [extractSeasonFromFilename(fileName, fallbackSeason)];
+  }
+
   const seasons = new Set<string>();
-  const yearSheets = workbook.SheetNames.filter((sheetName) => /^\d{4}$/.test(sheetName.trim()));
+  const yearSheets = workbook.SheetNames.filter((sheetName) => {
+    const trimmed = sheetName.trim();
+    return /^\d{4}$/.test(trimmed) || trimmed === "Career Totals";
+  });
 
   if (yearSheets.length > 0) {
-    yearSheets.forEach((sheetName) => seasons.add(sheetName.trim()));
+    yearSheets.forEach((sheetName) => {
+      const season = seasonFromSheetName(sheetName);
+      if (season) seasons.add(season);
+    });
     return Array.from(seasons);
   }
 
@@ -208,22 +230,27 @@ function collectFlexibleStatSeasons(workbook: XLSX.WorkBook, fileName: string): 
   }
 
   if (seasons.size === 0) {
-    const fromFileName = seasonFromFileName(fileName);
+    const fromFileName = extractSeasonFromFilename(fileName, fallbackSeason);
     if (fromFileName) seasons.add(fromFileName);
   }
 
   return Array.from(seasons);
 }
 
-function getSeasonTotalTargets(workbook: XLSX.WorkBook, fileName: string) {
+function getSeasonTotalTargets(workbook: XLSX.WorkBook, fileName: string, fallbackSeason: string) {
   const targets: { sheetName: string; season: string }[] = [];
-  const yearSheets = workbook.SheetNames.filter((sheetName) => /^\d{4}$/.test(sheetName.trim()));
+  const yearSheets = workbook.SheetNames.filter((sheetName) => {
+    const trimmed = sheetName.trim();
+    return /^\d{4}$/.test(trimmed) || trimmed === "Career Totals";
+  });
 
   if (yearSheets.length > 0) {
-    return yearSheets.map((sheetName) => ({ sheetName, season: sheetName.trim() }));
+    return yearSheets
+      .map((sheetName) => ({ sheetName, season: seasonFromSheetName(sheetName) }))
+      .filter((target): target is { sheetName: string; season: string } => Boolean(target.season));
   }
 
-  const fallbackSeason = seasonFromFileName(fileName) || "2025";
+  const defaultSeason = extractSeasonFromFilename(fileName, fallbackSeason);
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
@@ -231,15 +258,15 @@ function getSeasonTotalTargets(workbook: XLSX.WorkBook, fileName: string) {
 
     targets.push({
       sheetName,
-      season: seasonFromSheetName(sheetName) || fallbackSeason,
+      season: seasonFromSheetName(sheetName) || defaultSeason,
     });
   }
 
   return targets;
 }
 
-function getDetailedBlockTargets(workbook: XLSX.WorkBook, fileName: string) {
-  const fallbackSeason = seasonFromFileName(fileName) || "2025";
+function getDetailedBlockTargets(workbook: XLSX.WorkBook, fileName: string, fallbackSeason: string) {
+  const defaultSeason = extractSeasonFromFilename(fileName, fallbackSeason);
 
   return workbook.SheetNames
     .filter((sheetName) => {
@@ -248,7 +275,7 @@ function getDetailedBlockTargets(workbook: XLSX.WorkBook, fileName: string) {
     })
     .map((sheetName) => ({
       sheetName,
-      season: seasonFromSheetName(sheetName) || fallbackSeason,
+      season: seasonFromSheetName(sheetName) || defaultSeason,
     }));
 }
 
@@ -274,6 +301,18 @@ function withActiveSeasonCookie(response: NextResponse, season: string) {
     maxAge: 60 * 60 * 24 * 365,
   });
   return response;
+}
+
+async function activateEligibleSeasons(seasons: string[], fileName: string, results: UploadResults) {
+  if (results.games === 0 && results.batting === 0 && results.pitching === 0) return [];
+
+  const activated: string[] = [];
+  for (const season of seasons) {
+    if (await ensureSeasonActivated(supabase, season, fileName)) {
+      activated.push(season);
+    }
+  }
+  return activated;
 }
 
 async function saveUploadRecord(
@@ -320,15 +359,34 @@ async function detectConflicts(rosterPlayers: RosterPlayer[]): Promise<ConflictP
   return conflicts;
 }
 
-async function findPlayerByNumberOrName(playerNumber: number, name: string) {
-  const { data: playersByNumber } = await supabase
-    .from("players")
-    .select("id,name,number,is_pitcher")
-    .eq("number", playerNumber)
-    .limit(5);
+async function getNextSyntheticPlayerNumber() {
+  if (syntheticNumberCursor !== null) {
+    syntheticNumberCursor += 1;
+    return syntheticNumberCursor;
+  }
 
-  const exactByNumber = playersByNumber?.find((player) => player.number === playerNumber) || null;
-  if (exactByNumber) return exactByNumber as PlayerRecord;
+  const { data } = await supabase
+    .from("players")
+    .select("number")
+    .gte("number", 900)
+    .order("number", { ascending: false })
+    .limit(1);
+
+  syntheticNumberCursor = (data?.[0]?.number ?? 899) + 1;
+  return syntheticNumberCursor;
+}
+
+async function findPlayerByNumberOrName(playerNumber: number | null, name: string) {
+  if (playerNumber && playerNumber > 0) {
+    const { data: playersByNumber } = await supabase
+      .from("players")
+      .select("id,name,number,is_pitcher")
+      .eq("number", playerNumber)
+      .limit(5);
+
+    const exactByNumber = playersByNumber?.find((player) => player.number === playerNumber) || null;
+    if (exactByNumber) return exactByNumber as PlayerRecord;
+  }
 
   const { data: playersByName } = await supabase
     .from("players")
@@ -340,17 +398,24 @@ async function findPlayerByNumberOrName(playerNumber: number, name: string) {
 }
 
 async function upsertPlayer(
-  playerNumber: number,
+  playerNumber: number | null,
   name: string,
   isPitcher: boolean,
-  results?: UploadResults
+  results?: UploadResults,
+  options?: { position?: string | null }
 ) {
-  let player = await findPlayerByNumberOrName(playerNumber, name);
+  const normalizedNumber = playerNumber && playerNumber > 0 ? playerNumber : null;
+  let player = await findPlayerByNumberOrName(normalizedNumber, name);
 
   if (!player) {
+    const insertNumber = normalizedNumber ?? await getNextSyntheticPlayerNumber();
     const { data: created } = await supabase
       .from("players")
-      .insert({ number: playerNumber, name, is_pitcher: isPitcher })
+      .insert({
+        number: insertNumber,
+        name,
+        is_pitcher: isPitcher,
+      })
       .select("id,name,number,is_pitcher")
       .single();
 
@@ -360,7 +425,7 @@ async function upsertPlayer(
 
   const updates: Record<string, unknown> = {};
   if (player.name !== name) updates.name = name;
-  if (player.number !== playerNumber) updates.number = playerNumber;
+  if (normalizedNumber && player.number !== normalizedNumber) updates.number = normalizedNumber;
   if (isPitcher && !player.is_pitcher) updates.is_pitcher = true;
 
   if (Object.keys(updates).length > 0) {
@@ -418,7 +483,6 @@ async function initializeRosterSeason(rosterPlayers: RosterPlayer[], overwrite: 
           number: rosterPlayer.number,
           name: rosterPlayer.name,
           is_pitcher: rosterPlayer.is_pitcher ?? false,
-          position: rosterPlayer.position ?? null,
         })
         .select("id")
         .single();
@@ -508,6 +572,7 @@ function detectHeaderRows(rows: Row[]) {
 
 function detectColumns(headerRow: Row) {
   const header = headerRow.map((cell) => String(cell ?? "").trim());
+  const findAny = (...labels: string[]) => header.findIndex((value) => labels.includes(value));
   return {
     number: header.indexOf("배번"),
     name: header.indexOf("이름"),
@@ -519,8 +584,9 @@ function detectColumns(headerRow: Row) {
     triples: header.indexOf("3루타"),
     hr: header.indexOf("홈런"),
     rbi: header.indexOf("타점"),
-    bb: header.indexOf("볼넷"),
-    hbp: header.indexOf("사구"),
+    battingBb: findAny("볼넷"),
+    pitchingBb: findAny("4사구", "4구", "볼넷"),
+    hbp: findAny("사구"),
     so: header.indexOf("삼진"),
     sb: header.indexOf("도루"),
     w: header.indexOf("승"),
@@ -568,7 +634,7 @@ async function processSeasonTotalSheet(
         triples: Number(row[cols.triples]) || 0,
         hr: Number(row[cols.hr]) || 0,
         rbi: Number(row[cols.rbi]) || 0,
-        bb: Number(row[cols.bb]) || 0,
+        bb: Number(row[cols.battingBb]) || 0,
         hbp: Number(row[cols.hbp]) || 0,
         so: Number(row[cols.so]) || 0,
         sb: Number(row[cols.sb]) || 0,
@@ -601,7 +667,7 @@ async function processSeasonTotalSheet(
         ha: Number(row[cols.ha]) || 0,
         runs_allowed: Number(row[cols.runsAllowed]) || 0,
         er: Number(row[cols.er]) || 0,
-        bb: Number(row[cols.bb]) || 0,
+        bb: Number(row[cols.pitchingBb]) || 0,
         hbp: Number(row[cols.hbp]) || 0,
         so: Number(row[cols.so]) || 0,
         hr_allowed: Number(row[cols.hrAllowed]) || 0,
@@ -647,6 +713,208 @@ async function getOrCreateGameId(
   }
 
   return null;
+}
+
+async function clearGameSnapshot(gameId: number | null) {
+  if (!gameId) return;
+  await supabase.from("batting_stats").delete().eq("game_id", gameId);
+  await supabase.from("pitching_stats").delete().eq("game_id", gameId);
+}
+
+async function upsertGameMetadata(
+  gameId: number | null,
+  patch: {
+    result?: "W" | "L" | "D" | null;
+    score_us?: number | null;
+    score_them?: number | null;
+    notes?: string | null;
+  }
+) {
+  if (!gameId) return;
+  const updates = Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== undefined)
+  );
+  if (Object.keys(updates).length === 0) return;
+  await supabase.from("games").update(updates).eq("id", gameId);
+}
+
+async function processLiveGameWorkbook(
+  workbook: XLSX.WorkBook,
+  fileName: string,
+  fallbackSeason: string,
+  results: UploadResults
+) {
+  const meta = extractGameMetaFromFilename(fileName, fallbackSeason);
+  if (!meta.date || !meta.opponent) {
+    throw new Error("현장 경기 파일은 파일명에 날짜와 상대팀이 포함되어야 합니다. 예: 9_26 VS 선학 경기 기록.xlsx");
+  }
+
+  const battingRows = workbook.Sheets["타자 기록"]
+    ? parseOfficialGameBattingSheet(workbook.Sheets["타자 기록"])
+    : [];
+  const pitchingRows = workbook.Sheets["투수 기록"]
+    ? parseOfficialGamePitchingSheet(workbook.Sheets["투수 기록"])
+    : [];
+  const highlights = parseOfficialGameHighlights(workbook.Sheets["주요 기록"]);
+
+  const gameCache = new Map<string, number>();
+  const gameId = await getOrCreateGameId(meta.date, meta.opponent, meta.season, gameCache, results);
+
+  await clearGameSnapshot(gameId);
+
+  for (const row of battingRows) {
+    const player = await upsertPlayer(null, row.name, row.position === "P", results, {
+      position: row.position || null,
+    });
+    if (!player || !gameId) continue;
+
+    await supabase.from("batting_stats").insert({
+      player_id: player.id,
+      game_id: gameId,
+      season: meta.season,
+      pa: row.pa,
+      ab: row.ab,
+      runs: row.runs,
+      hits: row.hits,
+      doubles: row.doubles,
+      triples: row.triples,
+      hr: row.hr,
+      rbi: row.rbi,
+      bb: row.bb,
+      hbp: row.hbp,
+      so: row.so,
+      sb: row.sb,
+    });
+    results.batting += 1;
+  }
+
+  for (const row of pitchingRows) {
+    const player = await upsertPlayer(null, row.name, true, results, {
+      position: "P",
+    });
+    if (!player || !gameId) continue;
+
+    await supabase.from("pitching_stats").insert({
+      player_id: player.id,
+      game_id: gameId,
+      season: meta.season,
+      w: row.w,
+      l: row.l,
+      sv: row.sv,
+      hld: row.hld,
+      ip: row.ip,
+      ha: row.ha,
+      runs_allowed: row.runs_allowed,
+      er: row.er,
+      bb: row.bb,
+      hbp: row.hbp,
+      so: row.so,
+      hr_allowed: row.hr_allowed,
+    });
+    results.pitching += 1;
+  }
+
+  const scoreUs = battingRows.reduce((sum, row) => sum + row.runs, 0);
+  const scoreThem = pitchingRows.reduce((sum, row) => sum + row.runs_allowed, 0);
+  const result =
+    scoreUs > scoreThem ? "W" : scoreUs < scoreThem ? "L" : (scoreUs === 0 && scoreThem === 0 ? null : "D");
+
+  await upsertGameMetadata(gameId, {
+    score_us: scoreUs,
+    score_them: scoreThem,
+    result,
+    notes: highlights.length > 0 ? highlights.join(" | ") : null,
+  });
+}
+
+async function processLiveGameDocxFile(
+  file: File,
+  fileName: string,
+  fallbackSeason: string,
+  results: UploadResults
+) {
+  const meta = extractGameMetaFromFilename(fileName, fallbackSeason);
+  if (!meta.date || !meta.opponent) {
+    throw new Error("현장 경기 Word 파일은 파일명에 날짜와 상대팀이 포함되어야 합니다. 예: Sep 29 VS 사회인.docx");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { value } = await mammoth.extractRawText({ buffer });
+  const lines = value.split("\n").filter((line) => line.trim().length > 0);
+  const parsed = parseGameLines(lines);
+
+  const gameCache = new Map<string, number>();
+  const gameId = await getOrCreateGameId(meta.date, meta.opponent, meta.season, gameCache, results);
+  await clearGameSnapshot(gameId);
+
+  for (const row of parsed.battingStats) {
+    const player = await upsertPlayer(null, row.name, false, results);
+    if (!player || !gameId) continue;
+
+    const ab = Number(row.atBats) || 0;
+    const bb = Number(row.walks) || 0;
+    const hbp = Number(row.hbp) || 0;
+
+    await supabase.from("batting_stats").insert({
+      player_id: player.id,
+      game_id: gameId,
+      season: meta.season,
+      pa: ab + bb + hbp,
+      ab,
+      runs: Number(row.runs) || 0,
+      hits: Number(row.hits) || 0,
+      doubles: Number(row.doubles) || 0,
+      triples: Number(row.triples) || 0,
+      hr: Number(row.homeRuns) || 0,
+      rbi: Number(row.rbi) || 0,
+      bb,
+      hbp,
+      so: Number(row.strikeouts) || 0,
+      sb: 0,
+    });
+    results.batting += 1;
+  }
+
+  for (const row of parsed.pitchingStats) {
+    const player = await upsertPlayer(null, row.name, true, results, { position: "P" });
+    if (!player || !gameId) continue;
+
+    await supabase.from("pitching_stats").insert({
+      player_id: player.id,
+      game_id: gameId,
+      season: meta.season,
+      w: 0,
+      l: 0,
+      sv: 0,
+      hld: 0,
+      ip: Number(row.innings) || 0,
+      ha: Number(row.hits) || 0,
+      runs_allowed: Number(row.runs) || 0,
+      er: Number(row.earnedRuns) || Number(row.runs) || 0,
+      bb: Number(row.walks) || 0,
+      hbp: 0,
+      so: Number(row.strikeouts) || 0,
+      hr_allowed: 0,
+    });
+    results.pitching += 1;
+  }
+
+  const scoreUs = parsed.gameInfo.score_us || 0;
+  const scoreThem = parsed.gameInfo.score_them || 0;
+  const result = parsed.gameInfo.result && ["W", "L", "D"].includes(parsed.gameInfo.result)
+    ? (parsed.gameInfo.result as "W" | "L" | "D")
+    : scoreUs > scoreThem
+      ? "W"
+      : scoreUs < scoreThem
+        ? "L"
+        : (scoreUs === 0 && scoreThem === 0 ? null : "D");
+
+  await upsertGameMetadata(gameId, {
+    score_us: scoreUs,
+    score_them: scoreThem,
+    result,
+    notes: value.trim() ? value.trim().slice(0, 4000) : null,
+  });
 }
 
 async function processStructuredWorkbook(workbook: XLSX.WorkBook, results: UploadResults) {
@@ -735,7 +1003,7 @@ async function processStructuredWorkbook(workbook: XLSX.WorkBook, results: Uploa
         ha: Number(row["피안타"]) || 0,
         runs_allowed: Number(row["실점"]) || 0,
         er: Number(row["자책"]) || 0,
-        bb: Number(row["볼넷"]) || 0,
+        bb: Number(row["4사구"]) || Number(row["4구"]) || Number(row["볼넷"]) || 0,
         hbp: Number(row["사구"]) || 0,
         so: Number(row["삼진"]) || 0,
         hr_allowed: Number(row["피홈런"]) || 0,
@@ -863,6 +1131,32 @@ export async function POST(request: NextRequest) {
     const overwrite = formData.get("overwrite") === "true";
     const checkOnly = formData.get("checkOnly") === "true";
     const skipConflicts = formData.get("skipConflicts") === "true";
+    const requestedSeason = normalizeSeason(formData.get("season")) || TARGET_SEASON;
+
+    if (/\.docx$/i.test(file.name)) {
+      const statSeasons = [extractSeasonFromFilename(file.name, requestedSeason)];
+      const results: UploadResults = {
+        players: 0,
+        updated: 0,
+        games: 0,
+        batting: 0,
+        pitching: 0,
+        skipped_batting: 0,
+        skipped_pitching: 0,
+        seasons: statSeasons,
+      };
+
+      await processLiveGameDocxFile(file, file.name, requestedSeason, results);
+      const activatedSeasons = await activateEligibleSeasons(statSeasons, file.name, results);
+      revalidateConnectedViews();
+      const activeSeason = getLatestSeason(statSeasons, requestedSeason);
+
+      return withActiveSeasonCookie(NextResponse.json({
+        success: true,
+        message: `업로드 완료! 경기 Word 기록을 반영했습니다. 선수 ${results.players}명 추가, 경기 ${results.games}개, 타자 ${results.batting}건, 투수 ${results.pitching}건 반영${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 잠금 해제` : ""}`,
+        details: results,
+      }), activeSeason);
+    }
 
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: "array", cellStyles: true });
@@ -871,13 +1165,14 @@ export async function POST(request: NextRequest) {
       workbook.SheetNames.includes("경기") ||
       (workbook.SheetNames.includes("타자") && isStatSheet(workbook.Sheets["타자"])) ||
       (workbook.SheetNames.includes("투수") && isStatSheet(workbook.Sheets["투수"]));
+    const hasLiveGameStatSheet = isOfficialLiveGameWorkbook(workbook);
 
-    const seasonTotalTargets = getSeasonTotalTargets(workbook, file.name);
-    const detailedBlockTargets = getDetailedBlockTargets(workbook, file.name);
+    const seasonTotalTargets = getSeasonTotalTargets(workbook, file.name, requestedSeason);
+    const detailedBlockTargets = getDetailedBlockTargets(workbook, file.name, requestedSeason);
     const rosterPlayers = extractRosterPlayers(workbook);
 
     const isStatsUpload =
-      hasStructuredStatSheet || seasonTotalTargets.length > 0 || detailedBlockTargets.length > 0;
+      hasStructuredStatSheet || hasLiveGameStatSheet || seasonTotalTargets.length > 0 || detailedBlockTargets.length > 0;
 
     if (!isStatsUpload && rosterPlayers.length > 0) {
       const conflicts = await detectConflicts(rosterPlayers);
@@ -915,15 +1210,13 @@ export async function POST(request: NextRequest) {
       }), TARGET_SEASON);
     }
 
-    const statSeasons = collectFlexibleStatSeasons(workbook, file.name);
+    const statSeasons = collectFlexibleStatSeasons(workbook, file.name, requestedSeason);
     if (statSeasons.length === 0) {
       return NextResponse.json(
         { error: "지원하지 않는 파일 형식입니다. 시즌 통계 또는 로스터 형식의 파일을 업로드해 주세요." },
         { status: 400 }
       );
     }
-
-    await clearSeasonSnapshot(statSeasons);
 
     const results: UploadResults = {
       players: 0,
@@ -935,6 +1228,12 @@ export async function POST(request: NextRequest) {
       skipped_pitching: 0,
       seasons: statSeasons,
     };
+
+    if (hasLiveGameStatSheet) {
+      await processLiveGameWorkbook(workbook, file.name, requestedSeason, results);
+    } else {
+      await clearSeasonSnapshot(statSeasons);
+    }
 
     if (hasStructuredStatSheet) {
       await processStructuredWorkbook(workbook, results);
@@ -954,12 +1253,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const activatedSeasons = await activateEligibleSeasons(statSeasons, file.name, results);
     revalidateConnectedViews();
-    const activeSeason = getLatestSeason(statSeasons, TARGET_SEASON);
+    const activeSeason = getLatestSeason(statSeasons, requestedSeason);
+    const replacedScope = hasLiveGameStatSheet
+      ? "해당 경기 데이터를 최신 파일 기준으로 교체했습니다"
+      : `시즌 ${statSeasons.join(", ")} 데이터를 최신 파일 기준으로 교체했습니다`;
 
     return withActiveSeasonCookie(NextResponse.json({
       success: true,
-      message: `업로드 완료! 시즌 ${statSeasons.join(", ")} 데이터를 최신 파일 기준으로 교체했습니다. 선수 ${results.players}명 추가, 경기 ${results.games}개, 타자 ${results.batting}건, 투수 ${results.pitching}건 반영`,
+      message: `업로드 완료! ${replacedScope}. 선수 ${results.players}명 추가, 경기 ${results.games}개, 타자 ${results.batting}건, 투수 ${results.pitching}건 반영${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 잠금 해제` : ""}`,
       details: results,
     }), activeSeason);
   } catch (error: unknown) {

@@ -4,7 +4,16 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { revalidatePath } from "next/cache";
 import { NextRequest } from "next/server";
+import mammoth from "mammoth";
 import * as XLSX from "xlsx";
+import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
+import {
+  parseOfficialGameBattingSheet,
+  parseOfficialGameHighlights,
+  parseOfficialGamePitchingSheet,
+} from "@/lib/officialGameWorkbook";
+import { parseGameLines } from "@/lib/parseDocxGameRecord";
+import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,7 +22,7 @@ const supabase = createClient(
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-function inferSeason(gameDate: string, fallback = "2025") {
+function inferSeason(gameDate: string, fallback = String(new Date().getFullYear())) {
   const match = gameDate.match(/\b(20\d{2})\b/);
   return match ? match[1] : fallback;
 }
@@ -36,85 +45,128 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const lang = (formData.get("lang") as string) || "ko";
-    const opponent = (formData.get("opponent") as string) || "";
-    const gameDate = (formData.get("gameDate") as string) || "";
-    const season = (formData.get("season") as string) || inferSeason(gameDate);
+    const requestedSeason = (formData.get("season") as string) || String(new Date().getFullYear());
+    const fileMeta = extractGameMetaFromFilename(file?.name || "", requestedSeason);
+    const opponent = ((formData.get("opponent") as string) || fileMeta.opponent || "").trim();
+    const gameDate = ((formData.get("gameDate") as string) || fileMeta.date || "").trim();
+    const season = requestedSeason || fileMeta.season || inferSeason(gameDate);
 
     if (!file) return Response.json({ error: "파일이 없습니다" }, { status: 400 });
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const wb = XLSX.read(buffer, { type: "buffer" });
-
-    // === 타자 기록 파싱 ===
-    const batSheet = wb.Sheets["타자 기록"];
     const battingData: any[] = [];
-    if (batSheet) {
-      const rows = XLSX.utils.sheet_to_json(batSheet, { header: 1 }) as any[][];
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || !r[2]) continue; // 이름 없으면 skip
-        if (typeof r[2] === "number" && !r[3]) continue; // 합계 행 skip
-        const ab = Number(r[3]) || 0;
-        const hits = Number(r[5]) || 0;
+    const pitchingData: any[] = [];
+    const highlights: any = {};
+    let noteText = "";
+
+    if (/\.docx$/i.test(file.name)) {
+      const { value } = await mammoth.extractRawText({ buffer });
+      noteText = value.trim();
+      const lines = value.split("\n").filter((line) => line.trim().length > 0);
+      const parsed = parseGameLines(lines);
+
+      for (const [index, batter] of parsed.battingStats.entries()) {
+        const ab = batter.atBats || 0;
+        const hits = batter.hits || 0;
         battingData.push({
-          order: r[0] ?? i,
-          position: r[1] || "",
-          name: r[2],
+          order: index + 1,
+          position: "",
+          name: batter.name,
           ab,
-          runs: Number(r[4]) || 0,
+          runs: batter.runs || 0,
           hits,
-          doubles: Number(r[6]) || 0,
-          triples: Number(r[7]) || 0,
-          hr: Number(r[8]) || 0,
-          rbi: Number(r[9]) || 0,
-          bb: Number(r[10]) || 0,
-          hbp: Number(r[11]) || 0,
-          so: Number(r[12]) || 0,
+          doubles: batter.doubles || 0,
+          triples: batter.triples || 0,
+          hr: batter.homeRuns || 0,
+          rbi: batter.rbi || 0,
+          bb: batter.walks || 0,
+          hbp: batter.hbp || 0,
+          so: batter.strikeouts || 0,
           avg: ab > 0 ? (hits / ab).toFixed(3) : "0",
-          sb: Number(r[14]) || 0,
+          sb: 0,
         });
       }
-    }
 
-    // === 투수 기록 파싱 ===
-    const pitSheet = wb.Sheets["투수 기록"];
-    const pitchingData: any[] = [];
-    if (pitSheet) {
-      const rows = XLSX.utils.sheet_to_json(pitSheet, { header: 1 }) as any[][];
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || !r[0]) continue;
-        const ip = Number(r[2]) || 0;
-        const er = Number(r[5]) || 0;
+      for (const pitcher of parsed.pitchingStats) {
+        const ip = Number(pitcher.innings) || 0;
+        const er = Number(pitcher.earnedRuns) || 0;
         pitchingData.push({
-          name: r[0],
-          decision: r[1] || "",
+          name: pitcher.name,
+          decision: "",
           ip,
-          ha: Number(r[3]) || 0,
-          runs_allowed: Number(r[4]) || 0,
+          ha: pitcher.hits || 0,
+          runs_allowed: pitcher.runs || 0,
           er,
-          bb: Number(r[6]) || 0,
-          so: Number(r[7]) || 0,
-          hr_allowed: Number(r[8]) || 0,
-          batters_faced: Number(r[9]) || 0,
-          ab_against: Number(r[10]) || 0,
-          pitches: Number(r[11]) || 0,
-          w: Number(r[12]) || 0,
-          l: Number(r[13]) || 0,
-          sv: Number(r[14]) || 0,
-          hld: Number(r[15]) || 0,
+          bb: pitcher.walks || 0,
+          so: pitcher.strikeouts || 0,
+          hr_allowed: 0,
+          batters_faced: 0,
+          ab_against: 0,
+          pitches: 0,
+          w: 0,
+          l: 0,
+          sv: 0,
+          hld: 0,
           era: ip > 0 ? ((er / ip) * 9).toFixed(2) : "0",
         });
       }
-    }
 
-    // === 주요 기록 파싱 ===
-    const highlightSheet = wb.Sheets["주요 기록"];
-    const highlights: any = {};
-    if (highlightSheet) {
-      const rows = XLSX.utils.sheet_to_json(highlightSheet, { header: 1 }) as any[][];
-      for (const r of rows) {
-        if (r[0] && r[1]) highlights[r[0]] = r[1];
+      if (noteText) highlights["현장 기록 메모"] = noteText.slice(0, 3000);
+    } else {
+      const wb = XLSX.read(buffer, { type: "buffer" });
+      const batSheet = wb.Sheets["타자 기록"];
+      if (batSheet) {
+        for (const row of parseOfficialGameBattingSheet(batSheet)) {
+          battingData.push({
+            order: row.order,
+            position: row.position,
+            name: row.name,
+            ab: row.ab,
+            runs: row.runs,
+            hits: row.hits,
+            doubles: row.doubles,
+            triples: row.triples,
+            hr: row.hr,
+            rbi: row.rbi,
+            bb: row.bb,
+            hbp: row.hbp,
+            so: row.so,
+            avg: row.avg,
+            sb: row.sb,
+          });
+        }
+      }
+
+      const pitSheet = wb.Sheets["투수 기록"];
+      if (pitSheet) {
+        for (const row of parseOfficialGamePitchingSheet(pitSheet)) {
+          pitchingData.push({
+            name: row.name,
+            decision: row.decision,
+            ip: row.ip,
+            ha: row.ha,
+            runs_allowed: row.runs_allowed,
+            er: row.er,
+            bb: row.bb,
+            so: row.so,
+            hr_allowed: row.hr_allowed,
+            batters_faced: row.batters_faced,
+            ab_against: row.ab_against,
+            pitches: row.pitches,
+            w: row.w,
+            l: row.l,
+            sv: row.sv,
+            hld: row.hld,
+            era: row.era,
+          });
+        }
+      }
+
+      for (const line of parseOfficialGameHighlights(wb.Sheets["주요 기록"])) {
+        const [label, ...valueParts] = line.split(":");
+        const value = valueParts.join(":").trim();
+        if (!label || !value) continue;
+        highlights[label.trim()] = value;
       }
     }
 
@@ -152,6 +204,10 @@ export async function POST(request: NextRequest) {
       for (const [key, val] of Object.entries(highlights)) {
         if (val && val !== "-") statsText += `${key}: ${val}\n`;
       }
+    }
+
+    if (noteText) {
+      statsText += `\n[Scouting Notes]\n${noteText.slice(0, 4000)}\n`;
     }
 
     const systemPrompt = lang === "en"
@@ -224,6 +280,10 @@ export async function POST(request: NextRequest) {
 // 과거 기록 조회
 export async function GET(request: NextRequest) {
   const season = request.nextUrl.searchParams.get("season");
+  const activatedSeasons = await getActivatedPlaceholderSeasons(supabase);
+  if (season && isLockedSeason(season, activatedSeasons)) {
+    return Response.json({ records: [] });
+  }
   const { data } = await supabase
     .from("game_records")
     .select("*")

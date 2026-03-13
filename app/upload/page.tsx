@@ -23,11 +23,22 @@ const FORMATS = [
   {
     emoji: "⚾", title: "경기 기록 파일 (성적 업데이트)",
     color: "#60a5fa", bg: "rgba(59,130,246,0.08)", border: "rgba(59,130,246,0.2)",
-    desc: "경기 후 기록 업로드. 같은 시즌은 이전 업로드와 무관하게 최신 파일 기준으로 통째로 다시 반영됩니다.",
+    desc: "경기 후 기록 업로드. 시즌 누적 파일은 시즌 전체를 교체하고, 현장 경기 Excel/Word 파일은 해당 경기만 최신 파일 기준으로 교체됩니다.",
     sheets: [
       { name: "경기 시트 (필수)", cols: "날짜 | 상대팀 | 시즌" },
       { name: "타자 시트", cols: "날짜 | 상대팀 | 시즌 | 배번 | 이름 | 포지션 | 타석 | 타수 | 득점 | 안타 | 2루타 | 3루타 | 홈런 | 타점 | 볼넷 | 사구 | 삼진 | 도루" },
       { name: "투수 시트", cols: "날짜 | 상대팀 | 시즌 | 배번 | 이름 | 포지션 | 승 | 패 | 세 | 홀 | 이닝 | 피안타 | 실점 | 자책 | 볼넷 | 사구 | 삼진 | 피홈런" },
+      { name: "현장 경기 Excel", cols: "타자 기록 | 투수 기록 | 주요 기록 (예: Sep 29 VS 사회인.xlsx)" },
+      { name: "현장 경기 Word", cols: "경기 메모용 .docx (예: Sep 29 VS 사회인.docx)" },
+    ],
+  },
+  {
+    emoji: "📚", title: "공식 시즌/통산 파일",
+    color: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)",
+    desc: "2022~2025 시즌 누적 통계 파일과 Career Totals 공식 통산 파일을 그대로 업로드할 수 있습니다.",
+    sheets: [
+      { name: "공식 시즌 파일", cols: "2022 | 2023 | 2024 | 2025 + Spring/Fall/Summer 상세 시트" },
+      { name: "공식 통산 파일", cols: "Career Totals | 2022 | 2023 | 2024 | 2025" },
     ],
   },
 ];
@@ -35,9 +46,10 @@ const FORMATS = [
 const TIPS = [
   "1행은 반드시 헤더(컬럼명)여야 합니다. 제목 행이 있으면 인식하지 못합니다.",
   "경기 기록: '경기' 시트에 날짜·상대팀·시즌이 있어야 타자/투수 기록이 해당 경기에 연결됩니다.",
-  "같은 시즌 파일을 다시 올리면 기존 시즌 데이터는 지워지고 새 파일 내용으로 교체됩니다.",
-  "기록은 업로드된 최신 파일을 기준으로 시즌별 대시보드에 표시됩니다.",
-  "시즌 컬럼 값이 '2026'이어야 2026 탭에 반영됩니다.",
+  "시즌 누적 파일을 다시 올리면 해당 시즌 데이터는 새 파일 내용으로 교체됩니다.",
+  "현장 경기 Excel/Word 파일은 같은 날짜·상대 경기만 교체되고 시즌 누적은 유지됩니다.",
+  "기록은 업로드된 최신 파일을 기준으로 시즌별 대시보드에 합산 표시됩니다.",
+  "파일명에 연도가 없으면 현재 보고 있는 시즌(예: 2025, 2026)으로 업로드됩니다.",
 ];
 
 export default function UploadPage() {
@@ -66,6 +78,7 @@ export default function UploadPage() {
     setLoading(true); setResult(null);
     const fd = new FormData();
     fd.append("file", file);
+    fd.append("season", currentSeason || "2025");
     Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
@@ -91,6 +104,7 @@ export default function UploadPage() {
     setLoading(true);
     const fd = new FormData();
     fd.append("file", file);
+    fd.append("season", currentSeason || "2025");
     fd.append(mode === "overwrite" ? "overwrite" : "skipConflicts", "true");
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
@@ -127,7 +141,7 @@ export default function UploadPage() {
         </div>
 
         {/* 형식 안내 카드 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 32 }}>
           {FORMATS.map((g, i) => (
             <div key={i} style={{ background: g.bg, border: `1px solid ${g.border}`, borderRadius: 16, padding: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -158,7 +172,7 @@ export default function UploadPage() {
             transition: "all 0.2s", marginBottom: 16,
           }}
         >
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.docx" style={{ display: "none" }}
             onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
           <div style={{ fontSize: 44, marginBottom: 14 }}>{file ? "✅" : "📁"}</div>
           {file ? (
@@ -168,8 +182,8 @@ export default function UploadPage() {
             </>
           ) : (
             <>
-              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>엑셀 파일을 드래그하거나 클릭하여 선택</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>.xlsx · .xls · .csv</div>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>엑셀 또는 워드 파일을 드래그하거나 클릭하여 선택</div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>.xlsx · .xls · .csv · .docx</div>
             </>
           )}
         </div>
