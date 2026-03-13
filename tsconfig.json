@@ -6,7 +6,6 @@
       "dom.iterable",
       "esnext"
     ],
-    "types": ["node", "next"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -43,3 +42,4 @@
   "exclude": [
     "node_modules"
   ]
+}
