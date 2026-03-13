@@ -15,7 +15,7 @@ export default async function LineupPage() {
   const cookieStore = await cookies();
   const lang = (cookieStore.get("lang")?.value || "ko") as Lang;
 
-  const { data: players } = await supabase.from("players").select("*").order("number");
+  const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const { data: allBattingRaw } = await supabase.from("batting_stats").select("season");
   const seasons = [...new Set((allBattingRaw || []).map((b: any) => b.season).filter(Boolean))].sort().reverse();
   const latestSeason = (seasons[0] as string) || "2026";
@@ -27,25 +27,38 @@ export default async function LineupPage() {
     if (data) lineups = data;
   } catch (e) {}
 
-  // 타자 기록 누적합산
+  // 등번호(number) 기준 중복 제거 — DB에 같은 선수가 다른 id로 중복 저장된 경우 방어
+  // 같은 등번호 선수는 가장 최근 id(큰 값) 기준으로 대표 선수 선택
+  const uniquePlayers = Array.from(
+    (rawPlayers || []).reduce((map: Map<number, any>, p: any) => {
+      const existing = map.get(p.number);
+      if (!existing || p.id > existing.id) map.set(p.number, p);
+      return map;
+    }, new Map<number, any>()).values()
+  );
+
+  // 등번호 → 대표 player_id 매핑 (중복 id들도 모두 같은 선수로 합산)
+  const numberToPlayerId = new Map<number, number>();
+  for (const p of (rawPlayers || [])) {
+    const rep = uniquePlayers.find((u: any) => u.number === (p as any).number);
+    if (rep) numberToPlayerId.set((p as any).id, (rep as any).id);
+  }
+
+  // 타자 기록 — 중복 id 포함 모두 대표 id로 합산
   const battingMap = new Map<number, any>();
   for (const b of batting || []) {
-    if (battingMap.has(b.player_id)) {
-      const acc = battingMap.get(b.player_id);
-      battingMap.set(b.player_id, {
+    const repId: number = numberToPlayerId.get(b.player_id) ?? b.player_id;
+    if (battingMap.has(repId)) {
+      const acc = battingMap.get(repId);
+      battingMap.set(repId, {
         ...acc,
         pa: acc.pa + (b.pa||0), ab: acc.ab + (b.ab||0),
         hits: acc.hits + (b.hits||0), doubles: acc.doubles + (b.doubles||0),
         triples: acc.triples + (b.triples||0), hr: acc.hr + (b.hr||0),
         bb: acc.bb + (b.bb||0), hbp: acc.hbp + (b.hbp||0),
       });
-    } else { battingMap.set(b.player_id, { ...b }); }
+    } else { battingMap.set(repId, { ...b }); }
   }
-
-  // id 기준 중복 제거
-  const uniquePlayers = Array.from(
-    new Map((players || []).map((p) => [p.id, p])).values()
-  );
   const playersWithStats = uniquePlayers.map((p) => {
     const b = battingMap.get(p.id);
     const avg = b && b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
