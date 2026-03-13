@@ -665,6 +665,15 @@ export default function ComparePage() {
   const pi1 = p1 ? calcPitching(p1.pitching_stats, season) : null;
   const pi2 = p2 ? calcPitching(p2.pitching_stats, season) : null;
   const hasPitching = pi1 || pi2;
+  const seasonPlayers = lockedSeasons.includes(season)
+    ? []
+    : (seasonRosters[String(season)] || []);
+
+  useEffect(() => {
+    const seasonIds = new Set(seasonPlayers.map((player) => player.id));
+    if (p1 && !seasonIds.has(p1.id)) setP1(null);
+    if (p2 && !seasonIds.has(p2.id)) setP2(null);
+  }, [seasonPlayers, p1, p2]);
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
@@ -675,16 +684,6 @@ export default function ComparePage() {
   if (error) return (
     <div style={{ padding: 32, textAlign: 'center', color: '#ef4444', fontSize: 15 }}>오류: {error}</div>
   );
-
-  const seasonPlayers = lockedSeasons.includes(season)
-    ? []
-    : (seasonRosters[String(season)] || []);
-
-  useEffect(() => {
-    const seasonIds = new Set(seasonPlayers.map((player) => player.id));
-    if (p1 && !seasonIds.has(p1.id)) setP1(null);
-    if (p2 && !seasonIds.has(p2.id)) setP2(null);
-  }, [seasonPlayers, p1, p2]);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px' }}>
