@@ -6,6 +6,7 @@
       "dom.iterable",
       "esnext"
     ],
+    "types": ["node", "next"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -36,9 +37,9 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts",
     "next.config.js",
-    "app/components/Themeprovider.jsx"
+    "app/components/Themeprovider.jsx",
+    "types/**/*.d.ts"
   ],
   "exclude": [
     "node_modules"
   ]
-}
