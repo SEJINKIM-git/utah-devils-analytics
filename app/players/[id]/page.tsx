@@ -25,8 +25,32 @@ export default async function PlayerDetail({ params }: { params: Promise<{ id: s
   const { data: allPitching } = await supabase.from("pitching_stats").select("*").eq("player_id", id);
   const { data: reports } = await supabase.from("ai_reports").select("*").eq("player_id", id).order("generated_at", { ascending: false }).limit(1);
 
-  const bat = allBatting?.filter((b) => b.season !== "Career").sort((a, b) => (b.season || "").localeCompare(a.season || ""))?.[0];
-  const pitch = allPitching?.filter((p) => p.season !== "Career" && p.ip > 0).sort((a, b) => (b.season || "").localeCompare(a.season || ""))?.[0];
+  // 최신 시즌 기록 전체 합산
+  const latestBatSeason = allBatting?.filter(b => b.season !== "Career").sort((a, b) => (b.season || "").localeCompare(a.season || ""))?.[0]?.season;
+  const latestPitSeason = allPitching?.filter(p => p.season !== "Career" && p.ip > 0).sort((a, b) => (b.season || "").localeCompare(a.season || ""))?.[0]?.season;
+
+  const batRecords = allBatting?.filter(b => b.season === latestBatSeason) || [];
+  const pitRecords = allPitching?.filter(p => p.season === latestPitSeason && p.ip > 0) || [];
+
+  const bat = batRecords.length > 0 ? batRecords.reduce((acc, b) => ({
+    ...acc,
+    pa: acc.pa + (b.pa || 0), ab: acc.ab + (b.ab || 0), runs: acc.runs + (b.runs || 0),
+    hits: acc.hits + (b.hits || 0), doubles: acc.doubles + (b.doubles || 0),
+    triples: acc.triples + (b.triples || 0), hr: acc.hr + (b.hr || 0),
+    rbi: acc.rbi + (b.rbi || 0), bb: acc.bb + (b.bb || 0), hbp: acc.hbp + (b.hbp || 0),
+    so: acc.so + (b.so || 0), sb: acc.sb + (b.sb || 0),
+  }), { ...batRecords[0], pa:0, ab:0, runs:0, hits:0, doubles:0, triples:0, hr:0, rbi:0, bb:0, hbp:0, so:0, sb:0 }) : null;
+
+  const pitch = pitRecords.length > 0 ? pitRecords.reduce((acc, p) => ({
+    ...acc,
+    w: acc.w + (p.w || 0), l: acc.l + (p.l || 0), sv: acc.sv + (p.sv || 0),
+    hld: acc.hld + (p.hld || 0),
+    ip: (parseFloat(String(acc.ip)) || 0) + (parseFloat(String(p.ip)) || 0),
+    ha: acc.ha + (p.ha || 0), runs_allowed: acc.runs_allowed + (p.runs_allowed || 0),
+    er: acc.er + (p.er || 0), bb: acc.bb + (p.bb || 0), hbp: acc.hbp + (p.hbp || 0),
+    so: acc.so + (p.so || 0), hr_allowed: acc.hr_allowed + (p.hr_allowed || 0),
+  }), { ...pitRecords[0], w:0, l:0, sv:0, hld:0, ip:0, ha:0, runs_allowed:0, er:0, bb:0, hbp:0, so:0, hr_allowed:0 }) : null;
+
   const report = reports?.[0];
 
   const avg = bat && bat.ab > 0 ? (bat.hits / bat.ab).toFixed(3) : "---";
@@ -57,7 +81,7 @@ export default async function PlayerDetail({ params }: { params: Promise<{ id: s
     if (lang === "en") return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
     return `${d.getFullYear()}.${(d.getMonth() + 1).toString().padStart(2, "0")}.${d.getDate().toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
   };
-  const latestSeason = bat?.season || pitch?.season || "2025";
+  const latestSeason = latestBatSeason || latestPitSeason || "2026";
 
   return (
     <div style={{ minHeight: "100vh", background: "#0a0e17", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>

@@ -68,7 +68,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   { href: '/schedule',      label: '일정' },
                   { href: '/team-analysis', label: 'AI 분석' },
                   { href: '/game-review',   label: '경기 리뷰' },
-                  { href: '/upload',        label: '업로드' },
                 ].map(({ href, label }) => (
                   <Link key={href} href={href} style={{
                     padding: '6px 12px',
@@ -82,6 +81,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     {label}
                   </Link>
                 ))}
+                <Link href="/upload" style={{
+                  padding: '6px 14px',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: '#60a5fa',
+                  textDecoration: 'none',
+                  background: 'rgba(59,130,246,0.14)',
+                  border: '1px solid rgba(59,130,246,0.28)',
+                }}>
+                  📤 업로드
+                </Link>
               </div>
             </div>
 

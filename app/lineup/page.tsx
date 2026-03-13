@@ -16,7 +16,10 @@ export default async function LineupPage() {
   const lang = (cookieStore.get("lang")?.value || "ko") as Lang;
 
   const { data: players } = await supabase.from("players").select("*").order("number");
-  const { data: batting } = await supabase.from("batting_stats").select("*").eq("season", "2025");
+  const { data: allBattingRaw } = await supabase.from("batting_stats").select("season");
+  const seasons = [...new Set((allBattingRaw || []).map((b: any) => b.season).filter(Boolean))].sort().reverse();
+  const latestSeason = (seasons[0] as string) || "2026";
+  const { data: batting } = await supabase.from("batting_stats").select("*").eq("season", latestSeason);
 
   let lineups: any[] = [];
   try {
