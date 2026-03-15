@@ -4,17 +4,29 @@ import PlayerGoals from "@/app/components/PlayerGoals";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { ACTIVE_SEASON_COOKIE, getLatestSeason, normalizeSelectedSeason } from "@/lib/season";
 import { t, Lang } from "@/lib/translations";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export default async function PlayerDetail({ params }: { params: Promise<{ id: string }> }) {
+export default async function PlayerDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ season?: string }>;
+}) {
   const { id } = await params;
+  const query = await searchParams;
   const cookieStore = await cookies();
   const lang = (cookieStore.get("lang")?.value || "ko") as Lang;
+  const preferredSeason = cookieStore.get(ACTIVE_SEASON_COOKIE)?.value;
 
   const { data: player } = await supabase.from("players").select("*").eq("id", id).single();
   if (!player) {
@@ -25,12 +37,20 @@ export default async function PlayerDetail({ params }: { params: Promise<{ id: s
   const { data: allPitching } = await supabase.from("pitching_stats").select("*").eq("player_id", id);
   const { data: reports } = await supabase.from("ai_reports").select("*").eq("player_id", id).order("generated_at", { ascending: false }).limit(1);
 
-  // 최신 시즌 기록 전체 합산
-  const latestBatSeason = allBatting?.filter(b => b.season !== "Career").sort((a, b) => (b.season || "").localeCompare(a.season || ""))?.[0]?.season;
-  const latestPitSeason = allPitching?.filter(p => p.season !== "Career" && p.ip > 0).sort((a, b) => (b.season || "").localeCompare(a.season || ""))?.[0]?.season;
+  const availableSeasons = Array.from(new Set([
+    ...((allBatting || []).map((record) => record.season)),
+    ...((allPitching || []).map((record) => record.season)),
+  ].filter(Boolean)));
+  const fallbackSeason = getLatestSeason(availableSeasons, preferredSeason || "2025");
+  const selectedSeason = normalizeSelectedSeason(
+    query.season,
+    availableSeasons,
+    fallbackSeason,
+    preferredSeason
+  );
 
-  const batRecords = allBatting?.filter(b => b.season === latestBatSeason) || [];
-  const pitRecords = allPitching?.filter(p => p.season === latestPitSeason && p.ip > 0) || [];
+  const batRecords = (allBatting || []).filter((record) => record.season === selectedSeason);
+  const pitRecords = (allPitching || []).filter((record) => record.season === selectedSeason && (parseFloat(String(record.ip)) || 0) > 0);
 
   const bat = batRecords.length > 0 ? batRecords.reduce((acc, b) => ({
     ...acc,
@@ -81,13 +101,13 @@ export default async function PlayerDetail({ params }: { params: Promise<{ id: s
     if (lang === "en") return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
     return `${d.getFullYear()}.${(d.getMonth() + 1).toString().padStart(2, "0")}.${d.getDate().toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
   };
-  const latestSeason = latestBatSeason || latestPitSeason || "2026";
+  const currentSeason = selectedSeason || fallbackSeason || preferredSeason || "2025";
 
   return (
     <div style={{ minHeight: "100vh", background: "#0a0e17", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
       <div style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)", padding: "28px 40px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <Link href="/" style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{t("nav.back", lang)}</Link>
+          <Link href={`/?season=${encodeURIComponent(currentSeason)}`} style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{t("nav.back", lang)}</Link>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <div style={{ width: 72, height: 72, borderRadius: 20, background: "linear-gradient(135deg, #dc2626, #991b1b)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 900, color: "#fff" }}>{player.number}</div>
             <div>
@@ -95,7 +115,7 @@ export default async function PlayerDetail({ params }: { params: Promise<{ id: s
               <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
                 <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(96,165,250,0.12)", color: "#60a5fa", fontWeight: 600 }}>#{player.number}</span>
                 {player.is_pitcher && <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(234,179,8,0.12)", color: "#eab308", fontWeight: 600 }}>{t("player.pitcher", lang)}</span>}
-                <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>{latestSeason} {t("site.season", lang)}</span>
+                <span style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.4)", fontWeight: 600 }}>{currentSeason} {t("site.season", lang)}</span>
               </div>
             </div>
           </div>
@@ -190,7 +210,7 @@ export default async function PlayerDetail({ params }: { params: Promise<{ id: s
         })()}
 
         {/* 🎯 개인 목표 달성도 */}
-        <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} season={latestSeason} />
+        <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} season={currentSeason} />
 
         {/* 📈 시즌 성장 그래프 */}
         <SeasonChart batting={allBatting || []} pitching={allPitching || []} lang={lang} />

@@ -41,10 +41,12 @@ export default function SearchBar({
   players,
   batting,
   pitching,
+  season,
 }: {
   players: Player[];
   batting: BattingStat[];
   pitching: PitchingStat[];
+  season?: string;
 }) {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -117,7 +119,8 @@ export default function SearchBar({
   const handleSelect = (playerId: number) => {
     setQuery("");
     setFocused(false);
-    router.push(`/players/${playerId}`);
+    const nextHref = season ? `/players/${playerId}?season=${encodeURIComponent(season)}` : `/players/${playerId}`;
+    router.push(nextHref);
   };
 
   return (

@@ -143,7 +143,7 @@ export default function PlayerGoals({
           <div>
             <div style={{ fontSize: 16, fontWeight: 700 }}>{lang === "ko" ? "개인 목표" : "Personal Goals"}</div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)" }}>
-              {lang === "ko" ? "2025 시즌 목표 달성도" : "2025 Season Goal Progress"}
+              {lang === "ko" ? `${currentSeason} 시즌 목표 달성도` : `${currentSeason} Season Goal Progress`}
             </div>
           </div>
         </div>

@@ -204,7 +204,7 @@ export default async function Dashboard({
               <LangToggle lang={lang} />
             </div>
           </div>
-          <div style={{ flex: 1 }}><SearchBar players={seasonPlayers} batting={batting} pitching={pitching} /></div>
+          <div style={{ flex: 1 }}><SearchBar players={seasonPlayers} batting={batting} pitching={pitching} season={season} /></div>
           <div style={{ marginTop: 16 }}><SeasonFilter seasons={seasons} basePath="/" /></div>
         </div>
       </div>
@@ -257,7 +257,7 @@ export default async function Dashboard({
                 {battingWithPlayers?.map((b: any, i: number) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
                     <td style={{ padding: "10px", color: C.whiteDim, fontWeight: 700 }}>{b.player.number}</td>
-                    <td style={{ padding: "10px", fontWeight: 700 }}><Link href={`/players/${b.player.id}`} style={{ color: C.white, textDecoration: "none" }}>{b.player.name}</Link></td>
+                    <td style={{ padding: "10px", fontWeight: 700 }}><Link href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`} style={{ color: C.white, textDecoration: "none" }}>{b.player.name}</Link></td>
                     <td style={{ padding: "10px" }}>{b.pa}</td>
                     <td style={{ padding: "10px" }}>{b.ab}</td>
                     <td style={{ padding: "10px", fontWeight: 700, color: b.hits >= 5 ? "#22c55e" : C.white }}>{b.hits}</td>
