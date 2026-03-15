@@ -2,7 +2,7 @@ export type Lang = "ko" | "en";
 
 const translations = {
   // Header
-  "site.title": { ko: "Utah Devils Analytics", en: "Utah Devils Analytics" },
+  "site.title": { ko: "Devils Insight AI", en: "Devils Insight AI" },
   "site.season": { ko: "시즌", en: "Season" },
   "site.players": { ko: "Players", en: "Players" },
   "site.career": { ko: "통산 기록", en: "Career Stats" },

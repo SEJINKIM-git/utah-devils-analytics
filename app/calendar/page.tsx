@@ -399,7 +399,7 @@ function buildICS(items: ScheduleItem[]) {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Utah Devils//Team Calendar//KO",
+    "PRODID:-//Devils Insight AI//Team Calendar//KO",
     ...items.flatMap((item) => {
       const stamp = `${item.date.replaceAll("-", "")}T${item.time.replace(":", "")}00`;
       const endHour = String(Math.min(Number(item.time.split(":")[0]) + 2, 23)).padStart(2, "0");
@@ -413,7 +413,7 @@ function buildICS(items: ScheduleItem[]) {
         `DTEND:${endStamp}`,
         `SUMMARY:${item.title} - ${item.opponent}`,
         `LOCATION:${item.location}`,
-        `DESCRIPTION:${item.memo || "Utah Devils team schedule"}`,
+        `DESCRIPTION:${item.memo || "Devils Insight AI team schedule"}`,
         "END:VEVENT",
       ];
     }),

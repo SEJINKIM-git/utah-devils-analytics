@@ -1,7 +1,7 @@
 {
-  "name": "Utah Devils Baseball",
-  "short_name": "Devils",
-  "description": "University of Utah Baseball Club · Team Dashboard",
+  "name": "Devils Insight AI",
+  "short_name": "Insight AI",
+  "description": "Devils Insight AI · Utah Devils Baseball analytics and operations platform",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0E1428",

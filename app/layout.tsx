@@ -8,22 +8,22 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Utah Devils Baseball",
-  description: "University of Utah Baseball Club · EST. 2022",
+  title: "Devils Insight AI",
+  description: "Devils Insight AI · Utah Devils Baseball analytics and operations platform",
   manifest: "/manifest.json",
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-touch-icon.png",
   },
   openGraph: {
-    title: "Utah Devils Baseball",
-    description: "University of Utah Baseball Club · Team Dashboard",
+    title: "Devils Insight AI",
+    description: "Devils Insight AI · Utah Devils Baseball analytics and operations platform",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Utah Devils",
+    title: "Devils Insight AI",
   },
 };
 
@@ -64,7 +64,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {/* 왼쪽: 로고 + 메뉴 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
               <Link href="/" style={{ fontWeight: 800, fontSize: 16, color: '#DC2626', textDecoration: 'none', letterSpacing: '-0.3px' }}>
-                ⚾ Utah Devils
+                ⚾ Devils Insight AI
               </Link>
               <SeasonNavLinks />
             </div>
