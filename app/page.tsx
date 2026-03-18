@@ -5,6 +5,7 @@ import Image from "next/image";
 import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import LangToggle from "@/app/components/LangToggle";
+import { dedupePlayersByIdentity } from "@/lib/playerIdentity";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
@@ -43,13 +44,6 @@ export default async function Dashboard({
 
   const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const players = rawPlayers || [];
-  const uniquePlayersMap = new Map<number, any>();
-  for (const player of players) {
-    if (!uniquePlayersMap.has(player.number) || player.id > uniquePlayersMap.get(player.number).id) {
-      uniquePlayersMap.set(player.number, player);
-    }
-  }
-  const uniquePlayers = Array.from(uniquePlayersMap.values());
   const { data: allBatting } = await supabase.from("batting_stats").select("*");
   const { data: allPitching } = await supabase.from("pitching_stats").select("*");
 
@@ -131,7 +125,7 @@ export default async function Dashboard({
     ...uniquePitching.map((record) => record.player_id),
   ]);
   const seasonPlayers = seasonPlayerIds.size > 0
-    ? uniquePlayers.filter((player) => seasonPlayerIds.has(player.id))
+    ? dedupePlayersByIdentity(players.filter((player) => seasonPlayerIds.has(player.id)))
     : [];
 
   const battingWithPlayers = uniqueBatting

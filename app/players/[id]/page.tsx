@@ -4,6 +4,7 @@ import PlayerGoals from "@/app/components/PlayerGoals";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, normalizeSelectedSeason } from "@/lib/season";
 import { t, Lang } from "@/lib/translations";
 
@@ -33,17 +34,31 @@ export default async function PlayerDetail({
     return <div style={{ minHeight: "100vh", background: "#0a0e17", color: "#e2e8f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{t("player.notFound", lang)}</div>;
   }
 
-  const { data: allBatting } = await supabase.from("batting_stats").select("*").eq("player_id", id);
-  const { data: allPitching } = await supabase.from("pitching_stats").select("*").eq("player_id", id);
-  const { data: reports } = await supabase.from("ai_reports").select("*").eq("player_id", id).order("generated_at", { ascending: false }).limit(1);
+  const [{ data: playersByNumber }, { data: playersByName }] = await Promise.all([
+    supabase.from("players").select("*").eq("number", player.number),
+    supabase.from("players").select("*").eq("name", player.name),
+  ]);
+
+  const relatedPlayers = findRelatedPlayersByIdentity(
+    [player, ...(playersByNumber || []), ...(playersByName || [])],
+    player
+  );
+  const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
+
+  const [{ data: allBatting }, { data: allPitching }, { data: reports }] = await Promise.all([
+    supabase.from("batting_stats").select("*").in("player_id", relatedPlayerIds),
+    supabase.from("pitching_stats").select("*").in("player_id", relatedPlayerIds),
+    supabase.from("ai_reports").select("*").in("player_id", relatedPlayerIds).order("generated_at", { ascending: false }).limit(1),
+  ]);
 
   const availableSeasons = Array.from(new Set([
     ...((allBatting || []).map((record) => record.season)),
     ...((allPitching || []).map((record) => record.season)),
   ].filter(Boolean)));
   const fallbackSeason = getLatestSeason(availableSeasons, preferredSeason || "2025");
-  const selectedSeason = normalizeSelectedSeason(
-    query.season,
+  const requestedSeason = typeof query.season === "string" ? query.season.trim() : "";
+  const selectedSeason = requestedSeason || normalizeSelectedSeason(
+    undefined,
     availableSeasons,
     fallbackSeason,
     preferredSeason
