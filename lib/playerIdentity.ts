@@ -33,21 +33,23 @@ export function dedupePlayersByIdentity<T extends BasicPlayer>(players: T[]) {
 export function findRelatedPlayersByIdentity<T extends BasicPlayer>(players: T[], target: T) {
   const targetName = normalizePlayerName(target.name);
   const targetNumber = target.number ?? 0;
+  const byId = (entries: T[]) =>
+    Array.from(new Map(entries.map((player) => [player.id, player])).values()).sort((a, b) => a.id - b.id);
 
   const exactMatches = players.filter(
     (player) =>
       (player.number ?? 0) === targetNumber &&
       normalizePlayerName(player.name) === targetName
   );
-  if (exactMatches.length > 0) return dedupePlayersByIdentity(exactMatches);
+  if (exactMatches.length > 0) return byId(exactMatches);
 
   const sameNameMatches = players.filter(
     (player) => normalizePlayerName(player.name) === targetName
   );
-  if (sameNameMatches.length > 0) return dedupePlayersByIdentity(sameNameMatches);
+  if (sameNameMatches.length > 0) return byId(sameNameMatches);
 
   const sameNumberMatches = players.filter((player) => (player.number ?? 0) === targetNumber);
-  if (sameNumberMatches.length > 0) return dedupePlayersByIdentity(sameNumberMatches);
+  if (sameNumberMatches.length > 0) return byId(sameNumberMatches);
 
   return [target];
 }
