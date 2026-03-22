@@ -5,7 +5,7 @@ import Image from "next/image";
 import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import LangToggle from "@/app/components/LangToggle";
-import { dedupePlayersByIdentity } from "@/lib/playerIdentity";
+import { buildPlayerIdentityKey, dedupePlayersByIdentity } from "@/lib/playerIdentity";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
@@ -44,6 +44,7 @@ export default async function Dashboard({
 
   const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const players = rawPlayers || [];
+  const playerById = new Map(players.map((player) => [player.id, player]));
   const { data: allBatting } = await supabase.from("batting_stats").select("*");
   const { data: allPitching } = await supabase.from("pitching_stats").select("*");
 
@@ -69,12 +70,18 @@ export default async function Dashboard({
     : allPitching?.filter((p) => (p.season || "2025") === season) || [];
 
   // ── 타자: 경기별 기록 전부 누적 합산 ──
-  const battingByPlayer = new Map<number, any>();
+  const battingByPlayer = new Map<string, any>();
   for (const b of batting) {
-    if (battingByPlayer.has(b.player_id)) {
-      const acc = battingByPlayer.get(b.player_id);
-      battingByPlayer.set(b.player_id, {
+    const player = playerById.get(b.player_id);
+    if (!player) continue;
+    const identityKey = buildPlayerIdentityKey(player.name, player.number);
+
+    if (battingByPlayer.has(identityKey)) {
+      const acc = battingByPlayer.get(identityKey);
+      battingByPlayer.set(identityKey, {
         ...acc,
+        player: acc.player.id > player.id ? acc.player : player,
+        player_id: acc.player.id > player.id ? acc.player.id : player.id,
         pa: acc.pa + (b.pa || 0),
         ab: acc.ab + (b.ab || 0),
         runs: acc.runs + (b.runs || 0),
@@ -89,18 +96,24 @@ export default async function Dashboard({
         sb: acc.sb + (b.sb || 0),
       });
     } else {
-      battingByPlayer.set(b.player_id, { ...b });
+      battingByPlayer.set(identityKey, { ...b, player_id: player.id, player });
     }
   }
   const uniqueBatting = Array.from(battingByPlayer.values());
 
   // ── 투수: 경기별 기록 전부 누적 합산 ──
-  const pitchingByPlayer = new Map<number, any>();
+  const pitchingByPlayer = new Map<string, any>();
   for (const p of pitching) {
-    if (pitchingByPlayer.has(p.player_id)) {
-      const acc = pitchingByPlayer.get(p.player_id);
-      pitchingByPlayer.set(p.player_id, {
+    const player = playerById.get(p.player_id);
+    if (!player) continue;
+    const identityKey = buildPlayerIdentityKey(player.name, player.number);
+
+    if (pitchingByPlayer.has(identityKey)) {
+      const acc = pitchingByPlayer.get(identityKey);
+      pitchingByPlayer.set(identityKey, {
         ...acc,
+        player: acc.player.id > player.id ? acc.player : player,
+        player_id: acc.player.id > player.id ? acc.player.id : player.id,
         w: acc.w + (p.w || 0),
         l: acc.l + (p.l || 0),
         sv: acc.sv + (p.sv || 0),
@@ -115,22 +128,21 @@ export default async function Dashboard({
         hr_allowed: acc.hr_allowed + (p.hr_allowed || 0),
       });
     } else {
-      pitchingByPlayer.set(p.player_id, { ...p });
+      pitchingByPlayer.set(identityKey, { ...p, player_id: player.id, player });
     }
   }
   const uniquePitching = Array.from(pitchingByPlayer.values());
   const hasSeasonData = uniqueBatting.length > 0 || uniquePitching.length > 0;
-  const seasonPlayerIds = new Set([
-    ...uniqueBatting.map((record) => record.player_id),
-    ...uniquePitching.map((record) => record.player_id),
-  ]);
-  const seasonPlayers = seasonPlayerIds.size > 0
-    ? dedupePlayersByIdentity(players.filter((player) => seasonPlayerIds.has(player.id)))
+  const seasonPlayers = (uniqueBatting.length > 0 || uniquePitching.length > 0)
+    ? dedupePlayersByIdentity([
+        ...uniqueBatting.map((record) => record.player),
+        ...uniquePitching.map((record) => record.player),
+      ])
     : [];
 
   const battingWithPlayers = uniqueBatting
     .map((b) => {
-      const player = players.find((p) => p.id === b.player_id);
+      const player = b.player;
       if (!player) return null;
       const avg = b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
       const obp = b.pa > 0 ? ((b.hits + b.bb + b.hbp) / b.pa).toFixed(3) : "---";
@@ -143,7 +155,7 @@ export default async function Dashboard({
 
   const pitchingWithPlayers = uniquePitching
     .map((p) => {
-      const player = players.find((pl) => pl.id === p.player_id);
+      const player = p.player;
       if (!player) return null;
       const era = p.ip > 0 ? ((p.er / p.ip) * 5).toFixed(2) : "---";
       const whip = p.ip > 0 ? ((p.ha + p.bb) / p.ip).toFixed(2) : "---";

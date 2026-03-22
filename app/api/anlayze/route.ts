@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
+import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,11 +21,49 @@ export async function POST(request: NextRequest) {
     const { data: player } = await supabase.from("players").select("*").eq("id", playerId).single();
     if (!player) return Response.json({ error: "선수를 찾을 수 없습니다" }, { status: 404 });
 
-    const { data: batting } = await supabase.from("batting_stats").select("*").eq("player_id", playerId);
-    const { data: pitching } = await supabase.from("pitching_stats").select("*").eq("player_id", playerId);
+    const [{ data: playersByNumber }, { data: playersByName }] = await Promise.all([
+      supabase.from("players").select("*").eq("number", player.number),
+      supabase.from("players").select("*").eq("name", player.name),
+    ]);
+    const relatedPlayers = findRelatedPlayersByIdentity(
+      [player, ...(playersByNumber || []), ...(playersByName || [])],
+      player
+    );
+    const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
 
-    const bat = batting?.[0];
-    const pitch = pitching?.[0];
+    const [{ data: batting }, { data: pitching }] = await Promise.all([
+      supabase.from("batting_stats").select("*").in("player_id", relatedPlayerIds),
+      supabase.from("pitching_stats").select("*").in("player_id", relatedPlayerIds),
+    ]);
+
+    const bat = (batting && batting.length > 0) ? batting.reduce((acc, b) => ({
+      ...acc,
+      pa: (acc.pa || 0) + (b.pa || 0),
+      ab: (acc.ab || 0) + (b.ab || 0),
+      runs: (acc.runs || 0) + (b.runs || 0),
+      hits: (acc.hits || 0) + (b.hits || 0),
+      doubles: (acc.doubles || 0) + (b.doubles || 0),
+      triples: (acc.triples || 0) + (b.triples || 0),
+      hr: (acc.hr || 0) + (b.hr || 0),
+      rbi: (acc.rbi || 0) + (b.rbi || 0),
+      bb: (acc.bb || 0) + (b.bb || 0),
+      hbp: (acc.hbp || 0) + (b.hbp || 0),
+      so: (acc.so || 0) + (b.so || 0),
+      sb: (acc.sb || 0) + (b.sb || 0),
+    }), { ...batting[0], pa: 0, ab: 0, runs: 0, hits: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sb: 0 }) : null;
+    const pitch = (pitching && pitching.length > 0) ? pitching.reduce((acc, p) => ({
+      ...acc,
+      w: (acc.w || 0) + (p.w || 0),
+      l: (acc.l || 0) + (p.l || 0),
+      sv: (acc.sv || 0) + (p.sv || 0),
+      ip: (parseFloat(String(acc.ip || 0)) || 0) + (parseFloat(String(p.ip || 0)) || 0),
+      ha: (acc.ha || 0) + (p.ha || 0),
+      runs_allowed: (acc.runs_allowed || 0) + (p.runs_allowed || 0),
+      er: (acc.er || 0) + (p.er || 0),
+      bb: (acc.bb || 0) + (p.bb || 0),
+      so: (acc.so || 0) + (p.so || 0),
+      hr_allowed: (acc.hr_allowed || 0) + (p.hr_allowed || 0),
+    }), { ...pitching[0], w: 0, l: 0, sv: 0, ip: 0, ha: 0, runs_allowed: 0, er: 0, bb: 0, so: 0, hr_allowed: 0 }) : null;
 
     let statsText = `[선수 정보]\n이름: ${player.name} (#${player.number})\n시즌: 2025\n`;
 
@@ -60,6 +99,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "AI 응답 파싱 실패", raw: responseText }, { status: 500 });
     }
 
+    await supabase.from("ai_reports").delete().in("player_id", relatedPlayerIds);
     await supabase.from("ai_reports").insert({
       player_id: playerId,
       report_type: "player",

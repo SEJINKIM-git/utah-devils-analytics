@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
+import { buildPlayerIdentityKey, dedupePlayersByIdentity } from "@/lib/playerIdentity";
 import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
 
 const supabase = createClient(
@@ -61,20 +62,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const safePlayers = players ?? [];
     const safeBatting = batting ?? [];
     const safePitching = pitching ?? [];
+    const playerById = new Map(safePlayers.map((player) => [player.id, player]));
+    const identityPlayers = dedupePlayersByIdentity(safePlayers);
 
     // ✅ 숫자 안전 변환 유틸
     const n = (v: any) => (typeof v === "number" ? v : parseFloat(String(v ?? 0)) || 0);
 
     // ✅ O(1) lookup을 위한 Map (find() 제거)
-    const battingByPlayer = new Map<string, (typeof safeBatting)[number]>();
+    const battingByPlayer = new Map<string, ((typeof safeBatting)[number] & { player?: (typeof safePlayers)[number] })>();
     for (const row of safeBatting) {
-      const key = String(row.player_id);
+      const player = playerById.get(row.player_id);
+      if (!player) continue;
+      const key = buildPlayerIdentityKey(player.name, player.number);
       const current = battingByPlayer.get(key);
       if (current) {
         battingByPlayer.set(key, {
           ...current,
+          player: current.player && current.player.id > player.id ? current.player : player,
           pa: n(current.pa) + n(row.pa),
           ab: n(current.ab) + n(row.ab),
           hits: n(current.hits) + n(row.hits),
@@ -88,17 +95,20 @@ export async function POST(request: NextRequest) {
           triples: n(current.triples) + n(row.triples),
         });
       } else {
-        battingByPlayer.set(key, row);
+        battingByPlayer.set(key, { ...row, player });
       }
     }
 
-    const pitchingByPlayer = new Map<string, (typeof safePitching)[number]>();
+    const pitchingByPlayer = new Map<string, ((typeof safePitching)[number] & { player?: (typeof safePlayers)[number] })>();
     for (const row of safePitching) {
-      const key = String(row.player_id);
+      const player = playerById.get(row.player_id);
+      if (!player) continue;
+      const key = buildPlayerIdentityKey(player.name, player.number);
       const current = pitchingByPlayer.get(key);
       if (current) {
         pitchingByPlayer.set(key, {
           ...current,
+          player: current.player && current.player.id > player.id ? current.player : player,
           ip: n(current.ip) + n(row.ip),
           er: n(current.er) + n(row.er),
           w: n(current.w) + n(row.w),
@@ -109,7 +119,7 @@ export async function POST(request: NextRequest) {
           ha: n(current.ha) + n(row.ha),
         });
       } else {
-        pitchingByPlayer.set(key, row);
+        pitchingByPlayer.set(key, { ...row, player });
       }
     }
 
@@ -145,10 +155,10 @@ export async function POST(request: NextRequest) {
 
     // 개인별 주요 지표 텍스트 생성
     let playerStats = "\n[Individual Player Stats]\n";
-    for (const p of players) {
-      const pid = String(p.id);
-      const bat = battingByPlayer.get(pid);
-      const pit = pitchingByPlayer.get(pid);
+    for (const p of identityPlayers) {
+      const playerKey = buildPlayerIdentityKey(p.name, p.number);
+      const bat = battingByPlayer.get(playerKey);
+      const pit = pitchingByPlayer.get(playerKey);
       if (!bat && !pit) continue;
 
       playerStats += `\n${p.name} (#${p.number}):\n`;
@@ -189,6 +199,7 @@ export async function POST(request: NextRequest) {
 
     const statsText = `[Team Summary - ${season} Season]
 Players: ${players.length}
+Players (deduped): ${identityPlayers.length}
 Batting: AVG ${teamAvg} | OBP ${teamOBP} | H ${teamH} | HR ${teamHR} | 2B ${team2B} | 3B ${team3B} | RBI ${teamRBI} | BB ${teamBB} | SO ${teamSO} | SB ${teamSB}
 Pitching: ERA ${teamERA} | WHIP ${teamWHIP} | W${teamW}-L${teamL}-SV${teamSV} | IP ${teamIP.toFixed(
       1

@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
+import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,8 +21,70 @@ export async function POST(request: NextRequest) {
     const { data: player } = await supabase.from("players").select("*").eq("id", playerId).single();
     if (!player) return Response.json({ error: "선수를 찾을 수 없습니다" }, { status: 404 });
 
-    const { data: allBatting } = await supabase.from("batting_stats").select("*").eq("player_id", playerId).order("season");
-    const { data: allPitching } = await supabase.from("pitching_stats").select("*").eq("player_id", playerId).order("season");
+    const [{ data: playersByNumber }, { data: playersByName }] = await Promise.all([
+      supabase.from("players").select("*").eq("number", player.number),
+      supabase.from("players").select("*").eq("name", player.name),
+    ]);
+    const relatedPlayers = findRelatedPlayersByIdentity(
+      [player, ...(playersByNumber || []), ...(playersByName || [])],
+      player
+    );
+    const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
+
+    const [{ data: rawBatting }, { data: rawPitching }] = await Promise.all([
+      supabase.from("batting_stats").select("*").in("player_id", relatedPlayerIds).order("season"),
+      supabase.from("pitching_stats").select("*").in("player_id", relatedPlayerIds).order("season"),
+    ]);
+
+    const battingBySeason = new Map<string, any>();
+    for (const row of rawBatting || []) {
+      const key = String(row.season || "2025");
+      const current = battingBySeason.get(key) || {
+        season: key,
+        pa: 0, ab: 0, runs: 0, hits: 0, doubles: 0, triples: 0,
+        hr: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sb: 0,
+      };
+      battingBySeason.set(key, {
+        ...current,
+        pa: current.pa + (row.pa || 0),
+        ab: current.ab + (row.ab || 0),
+        runs: current.runs + (row.runs || 0),
+        hits: current.hits + (row.hits || 0),
+        doubles: current.doubles + (row.doubles || 0),
+        triples: current.triples + (row.triples || 0),
+        hr: current.hr + (row.hr || 0),
+        rbi: current.rbi + (row.rbi || 0),
+        bb: current.bb + (row.bb || 0),
+        hbp: current.hbp + (row.hbp || 0),
+        so: current.so + (row.so || 0),
+        sb: current.sb + (row.sb || 0),
+      });
+    }
+
+    const pitchingBySeason = new Map<string, any>();
+    for (const row of rawPitching || []) {
+      const key = String(row.season || "2025");
+      const current = pitchingBySeason.get(key) || {
+        season: key,
+        w: 0, l: 0, sv: 0, ip: 0, ha: 0, runs_allowed: 0, er: 0, bb: 0, so: 0, hr_allowed: 0,
+      };
+      pitchingBySeason.set(key, {
+        ...current,
+        w: current.w + (row.w || 0),
+        l: current.l + (row.l || 0),
+        sv: current.sv + (row.sv || 0),
+        ip: current.ip + (parseFloat(String(row.ip || 0)) || 0),
+        ha: current.ha + (row.ha || 0),
+        runs_allowed: current.runs_allowed + (row.runs_allowed || 0),
+        er: current.er + (row.er || 0),
+        bb: current.bb + (row.bb || 0),
+        so: current.so + (row.so || 0),
+        hr_allowed: current.hr_allowed + (row.hr_allowed || 0),
+      });
+    }
+
+    const allBatting = Array.from(battingBySeason.values()).sort((a, b) => String(a.season).localeCompare(String(b.season)));
+    const allPitching = Array.from(pitchingBySeason.values()).sort((a, b) => String(a.season).localeCompare(String(b.season)));
 
     let statsText = `[Player Info]\nName: ${player.name} (#${player.number})\n`;
 
@@ -74,7 +137,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "AI 응답 파싱 실패", raw: responseText }, { status: 500 });
     }
 
-    await supabase.from("ai_reports").delete().eq("player_id", playerId);
+    await supabase.from("ai_reports").delete().in("player_id", relatedPlayerIds);
     await supabase.from("ai_reports").insert({
       player_id: playerId,
       report_type: "player",

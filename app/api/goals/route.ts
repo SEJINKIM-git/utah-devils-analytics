@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,23 +15,36 @@ export async function GET(request: NextRequest) {
 
   if (!playerId) return NextResponse.json({ error: "playerId required" }, { status: 400 });
 
+  const { data: player } = await supabase.from("players").select("*").eq("id", playerId).single();
+  if (!player) return NextResponse.json({ goals: [] });
+
+  const [{ data: playersByNumber }, { data: playersByName }] = await Promise.all([
+    supabase.from("players").select("*").eq("number", player.number),
+    supabase.from("players").select("*").eq("name", player.name),
+  ]);
+  const relatedPlayers = findRelatedPlayersByIdentity(
+    [player, ...(playersByNumber || []), ...(playersByName || [])],
+    player
+  );
+  const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
+
   const { data: goals } = await supabase
     .from("player_goals")
     .select("*")
-    .eq("player_id", playerId)
+    .in("player_id", relatedPlayerIds)
     .eq("season", season)
     .order("created_at");
 
   const { data: batting } = await supabase
     .from("batting_stats")
     .select("*")
-    .eq("player_id", playerId)
+    .in("player_id", relatedPlayerIds)
     .eq("season", season);
 
   const { data: pitching } = await supabase
     .from("pitching_stats")
     .select("*")
-    .eq("player_id", playerId)
+    .in("player_id", relatedPlayerIds)
     .eq("season", season);
 
   // 해당 시즌 기록 전부 합산
@@ -77,7 +91,16 @@ export async function GET(request: NextRequest) {
     }
   };
 
-  const goalsWithProgress = (goals || []).map((g: any) => {
+  const dedupedGoals = Array.from(
+    new Map(
+      (goals || [])
+        .slice()
+        .sort((a: any, b: any) => Number(b.id) - Number(a.id))
+        .map((goal: any) => [goal.stat_type, goal])
+    ).values()
+  );
+
+  const goalsWithProgress = dedupedGoals.map((g: any) => {
     const current = getCurrentValue(g.stat_type);
     const lowerIsBetter = ["era", "whip", "so_bat"].includes(g.stat_type);
     let progress;
