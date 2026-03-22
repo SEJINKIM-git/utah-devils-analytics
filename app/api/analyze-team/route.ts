@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import { NextRequest } from "next/server";
 import { buildPlayerIdentityKey, dedupePlayersByIdentity } from "@/lib/playerIdentity";
 import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
+import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -208,14 +209,16 @@ ${playerStats}`;
 
     const systemPrompt =
       lang === "en"
-        ? `You are a baseball analytics expert for a school baseball team. Analyze the team's overall performance and provide strategic insights. Respond ONLY in the JSON format below.`
-        : `당신은 학교 야구부 전문 분석가입니다. 팀 전체 성적을 분석하고 전략적 시사점을 제공합니다. 반드시 아래 JSON 형식으로만 응답하세요.`;
+        ? `You are a baseball analytics expert for a school baseball team. Analyze the team's overall performance and provide strategic insights. Respond ONLY in the JSON format below.\n\n${getTrainingPlanGuidance("en", "team")}`
+        : `당신은 학교 야구부 전문 분석가입니다. 팀 전체 성적을 분석하고 전략적 시사점을 제공합니다. 반드시 아래 JSON 형식으로만 응답하세요.\n\n${getTrainingPlanGuidance("ko", "team")}`;
 
     const userPrompt =
       lang === "en"
         ? `Analyze this team's ${season} season stats comprehensively.
 
 ${statsText}
+
+Make the recommendations realistic within the Utah Devils spring training plan. Strategic recommendations should map to actual Monday team sessions, limited Friday hitting sessions, position-group defensive work, and record-based player development.
 
 Respond ONLY in this JSON format:
 {
@@ -231,6 +234,8 @@ Respond ONLY in this JSON format:
         : `이 팀의 ${season} 시즌 기록을 종합적으로 분석해주세요.
 
 ${statsText}
+
+전략 제안과 개선 방향은 반드시 Utah Devils 봄학기 훈련 계획 안에서 실제로 실행 가능한 내용으로 작성해주세요. 월요일 팀훈련, 금요일 타격훈련, 포지션별 수비훈련, 기록 분석 기반 선수 육성 흐름에 맞는 제안이어야 합니다.
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {

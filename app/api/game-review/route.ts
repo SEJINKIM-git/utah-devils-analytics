@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
+import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 import {
   parseOfficialGameBattingSheet,
   parseOfficialGameHighlights,
@@ -211,11 +212,11 @@ export async function POST(request: NextRequest) {
     }
 
     const systemPrompt = lang === "en"
-      ? `You are an expert baseball analyst reviewing a school baseball team's game record. Provide a comprehensive post-game review with statistical analysis and strategic insights. Be specific with player names and numbers. Respond ONLY in JSON format.`
-      : `당신은 학교 야구부 전문 분석가입니다. 경기 기록을 바탕으로 수치와 지표 위주의 상세한 경기 리뷰를 작성합니다. 선수 이름을 구체적으로 언급하며, 전략적 시사점까지 포함해주세요. 반드시 JSON 형식으로만 응답하세요.`;
+      ? `You are an expert baseball analyst reviewing a school baseball team's game record. Provide a comprehensive post-game review with statistical analysis and strategic insights. Be specific with player names and numbers. Respond ONLY in JSON format.\n\n${getTrainingPlanGuidance("en", "gameReview")}`
+      : `당신은 학교 야구부 전문 분석가입니다. 경기 기록을 바탕으로 수치와 지표 위주의 상세한 경기 리뷰를 작성합니다. 선수 이름을 구체적으로 언급하며, 전략적 시사점까지 포함해주세요. 반드시 JSON 형식으로만 응답하세요.\n\n${getTrainingPlanGuidance("ko", "gameReview")}`;
 
     const userPrompt = lang === "en"
-      ? `Analyze this game record comprehensively:\n\n${statsText}\n\nRespond ONLY in this JSON format:\n{
+      ? `Analyze this game record comprehensively:\n\n${statsText}\n\nMake the improvement plan and next-game strategy realistic within the Utah Devils spring training structure. Tie follow-up actions to Monday team practice, Friday hitting sessions, position-group defensive work, pitching check-ins, or voluntary pre-game batting cage prep.\n\nRespond ONLY in this JSON format:\n{
   "game_summary": "4-5 sentence game overview with score context and flow",
   "mvp": {"name": "Player name", "reason": "Why they were MVP with specific stats"},
   "batting_review": {"overview": "3-4 sentences on team batting with specific stats", "standout_hitters": ["Player1: specific performance", "Player2: specific performance"], "areas_to_improve": "2-3 sentences on batting weaknesses"},
@@ -225,7 +226,7 @@ export async function POST(request: NextRequest) {
   "improvement_plan": ["Specific actionable improvement 1", "Improvement 2", "Improvement 3"],
   "next_game_strategy": "3-4 sentences on what to focus on for the next game based on this performance"
 }`
-      : `이 경기 기록을 종합적으로 분석해주세요:\n\n${statsText}\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{
+      : `이 경기 기록을 종합적으로 분석해주세요:\n\n${statsText}\n\n개선 방안과 다음 경기 전략은 반드시 Utah Devils 봄학기 훈련 계획 안에서 실현 가능한 내용으로 작성해주세요. 월요일 팀훈련, 금요일 타격훈련, 포지션별 수비훈련, 피칭 점검, 경기 전 배팅장 준비와 연결해서 제안해야 합니다.\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{
   "game_summary": "4~5문장으로 경기 흐름과 결과 요약 (점수, 분위기 포함)",
   "mvp": {"name": "선수 이름", "reason": "구체적 수치로 MVP 선정 이유"},
   "batting_review": {"overview": "3~4문장으로 팀 타격 분석 (구체적 수치 포함)", "standout_hitters": ["선수1: 구체적 활약 내용", "선수2: 구체적 활약 내용"], "areas_to_improve": "2~3문장으로 타격 개선점"},

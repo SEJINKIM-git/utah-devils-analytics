@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
+import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -112,12 +113,12 @@ export async function POST(request: NextRequest) {
     }
 
     const systemPrompt = lang === "en"
-      ? "You are a baseball data analyst. Analyze a school baseball team player's stats and provide feedback. If multiple seasons exist, analyze growth trends. Respond ONLY in the JSON format specified below. No other text."
-      : "당신은 야구 데이터 분석 전문가입니다. 학교 야구부 선수의 시즌별 기록을 분석하여 피드백을 제공합니다. 여러 시즌 데이터가 있으면 성장 추이를 분석해주세요. 반드시 아래 JSON 형식으로만 응답하세요.";
+      ? `You are a baseball data analyst. Analyze a school baseball team player's stats and provide feedback. If multiple seasons exist, analyze growth trends. Respond ONLY in the JSON format specified below. No other text.\n\n${getTrainingPlanGuidance("en", "player")}`
+      : `당신은 야구 데이터 분석 전문가입니다. 학교 야구부 선수의 시즌별 기록을 분석하여 피드백을 제공합니다. 여러 시즌 데이터가 있으면 성장 추이를 분석해주세요. 반드시 아래 JSON 형식으로만 응답하세요.\n\n${getTrainingPlanGuidance("ko", "player")}`;
 
     const userPrompt = lang === "en"
-      ? `Analyze this player's stats. If multiple seasons exist, include growth trends.\n\n${statsText}\n\nRespond ONLY in this JSON format:\n{"summary": "3-4 sentence overall evaluation (include season growth trends)", "strengths": ["strength1", "strength2", "strength3"], "improvements": ["improvement1", "improvement2"], "training_plan": "4-5 sentence specific training recommendations"}`
-      : `아래 선수의 기록을 분석해주세요. 여러 시즌이 있으면 성장 추이도 포함해주세요.\n\n${statsText}\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{"summary": "3~4문장으로 종합 평가 (시즌별 성장 추이 포함)", "strengths": ["강점1", "강점2", "강점3"], "improvements": ["개선점1", "개선점2"], "training_plan": "4~5문장으로 구체적인 훈련 방향 제안"}`;
+      ? `Analyze this player's stats. If multiple seasons exist, include growth trends.\n\n${statsText}\n\nWhen you write improvements and training recommendations, ground them in the Utah Devils spring training plan. The advice should be realistic for Monday team practice, limited Friday batting sessions, position-group defense work, and voluntary pre-game batting cage prep.\n\nRespond ONLY in this JSON format:\n{"summary": "3-4 sentence overall evaluation (include season growth trends)", "strengths": ["strength1", "strength2", "strength3"], "improvements": ["improvement1", "improvement2"], "training_plan": "4-5 sentence specific and realistic training recommendations based on the actual team training plan"}`
+      : `아래 선수의 기록을 분석해주세요. 여러 시즌이 있으면 성장 추이도 포함해주세요.\n\n${statsText}\n\n개선점과 훈련 방향은 반드시 Utah Devils 봄학기 훈련 계획 안에서 실현 가능한 내용으로 작성해주세요. 월요일 팀훈련, 금요일 타격훈련, 포지션별 수비훈련, 경기 전 배팅장 권고 같은 실제 운영 구조에 연결해서 제안해야 합니다.\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{"summary": "3~4문장으로 종합 평가 (시즌별 성장 추이 포함)", "strengths": ["강점1", "강점2", "강점3"], "improvements": ["개선점1", "개선점2"], "training_plan": "4~5문장으로 실제 훈련 계획에 맞는 구체적 훈련 방향 제안"}`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",

@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
+import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -84,8 +85,8 @@ export async function POST(request: NextRequest) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "당신은 야구 데이터 분석 전문가입니다. 학교 야구부 선수의 기록을 분석하여 피드백을 제공합니다. 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요." },
-        { role: "user", content: `아래 선수의 2025 시즌 기록을 분석해주세요.\n\n${statsText}\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{"summary": "2~3문장으로 종합 평가", "strengths": ["강점1", "강점2", "강점3"], "improvements": ["개선점1", "개선점2"], "training_plan": "3~4문장으로 구체적인 훈련 방향 제안"}` }
+        { role: "system", content: `당신은 야구 데이터 분석 전문가입니다. 학교 야구부 선수의 기록을 분석하여 피드백을 제공합니다. 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 절대 포함하지 마세요.\n\n${getTrainingPlanGuidance("ko", "player")}` },
+        { role: "user", content: `아래 선수의 2025 시즌 기록을 분석해주세요.\n\n${statsText}\n\n개선점과 훈련 방향은 반드시 Utah Devils 봄학기 훈련 계획 안에서 실현 가능한 내용으로 작성해주세요. 월요일 팀훈련, 금요일 타격훈련, 포지션별 수비훈련, 경기 전 배팅장 권고 같은 실제 운영 구조에 연결해서 제안해야 합니다.\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{"summary": "2~3문장으로 종합 평가", "strengths": ["강점1", "강점2", "강점3"], "improvements": ["개선점1", "개선점2"], "training_plan": "3~4문장으로 실제 훈련 계획에 맞는 구체적 훈련 방향 제안"}` }
       ],
       temperature: 0.7,
     });
