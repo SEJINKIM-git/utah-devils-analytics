@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest } from "next/server";
+import { filterRecordsForSeason, isCareerSeason } from "@/lib/careerStats";
 import { buildPlayerIdentityKey, dedupePlayersByIdentity } from "@/lib/playerIdentity";
 import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
@@ -42,14 +43,22 @@ export async function POST(request: NextRequest) {
     const [{ data: players, error: playersErr }, { data: batting, error: batErr }, { data: pitching, error: pitErr }] =
       await Promise.all([
         supabase.from("players").select("id, name, number").order("number", { ascending: true }),
-        supabase
-          .from("batting_stats")
-          .select("player_id, season, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples")
-          .eq("season", season),
-        supabase
-          .from("pitching_stats")
-          .select("player_id, season, ip, er, w, l, sv, so, bb, ha")
-          .eq("season", season),
+        isCareerSeason(season)
+          ? supabase
+              .from("batting_stats")
+              .select("player_id, season, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples")
+          : supabase
+              .from("batting_stats")
+              .select("player_id, season, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples")
+              .eq("season", season),
+        isCareerSeason(season)
+          ? supabase
+              .from("pitching_stats")
+              .select("player_id, season, ip, er, w, l, sv, so, bb, ha")
+          : supabase
+              .from("pitching_stats")
+              .select("player_id, season, ip, er, w, l, sv, so, bb, ha")
+              .eq("season", season),
       ]);
 
     if (playersErr) throw new Error(playersErr.message);
@@ -64,8 +73,12 @@ export async function POST(request: NextRequest) {
     }
 
     const safePlayers = players ?? [];
-    const safeBatting = batting ?? [];
-    const safePitching = pitching ?? [];
+    const lockedSeasons = [...new Set([
+      ...((batting || []).map((row) => row.season)),
+      ...((pitching || []).map((row) => row.season)),
+    ].filter((value): value is string => Boolean(value)))].filter((value) => isLockedSeason(value, activatedSeasons));
+    const safeBatting = filterRecordsForSeason(batting ?? [], season, { lockedSeasons });
+    const safePitching = filterRecordsForSeason(pitching ?? [], season, { lockedSeasons });
     const playerById = new Map(safePlayers.map((player) => [player.id, player]));
     const identityPlayers = dedupePlayersByIdentity(safePlayers);
 

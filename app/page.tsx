@@ -5,6 +5,7 @@ import Image from "next/image";
 import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import LangToggle from "@/app/components/LangToggle";
+import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { buildPlayerIdentityKey, dedupePlayersByIdentity } from "@/lib/playerIdentity";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
@@ -58,16 +59,22 @@ export default async function Dashboard({
     preferredSeason,
     "2025"
   );
-  const seasons = visibility.seasons.length > 0 ? visibility.seasons : [preferredSeason || "2025"];
+  const seasons = appendCareerSeasonIfNeeded(
+    visibility.seasons.length > 0 ? visibility.seasons : [preferredSeason || "2025"],
+    [
+      ...(allBatting || []).map((row) => row.season),
+      ...(allPitching || []).map((row) => row.season),
+    ]
+  );
   const season = normalizeSelectedSeason(params.season, seasons, preferredSeason || "2025", preferredSeason);
   const isPlaceholderSeason = isLockedSeason(season, visibility.activatedSeasons);
 
   const batting = isPlaceholderSeason
     ? []
-    : allBatting?.filter((b) => (b.season || "2025") === season) || [];
+    : filterRecordsForSeason(allBatting || [], season, { lockedSeasons: visibility.lockedSeasons });
   const pitching = isPlaceholderSeason
     ? []
-    : allPitching?.filter((p) => (p.season || "2025") === season) || [];
+    : filterRecordsForSeason(allPitching || [], season, { lockedSeasons: visibility.lockedSeasons });
 
   // ── 타자: 경기별 기록 전부 누적 합산 ──
   const battingByPlayer = new Map<string, any>();
@@ -210,7 +217,7 @@ export default async function Dashboard({
               <LangToggle lang={lang} />
             </div>
           </div>
-          <div style={{ flex: 1 }}><SearchBar players={seasonPlayers} batting={batting} pitching={pitching} season={season} /></div>
+          <div style={{ flex: 1 }}><SearchBar players={seasonPlayers} batting={uniqueBatting} pitching={uniquePitching} season={season} /></div>
           <div style={{ marginTop: 16 }}><SeasonFilter seasons={seasons} basePath="/" /></div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 export const runtime = "nodejs";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
@@ -172,6 +173,9 @@ export async function POST(request: NextRequest) {
       results.skipped_batting + results.skipped_pitching > 0
         ? ` (중복 건너뜀: 타자 ${results.skipped_batting}건, 투수 ${results.skipped_pitching}건)`
         : "";
+
+    ["/", "/players", "/compare", "/team-analysis", "/upload", "/import"].forEach((path) => revalidatePath(path));
+    revalidatePath("/", "layout");
 
     return NextResponse.json({
       success: true,

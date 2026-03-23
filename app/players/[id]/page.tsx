@@ -4,8 +4,10 @@ import PlayerGoals from "@/app/components/PlayerGoals";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, normalizeSelectedSeason } from "@/lib/season";
+import { getSeasonVisibility } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
 
 export const dynamic = "force-dynamic";
@@ -51,11 +53,21 @@ export default async function PlayerDetail({
     supabase.from("ai_reports").select("*").in("player_id", relatedPlayerIds).order("generated_at", { ascending: false }).limit(1),
   ]);
 
-  const availableSeasons = Array.from(new Set([
+  const seasonValues = Array.from(new Set([
     ...((allBatting || []).map((record) => record.season)),
     ...((allPitching || []).map((record) => record.season)),
   ].filter(Boolean)));
-  const fallbackSeason = getLatestSeason(availableSeasons, preferredSeason || "2025");
+  const visibility = await getSeasonVisibility(
+    supabase,
+    seasonValues,
+    preferredSeason,
+    "2025"
+  );
+  const availableSeasons = appendCareerSeasonIfNeeded(
+    seasonValues,
+    seasonValues
+  );
+  const fallbackSeason = getLatestSeason(visibility.seasons, preferredSeason || "2025");
   const requestedSeason = typeof query.season === "string" ? query.season.trim() : "";
   const selectedSeason = requestedSeason || normalizeSelectedSeason(
     undefined,
@@ -64,8 +76,9 @@ export default async function PlayerDetail({
     preferredSeason
   );
 
-  const batRecords = (allBatting || []).filter((record) => record.season === selectedSeason);
-  const pitRecords = (allPitching || []).filter((record) => record.season === selectedSeason && (parseFloat(String(record.ip)) || 0) > 0);
+  const batRecords = filterRecordsForSeason(allBatting || [], selectedSeason, { lockedSeasons: visibility.lockedSeasons });
+  const pitRecords = filterRecordsForSeason(allPitching || [], selectedSeason, { lockedSeasons: visibility.lockedSeasons })
+    .filter((record) => (parseFloat(String(record.ip)) || 0) > 0);
 
   const bat = batRecords.length > 0 ? batRecords.reduce((acc, b) => ({
     ...acc,
