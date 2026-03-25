@@ -124,21 +124,15 @@ export default function SearchBar({
   };
 
   return (
-    <div ref={wrapperRef} style={{ position: "relative", width: "100%" }}>
+    <div ref={wrapperRef} className="app-search-shell">
       {/* 검색 입력 */}
       <div
+        className={focused ? "app-search-input-wrap focused" : "app-search-input-wrap"}
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          background: focused ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
-          border: `1px solid ${focused ? "rgba(96,165,250,0.4)" : "rgba(255,255,255,0.08)"}`,
-          borderRadius: 12,
-          padding: "10px 16px",
           transition: "all 0.2s",
         }}
       >
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="rgba(255,255,255,0.35)" strokeWidth="2">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="var(--text-dim)" strokeWidth="2">
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.35-4.35" />
         </svg>
@@ -154,7 +148,7 @@ export default function SearchBar({
             background: "none",
             border: "none",
             outline: "none",
-            color: "#e2e8f0",
+            color: "var(--text)",
             fontSize: 14,
           }}
         />
@@ -162,10 +156,11 @@ export default function SearchBar({
           <span
             style={{
               fontSize: 11,
-              color: "rgba(255,255,255,0.2)",
-              padding: "2px 6px",
-              borderRadius: 4,
-              border: "1px solid rgba(255,255,255,0.1)",
+              color: "var(--text-dim)",
+              padding: "4px 8px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.03)",
             }}
           >
             ⌘K
@@ -177,7 +172,7 @@ export default function SearchBar({
             style={{
               background: "none",
               border: "none",
-              color: "rgba(255,255,255,0.3)",
+              color: "var(--text-dim)",
               cursor: "pointer",
               fontSize: 16,
               padding: 0,
@@ -191,27 +186,14 @@ export default function SearchBar({
       {/* 검색 결과 드롭다운 */}
       {focused && query.trim() && (
         <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 8px)",
-            left: 0,
-            right: 0,
-            background: "#1a1f2e",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 14,
-            overflow: "hidden",
-            zIndex: 50,
-            boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
-            maxHeight: 400,
-            overflowY: "auto",
-          }}
+          className="app-search-dropdown"
         >
           {filtered.length === 0 ? (
             <div
               style={{
                 padding: "24px 16px",
                 textAlign: "center",
-                color: "rgba(255,255,255,0.3)",
+                color: "var(--text-dim)",
                 fontSize: 13,
               }}
             >
@@ -224,13 +206,11 @@ export default function SearchBar({
                 <div
                   key={player.id}
                   onClick={() => handleSelect(player.id)}
+                  className="app-search-result"
                   style={{
-                    padding: "14px 16px",
-                    cursor: "pointer",
-                    borderBottom: "1px solid rgba(255,255,255,0.04)",
                     transition: "background 0.15s",
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -239,14 +219,15 @@ export default function SearchBar({
                         style={{
                           width: 40,
                           height: 40,
-                          borderRadius: 10,
-                          background: "linear-gradient(135deg, #dc2626, #991b1b)",
+                          borderRadius: 12,
+                          background: "linear-gradient(135deg, rgba(255,180,171,0.9), rgba(220,38,38,0.9))",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           fontSize: 14,
                           fontWeight: 900,
                           color: "#fff",
+                          boxShadow: "0 14px 28px rgba(220,38,38,0.18)",
                         }}
                       >
                         {player.number}
@@ -254,9 +235,9 @@ export default function SearchBar({
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 700 }}>{player.name}</div>
                         <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
-                          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>#{player.number}</span>
+                          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>#{player.number}</span>
                           {player.is_pitcher && (
-                            <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "rgba(234,179,8,0.12)", color: "#eab308" }}>투수</span>
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(234,179,8,0.12)", color: "#eab308" }}>투수</span>
                           )}
                         </div>
                       </div>
@@ -267,22 +248,22 @@ export default function SearchBar({
                       {stats.bat && (
                         <>
                           <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>타율</div>
+                            <div style={{ fontSize: 10, color: "var(--text-dim)" }}>타율</div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: parseFloat(stats.avg) >= 0.3 ? "#22c55e" : "#eab308" }}>{stats.avg}</div>
                           </div>
                           <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>OPS</div>
+                            <div style={{ fontSize: 10, color: "var(--text-dim)" }}>OPS</div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: parseFloat(stats.ops) >= 1.0 ? "#22c55e" : parseFloat(stats.ops) >= 0.7 ? "#eab308" : "#ef4444" }}>{stats.ops}</div>
                           </div>
                         </>
                       )}
                       {stats.era && (
                         <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>ERA</div>
+                          <div style={{ fontSize: 10, color: "var(--text-dim)" }}>ERA</div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: parseFloat(stats.era) <= 3.0 ? "#22c55e" : parseFloat(stats.era) <= 5.0 ? "#eab308" : "#ef4444" }}>{stats.era}</div>
                         </div>
                       )}
-                      <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 18 }}>→</div>
+                      <div style={{ color: "var(--brand-coral)", fontSize: 18 }}>→</div>
                     </div>
                   </div>
                 </div>

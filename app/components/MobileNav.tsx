@@ -39,10 +39,11 @@ export default function MobileNav({ lang }: { lang: string }) {
           left: 0,
           right: 0,
           zIndex: 9990,
-          background: "rgba(10, 14, 23, 0.95)",
+          background: "linear-gradient(180deg, rgba(17,25,51,0.92), rgba(12,18,38,0.96))",
           backdropFilter: "blur(20px)",
           WebkitBackdropFilter: "blur(20px)",
           borderTop: "1px solid rgba(255,255,255,0.06)",
+          boxShadow: "0 -18px 40px rgba(6,10,24,0.24)",
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
         }}
         className="mobile-nav"
@@ -52,7 +53,7 @@ export default function MobileNav({ lang }: { lang: string }) {
             display: "flex",
             justifyContent: "space-around",
             alignItems: "center",
-            padding: "6px 0 2px",
+            padding: "8px 8px 4px",
           }}
         >
           {NAV_ITEMS.map((item) => {
@@ -66,11 +67,12 @@ export default function MobileNav({ lang }: { lang: string }) {
                   flexDirection: "column",
                   alignItems: "center",
                   gap: 2,
-                  padding: "6px 12px",
-                  borderRadius: 10,
+                  padding: "8px 12px",
+                  borderRadius: 14,
                   textDecoration: "none",
-                  color: active ? "#60a5fa" : "rgba(255,255,255,0.35)",
-                  transition: "color 0.15s",
+                  color: active ? "var(--brand-coral)" : "var(--text-dim)",
+                  background: active ? "rgba(255,180,171,0.08)" : "transparent",
+                  transition: "color 0.15s, background 0.15s",
                   minWidth: 54,
                 }}
               >
@@ -90,7 +92,7 @@ export default function MobileNav({ lang }: { lang: string }) {
                       width: 4,
                       height: 4,
                       borderRadius: "50%",
-                      background: "#60a5fa",
+                      background: "var(--brand-coral)",
                       marginTop: 1,
                     }}
                   />

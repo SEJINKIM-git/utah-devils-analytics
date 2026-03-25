@@ -32,23 +32,14 @@ export default function SeasonNavLinks() {
   const season = searchParams.get("season") || readActiveSeasonCookie();
 
   return (
-    <div style={{ display: "flex", gap: 4 }}>
+    <div className="app-nav-links">
       {NAV_ITEMS.map(({ href, label }) => {
         const active = pathname === href;
         return (
           <Link
             key={href}
             href={buildHref(href, season)}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 8,
-              fontSize: 13,
-              fontWeight: active ? 700 : 500,
-              color: active ? "#60a5fa" : "var(--text-muted)",
-              textDecoration: "none",
-              transition: "color 0.15s",
-              background: active ? "rgba(96,165,250,0.12)" : "transparent",
-            }}
+            className={active ? "app-nav-link active" : "app-nav-link"}
           >
             {label}
           </Link>
@@ -56,16 +47,7 @@ export default function SeasonNavLinks() {
       })}
       <Link
         href={buildHref("/upload", season)}
-        style={{
-          padding: "6px 14px",
-          borderRadius: 8,
-          fontSize: 13,
-          fontWeight: 700,
-          color: "#60a5fa",
-          textDecoration: "none",
-          background: "rgba(59,130,246,0.14)",
-          border: "1px solid rgba(59,130,246,0.28)",
-        }}
+        className="app-nav-upload"
       >
         📤 업로드
       </Link>
