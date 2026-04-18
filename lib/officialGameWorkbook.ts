@@ -1,4 +1,6 @@
 import * as XLSX from "xlsx";
+import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
+import { formatRateStat } from "@/lib/statFormatting";
 
 type Row = unknown[];
 
@@ -161,7 +163,8 @@ export function parseOfficialGameBattingSheet(sheet: XLSX.WorkSheet): LiveGameBa
 
   for (let index = headerRowIndex + 1; index < rows.length; index += 1) {
     const row = rows[index];
-    const name = cols.name >= 0 ? String(row[cols.name] ?? "").trim() : "";
+    const rawName = cols.name >= 0 ? String(row[cols.name] ?? "").trim() : "";
+    const name = sanitizeImportedPlayerName(rawName);
     const hasCoreStats = [cols.ab, cols.runs, cols.hits, cols.bb, cols.so].some((column) => {
       if (column < 0) return false;
       const cell = row[column];
@@ -173,7 +176,7 @@ export function parseOfficialGameBattingSheet(sheet: XLSX.WorkSheet): LiveGameBa
       continue;
     }
 
-    if (/합계|통산|시즌/.test(name)) continue;
+    if (/합계|통산|시즌/.test(rawName)) continue;
 
     const ab = cols.ab >= 0 ? toNumber(row[cols.ab]) : 0;
     const hits = cols.hits >= 0 ? toNumber(row[cols.hits]) : 0;
@@ -196,9 +199,11 @@ export function parseOfficialGameBattingSheet(sheet: XLSX.WorkSheet): LiveGameBa
       hbp,
       so: cols.so >= 0 ? toNumber(row[cols.so]) : 0,
       sb: cols.sb >= 0 ? toNumber(row[cols.sb]) : 0,
-      avg: cols.avg >= 0
-        ? String(row[cols.avg] ?? "").trim() || (ab > 0 ? (hits / ab).toFixed(3) : "0")
-        : (ab > 0 ? (hits / ab).toFixed(3) : "0"),
+      avg: formatRateStat(
+        cols.avg >= 0 ? row[cols.avg] : ab > 0 ? hits / ab : 0,
+        3,
+        "0.000"
+      ),
     });
   }
 
@@ -215,7 +220,8 @@ export function parseOfficialGamePitchingSheet(sheet: XLSX.WorkSheet): LiveGameP
 
   for (let index = headerRowIndex + 1; index < rows.length; index += 1) {
     const row = rows[index];
-    const name = cols.name >= 0 ? String(row[cols.name] ?? "").trim() : "";
+    const rawName = cols.name >= 0 ? String(row[cols.name] ?? "").trim() : "";
+    const name = sanitizeImportedPlayerName(rawName);
     const hasCoreStats = [cols.ip, cols.ha, cols.runsAllowed, cols.er, cols.so].some((column) => {
       if (column < 0) return false;
       const cell = row[column];
@@ -227,7 +233,7 @@ export function parseOfficialGamePitchingSheet(sheet: XLSX.WorkSheet): LiveGameP
       continue;
     }
 
-    if (/합계|통산|시즌/.test(name)) continue;
+    if (/합계|통산|시즌/.test(rawName)) continue;
 
     const decision = cols.decision >= 0 ? String(row[cols.decision] ?? "").trim() : "";
     const ip = cols.ip >= 0 ? toNumber(row[cols.ip]) : 0;

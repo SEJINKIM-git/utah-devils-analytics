@@ -12,6 +12,8 @@ import {
   parseOfficialGamePitchingSheet,
 } from "@/lib/officialGameWorkbook";
 import { parseGameLines } from "@/lib/parseDocxGameRecord";
+import { inferRosterSnapshotSeasons } from "@/lib/rosterSnapshot";
+import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason } from "@/lib/season";
 import { ensureSeasonActivated } from "@/lib/seasonVisibility";
 import { extractGameMetaFromFilename, extractSeasonFromFilename } from "@/lib/gameFileMeta";
@@ -61,6 +63,16 @@ function normalizeSeason(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value.trim();
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return null;
+}
+
+function uniqueSeasons(values: Array<string | number | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeSeason(value))
+        .filter((value): value is string => Boolean(value))
+    )
+  );
 }
 
 function normalizeDateValue(value: unknown): string | null {
@@ -315,6 +327,16 @@ async function activateEligibleSeasons(seasons: string[], fileName: string, resu
   return activated;
 }
 
+async function activateUploadedSeasons(seasons: string[], fileName: string) {
+  const activated: string[] = [];
+  for (const season of seasons) {
+    if (await ensureSeasonActivated(supabase, season, fileName)) {
+      activated.push(season);
+    }
+  }
+  return activated;
+}
+
 async function saveUploadRecord(
   filename: string,
   players: { number: number; name: string }[],
@@ -324,7 +346,7 @@ async function saveUploadRecord(
   seasons: string[] = [TARGET_SEASON]
 ) {
   try {
-    const snapshotSeasons = Array.from(new Set(seasons.filter(Boolean)));
+    const snapshotSeasons = uniqueSeasons(seasons);
     await supabase.from("roster_uploads").insert({
       filename,
       player_count: players.length,
@@ -404,11 +426,17 @@ async function findPlayerByNumberOrName(playerNumber: number | null, name: strin
 
 async function upsertPlayer(
   playerNumber: number | null,
-  name: string,
+  rawName: string,
   isPitcher: boolean,
   results?: UploadResults,
   options?: { position?: string | null }
 ) {
+  const name = sanitizeImportedPlayerName(rawName);
+  if (!name) {
+    console.warn("유효하지 않은 선수명을 건너뜁니다:", rawName);
+    return null;
+  }
+
   const normalizedNumber = playerNumber && playerNumber > 0 ? playerNumber : null;
   let player = await findPlayerByNumberOrName(normalizedNumber, name);
 
@@ -442,7 +470,12 @@ async function upsertPlayer(
   return player;
 }
 
-async function initializeRosterSeason(rosterPlayers: RosterPlayer[], overwrite: boolean) {
+async function initializeRosterSeasons(
+  rosterPlayers: RosterPlayer[],
+  overwrite: boolean,
+  seasons: string[]
+) {
+  const targetSeasons = uniqueSeasons(seasons);
   const results = {
     players: 0,
     updated: 0,
@@ -500,62 +533,64 @@ async function initializeRosterSeason(rosterPlayers: RosterPlayer[], overwrite: 
 
     if (!playerId) continue;
 
-    const { data: existingBatting } = await supabase
-      .from("batting_stats")
-      .select("id")
-      .eq("player_id", playerId)
-      .eq("season", TARGET_SEASON)
-      .limit(1);
+    for (const season of targetSeasons) {
+      const { data: existingBatting } = await supabase
+        .from("batting_stats")
+        .select("id")
+        .eq("player_id", playerId)
+        .eq("season", season)
+        .limit(1);
 
-    if (!existingBatting || existingBatting.length === 0) {
-      await supabase.from("batting_stats").insert({
-        player_id: playerId,
-        season: TARGET_SEASON,
-        pa: 0,
-        ab: 0,
-        runs: 0,
-        hits: 0,
-        doubles: 0,
-        triples: 0,
-        hr: 0,
-        rbi: 0,
-        bb: 0,
-        hbp: 0,
-        so: 0,
-        sb: 0,
-      });
-      results.batting++;
-    } else {
-      results.skipped_batting++;
-    }
+      if (!existingBatting || existingBatting.length === 0) {
+        await supabase.from("batting_stats").insert({
+          player_id: playerId,
+          season,
+          pa: 0,
+          ab: 0,
+          runs: 0,
+          hits: 0,
+          doubles: 0,
+          triples: 0,
+          hr: 0,
+          rbi: 0,
+          bb: 0,
+          hbp: 0,
+          so: 0,
+          sb: 0,
+        });
+        results.batting++;
+      } else {
+        results.skipped_batting++;
+      }
 
-    const { data: existingPitching } = await supabase
-      .from("pitching_stats")
-      .select("id")
-      .eq("player_id", playerId)
-      .eq("season", TARGET_SEASON)
-      .limit(1);
+      const { data: existingPitching } = await supabase
+        .from("pitching_stats")
+        .select("id")
+        .eq("player_id", playerId)
+        .eq("season", season)
+        .limit(1);
 
-    if (!existingPitching || existingPitching.length === 0) {
-      await supabase.from("pitching_stats").insert({
-        player_id: playerId,
-        season: TARGET_SEASON,
-        w: 0,
-        l: 0,
-        sv: 0,
-        hld: 0,
-        ip: 0,
-        ha: 0,
-        runs_allowed: 0,
-        er: 0,
-        bb: 0,
-        hbp: 0,
-        so: 0,
-        hr_allowed: 0,
-      });
-      results.pitching++;
-    } else {
-      results.skipped_pitching++;
+      if (!existingPitching || existingPitching.length === 0) {
+        await supabase.from("pitching_stats").insert({
+          player_id: playerId,
+          season,
+          w: 0,
+          l: 0,
+          sv: 0,
+          hld: 0,
+          ip: 0,
+          ha: 0,
+          runs_allowed: 0,
+          er: 0,
+          bb: 0,
+          hbp: 0,
+          so: 0,
+          hr_allowed: 0,
+        });
+        results.pitching++;
+      } else {
+        results.skipped_pitching++;
+      }
     }
   }
 
@@ -1098,12 +1133,14 @@ async function processDetailedBlockSheet(
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
+    const requestedSeason = normalizeSeason(formData.get("season")) || TARGET_SEASON;
 
     const manualJson = formData.get("manual") as string | null;
     if (manualJson) {
       const players: RosterPlayer[] = JSON.parse(manualJson);
       const overwrite = formData.get("overwrite") === "true";
       const checkOnly = formData.get("checkOnly") === "true";
+      const rosterSeasons = uniqueSeasons([requestedSeason]);
       const conflicts = await detectConflicts(players);
 
       if (checkOnly) {
@@ -1114,18 +1151,20 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ needsConfirm: true, conflicts, total: players.length });
       }
 
-      const initialized = await initializeRosterSeason(players, overwrite);
-      await saveUploadRecord("직접 입력", players, initialized.players, initialized.updated, "manual", [TARGET_SEASON]);
+      const initialized = await initializeRosterSeasons(players, overwrite, rosterSeasons);
+      await saveUploadRecord("직접 입력", players, initialized.players, initialized.updated, "manual", rosterSeasons);
+      const activatedSeasons = await activateUploadedSeasons(rosterSeasons, "직접 입력");
       revalidateConnectedViews();
 
       const skipped =
         initialized.skipped_batting > 0 ? ` (기존 기록 ${initialized.skipped_batting}건 유지)` : "";
+      const activeSeason = getLatestSeason(rosterSeasons, requestedSeason);
 
       return withActiveSeasonCookie(NextResponse.json({
         success: true,
-        message: `완료! 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 정보 업데이트` : ""}${skipped}`,
-        details: initialized,
-      }), TARGET_SEASON);
+        message: `완료! 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 정보 업데이트` : ""}${skipped}${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 대시보드 활성화` : ""}`,
+        details: { ...initialized, seasons: rosterSeasons },
+      }), activeSeason);
     }
 
     const file = formData.get("file") as File | null;
@@ -1136,7 +1175,6 @@ export async function POST(request: NextRequest) {
     const overwrite = formData.get("overwrite") === "true";
     const checkOnly = formData.get("checkOnly") === "true";
     const skipConflicts = formData.get("skipConflicts") === "true";
-    const requestedSeason = normalizeSeason(formData.get("season")) || TARGET_SEASON;
 
     if (/\.docx$/i.test(file.name)) {
       const statSeasons = [extractSeasonFromFilename(file.name, requestedSeason)];
@@ -1180,6 +1218,10 @@ export async function POST(request: NextRequest) {
       hasStructuredStatSheet || hasLiveGameStatSheet || seasonTotalTargets.length > 0 || detailedBlockTargets.length > 0;
 
     if (!isStatsUpload && rosterPlayers.length > 0) {
+      const rosterSeasons = uniqueSeasons([
+        ...inferRosterSnapshotSeasons(file.name, "file"),
+        requestedSeason,
+      ]);
       const conflicts = await detectConflicts(rosterPlayers);
 
       if (checkOnly) {
@@ -1199,20 +1241,22 @@ export async function POST(request: NextRequest) {
           )
         : rosterPlayers;
 
-      const initialized = await initializeRosterSeason(playersToProcess, overwrite);
-      await saveUploadRecord(file.name, playersToProcess, initialized.players, initialized.updated, "file", [TARGET_SEASON]);
+      const initialized = await initializeRosterSeasons(playersToProcess, overwrite, rosterSeasons);
+      await saveUploadRecord(file.name, playersToProcess, initialized.players, initialized.updated, "file", rosterSeasons);
+      const activatedSeasons = await activateUploadedSeasons(rosterSeasons, file.name);
       revalidateConnectedViews();
 
       const skipped =
         initialized.skipped_batting > 0 ? ` (기존 기록 ${initialized.skipped_batting}건 유지)` : "";
       const skippedCount =
         skipConflicts && conflicts.length > 0 ? ` · 중복 ${conflicts.length}명 제외` : "";
+      const activeSeason = getLatestSeason(rosterSeasons, requestedSeason);
 
       return withActiveSeasonCookie(NextResponse.json({
         success: true,
-        message: `로스터 반영 완료! 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 업데이트` : ""}${skipped}${skippedCount}`,
-        details: initialized,
-      }), TARGET_SEASON);
+        message: `로스터 반영 완료! 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 업데이트` : ""}${skipped}${skippedCount}${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 대시보드 활성화` : ""}`,
+        details: { ...initialized, seasons: rosterSeasons },
+      }), activeSeason);
     }
 
     const statSeasons = collectFlexibleStatSeasons(workbook, file.name, requestedSeason);

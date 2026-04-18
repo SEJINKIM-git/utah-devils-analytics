@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
+import { sanitizeGameReviewContent } from "@/lib/gameReviewSanitizer";
+import { formatRateStat } from "@/lib/statFormatting";
 
 function getCookie(name: string) {
   if (typeof document === "undefined") return null;
@@ -132,9 +134,19 @@ export default function GameReviewPage() {
     <div style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.8 }}>{children}</div>
   );
 
+  const displayReview = review
+    ? sanitizeGameReviewContent(review, {
+        opponent,
+        playerNames: [
+          ...battingData.map((entry) => entry.name),
+          ...pitchingData.map((entry) => entry.name),
+        ],
+      })
+    : null;
+
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0e17", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <div style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)", padding: "28px 40px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+    <div className="app-page-shell" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
+      <div className="app-page-header" style={{ padding: "28px 40px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <Link href={`/?season=${season}`} style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{lang === "ko" ? "← 대시보드로 돌아가기" : "← Back to Dashboard"}</Link>
           <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>📋 {lang === "ko" ? "경기 기록 AI 리뷰" : "Game Record AI Review"}</h1>
@@ -242,7 +254,7 @@ export default function GameReviewPage() {
         )}
 
         {/* 리뷰 결과 */}
-        {review && !loading && (
+        {displayReview && !loading && (
           <div>
             {/* 헤더 */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
@@ -266,17 +278,17 @@ export default function GameReviewPage() {
 
             {/* 경기 요약 */}
             <div style={{ padding: "20px 24px", background: "rgba(59,130,246,0.06)", borderLeft: "4px solid #3b82f6", borderRadius: "0 14px 14px 0", fontSize: 15, color: "#cbd5e1", lineHeight: 1.8, marginBottom: 24 }}>
-              {review.game_summary}
+              {displayReview.game_summary}
             </div>
 
             {/* MVP */}
-            {review.mvp && (
+            {displayReview.mvp && (
               <div style={{ background: "linear-gradient(135deg, rgba(234,179,8,0.06), rgba(234,179,8,0.02))", border: "1px solid rgba(234,179,8,0.15)", borderRadius: 14, padding: 24, marginBottom: 16, display: "flex", alignItems: "center", gap: 20 }}>
                 <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, #eab308, #ca8a04)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>⭐</div>
                 <div>
                   <div style={{ fontSize: 11, color: "#eab308", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" as const }}>MVP</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{review.mvp.name}</div>
-                  <div style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.6, marginTop: 4 }}>{review.mvp.reason}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2 }}>{displayReview.mvp.name}</div>
+                  <div style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.6, marginTop: 4 }}>{displayReview.mvp.reason}</div>
                 </div>
               </div>
             )}
@@ -308,7 +320,7 @@ export default function GameReviewPage() {
                           <td style={{ padding: "6px" }}>{b.runs}</td>
                           <td style={{ padding: "6px" }}>{b.bb}</td>
                           <td style={{ padding: "6px", color: b.so >= 2 ? "#ef4444" : "#e2e8f0" }}>{b.so}</td>
-                          <td style={{ padding: "6px", fontWeight: 700, color: parseFloat(b.avg) >= 0.5 ? "#22c55e" : "#e2e8f0" }}>{b.avg}</td>
+                          <td style={{ padding: "6px", fontWeight: 700, color: parseFloat(b.avg) >= 0.5 ? "#22c55e" : "#e2e8f0" }}>{formatRateStat(b.avg, 3, "0.000")}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -352,41 +364,41 @@ export default function GameReviewPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               {/* 타격 리뷰 */}
               <Section icon="⚾" title={lang === "ko" ? "타격 분석" : "Batting Analysis"} color="#22c55e">
-                <Txt>{review.batting_review?.overview || ""}</Txt>
-                {review.batting_review?.standout_hitters && (
+                <Txt>{displayReview.batting_review?.overview || ""}</Txt>
+                {displayReview.batting_review?.standout_hitters && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 11, color: "#22c55e", fontWeight: 700, marginBottom: 6 }}>{lang === "ko" ? "주요 활약" : "Standouts"}</div>
-                    {review.batting_review.standout_hitters.map((s: string, i: number) => <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.8, paddingLeft: 12 }}>· {s}</div>)}
+                    {displayReview.batting_review.standout_hitters.map((s: string, i: number) => <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.8, paddingLeft: 12 }}>· {s}</div>)}
                   </div>
                 )}
-                {review.batting_review?.areas_to_improve && (
+                {displayReview.batting_review?.areas_to_improve && (
                   <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(239,68,68,0.04)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>
-                    ⚡ {review.batting_review.areas_to_improve}
+                    ⚡ {displayReview.batting_review.areas_to_improve}
                   </div>
                 )}
               </Section>
 
               {/* 투구 리뷰 */}
               <Section icon="🏏" title={lang === "ko" ? "투구 분석" : "Pitching Analysis"} color="#60a5fa">
-                <Txt>{review.pitching_review?.overview || ""}</Txt>
-                {review.pitching_review?.standout_pitchers && (
+                <Txt>{displayReview.pitching_review?.overview || ""}</Txt>
+                {displayReview.pitching_review?.standout_pitchers && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 700, marginBottom: 6 }}>{lang === "ko" ? "주요 활약" : "Standouts"}</div>
-                    {review.pitching_review.standout_pitchers.map((s: string, i: number) => <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.8, paddingLeft: 12 }}>· {s}</div>)}
+                    {displayReview.pitching_review.standout_pitchers.map((s: string, i: number) => <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.8, paddingLeft: 12 }}>· {s}</div>)}
                   </div>
                 )}
-                {review.pitching_review?.areas_to_improve && (
+                {displayReview.pitching_review?.areas_to_improve && (
                   <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(239,68,68,0.04)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.7 }}>
-                    ⚡ {review.pitching_review.areas_to_improve}
+                    ⚡ {displayReview.pitching_review.areas_to_improve}
                   </div>
                 )}
               </Section>
             </div>
 
             {/* 핵심 장면 */}
-            {review.key_moments && (
+            {displayReview.key_moments && (
               <Section icon="🔥" title={lang === "ko" ? "핵심 장면" : "Key Moments"} color="#eab308">
-                {review.key_moments.map((m: string, i: number) => (
+                {displayReview.key_moments.map((m: string, i: number) => (
                   <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8 }}>
                     <span style={{ color: "#eab308", fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{i + 1}</span>
                     <span style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", lineHeight: 1.7 }}>{m}</span>
@@ -397,13 +409,13 @@ export default function GameReviewPage() {
 
             {/* 전략 분석 */}
             <Section icon="🎯" title={lang === "ko" ? "전략적 분석" : "Tactical Analysis"} color="#a78bfa">
-              <Txt>{review.tactical_analysis || ""}</Txt>
+              <Txt>{displayReview.tactical_analysis || ""}</Txt>
             </Section>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               {/* 개선 방안 */}
               <Section icon="📈" title={lang === "ko" ? "개선 방안" : "Improvement Plan"} color="#f97316">
-                {review.improvement_plan?.map((s: string, i: number) => (
+                {displayReview.improvement_plan?.map((s: string, i: number) => (
                   <div key={i} style={{ padding: "10px 14px", background: "rgba(249,115,22,0.04)", borderRadius: 8, borderLeft: "3px solid rgba(249,115,22,0.3)", marginBottom: 8, fontSize: 13, color: "rgba(255,255,255,0.6)", lineHeight: 1.7 }}>
                     <span style={{ fontWeight: 700, color: "#f97316", marginRight: 8 }}>{i + 1}.</span>{s}
                   </div>
@@ -412,7 +424,7 @@ export default function GameReviewPage() {
 
               {/* 다음 경기 전략 */}
               <Section icon="➡️" title={lang === "ko" ? "다음 경기 포인트" : "Next Game Strategy"} color="#ef4444">
-                <Txt>{review.next_game_strategy || ""}</Txt>
+                <Txt>{displayReview.next_game_strategy || ""}</Txt>
               </Section>
             </div>
           </div>

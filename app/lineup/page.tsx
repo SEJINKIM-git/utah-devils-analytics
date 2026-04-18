@@ -5,12 +5,45 @@ import Image from "next/image";
 import LangToggle from "@/app/components/LangToggle";
 import LineupSimulator from "@/app/components/LineupSimulator";
 import SeasonFilter from "@/app/components/SeasonFilter";
+import {
+  buildPlayerIdentityKey,
+  dedupePlayersByIdentity,
+  findRelatedPlayersByIdentity,
+  normalizePlayerName,
+} from "@/lib/playerIdentity";
+import { isLikelyPlayerName } from "@/lib/playerNameValidation";
+import {
+  getLatestRosterUploadForSeason,
+  type RosterSnapshotPlayer,
+} from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { Lang } from "@/lib/translations";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function findRosterPlayerMatches(players: any[], snapshotPlayer: RosterSnapshotPlayer) {
+  const exactKey = buildPlayerIdentityKey(snapshotPlayer.name, snapshotPlayer.number);
+  const normalizedName = normalizePlayerName(snapshotPlayer.name);
+
+  const exact = players.filter(
+    (player) => buildPlayerIdentityKey(player.name, player.number) === exactKey
+  );
+  if (exact.length > 0) return exact;
+
+  const sameName = players.filter(
+    (player) => normalizePlayerName(player.name) === normalizedName
+  );
+  if (sameName.length > 0) return sameName;
+
+  if (snapshotPlayer.number) {
+    const sameNumber = players.filter((player) => player.number === snapshotPlayer.number);
+    if (sameNumber.length > 0) return sameNumber;
+  }
+
+  return [];
+}
 
 export default async function LineupPage({
   searchParams,
@@ -30,6 +63,10 @@ export default async function LineupPage({
   const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const { data: allBattingRaw } = await supabase.from("batting_stats").select("season");
   const { data: allPitchingRaw } = await supabase.from("pitching_stats").select("season");
+  const { data: rosterUploads } = await supabase
+    .from("roster_uploads")
+    .select("filename,players_snapshot,source,uploaded_at")
+    .order("uploaded_at", { ascending: false });
   const visibility = await getSeasonVisibility(supabase, [
     ...(allBattingRaw || []).map((b: any) => b.season),
     ...(allPitchingRaw || []).map((p: any) => p.season),
@@ -41,6 +78,10 @@ export default async function LineupPage({
   const { data: batting } = isPlaceholderSeason
     ? { data: [] as any[] }
     : await supabase.from("batting_stats").select("*").eq("season", selectedSeason);
+  const latestRosterUpload = isPlaceholderSeason
+    ? null
+    : getLatestRosterUploadForSeason(rosterUploads || [], selectedSeason);
+  const rosterSnapshotPlayers = latestRosterUpload?.snapshot?.players || [];
 
   let lineups: any[] = [];
   if (!isPlaceholderSeason) {
@@ -54,50 +95,75 @@ export default async function LineupPage({
     } catch (e) {}
   }
 
-  // 등번호(number) 기준 중복 제거 — DB에 같은 선수가 다른 id로 중복 저장된 경우 방어
-  // 같은 등번호 선수는 가장 최근 id(큰 값) 기준으로 대표 선수 선택
-  const uniquePlayers = Array.from(
-    (rawPlayers || []).reduce((map: Map<number, any>, p: any) => {
-      const existing = map.get(p.number);
-      if (!existing || p.id > existing.id) map.set(p.number, p);
-      return map;
-    }, new Map<number, any>()).values()
-  );
+  const validPlayers = (rawPlayers || []).filter((player) => isLikelyPlayerName(player.name));
+  const playerEntries = isPlaceholderSeason
+    ? []
+    : rosterSnapshotPlayers.length > 0
+      ? rosterSnapshotPlayers
+          .map((snapshotPlayer) => {
+            const relatedPlayers = findRosterPlayerMatches(validPlayers, snapshotPlayer);
+            if (relatedPlayers.length === 0) return null;
 
-  // 등번호 → 대표 player_id 매핑 (중복 id들도 모두 같은 선수로 합산)
-  const numberToPlayerId = new Map<number, number>();
-  for (const p of (rawPlayers || [])) {
-    const rep = uniquePlayers.find((u: any) => u.number === (p as any).number);
-    if (rep) numberToPlayerId.set((p as any).id, (rep as any).id);
-  }
+            return {
+              player: [...relatedPlayers].sort((a, b) => b.id - a.id)[0],
+              relatedPlayers,
+              canonicalName: snapshotPlayer.name,
+              canonicalNumber: snapshotPlayer.number,
+            };
+          })
+          .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      : dedupePlayersByIdentity(validPlayers).map((player) => ({
+          player,
+          relatedPlayers: findRelatedPlayersByIdentity(validPlayers, player),
+          canonicalName: player.name,
+          canonicalNumber: player.number,
+        }));
 
-  // 타자 기록 — 중복 id 포함 모두 대표 id로 합산
-  const battingMap = new Map<number, any>();
-  for (const b of batting || []) {
-    const repId: number = numberToPlayerId.get(b.player_id) ?? b.player_id;
-    if (battingMap.has(repId)) {
-      const acc = battingMap.get(repId);
-      battingMap.set(repId, {
-        ...acc,
-        pa: acc.pa + (b.pa||0), ab: acc.ab + (b.ab||0),
-        hits: acc.hits + (b.hits||0), doubles: acc.doubles + (b.doubles||0),
-        triples: acc.triples + (b.triples||0), hr: acc.hr + (b.hr||0),
-        bb: acc.bb + (b.bb||0), hbp: acc.hbp + (b.hbp||0),
-      });
-    } else { battingMap.set(repId, { ...b }); }
-  }
-  const playersWithStats = (isPlaceholderSeason ? [] : uniquePlayers).map((p) => {
-    const b = battingMap.get(p.id);
-    const avg = b && b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
-    const obp = b && b.pa > 0 ? ((b.hits + b.bb + b.hbp) / b.pa).toFixed(3) : "---";
-    const slg = b && b.ab > 0 ? ((b.hits - b.doubles - b.triples - b.hr + b.doubles * 2 + b.triples * 3 + b.hr * 4) / b.ab).toFixed(3) : "---";
-    const ops = obp !== "---" && slg !== "---" ? (parseFloat(obp) + parseFloat(slg)).toFixed(3) : "---";
-    return { ...p, avg, obp, slg, ops, pa: b?.pa || 0, hits: b?.hits || 0 };
-  });
+  const playersWithStats = playerEntries
+    .map(({ player, relatedPlayers, canonicalName, canonicalNumber }) => {
+      const relatedIds = new Set(relatedPlayers.map((entry) => entry.id));
+      const merged = (batting || []).reduce(
+        (acc, row) => {
+          if (!relatedIds.has(row.player_id)) return acc;
+
+          return {
+            pa: acc.pa + (row.pa || 0),
+            ab: acc.ab + (row.ab || 0),
+            hits: acc.hits + (row.hits || 0),
+            doubles: acc.doubles + (row.doubles || 0),
+            triples: acc.triples + (row.triples || 0),
+            hr: acc.hr + (row.hr || 0),
+            bb: acc.bb + (row.bb || 0),
+            hbp: acc.hbp + (row.hbp || 0),
+          };
+        },
+        { pa: 0, ab: 0, hits: 0, doubles: 0, triples: 0, hr: 0, bb: 0, hbp: 0 }
+      );
+
+      const avg = merged.ab > 0 ? (merged.hits / merged.ab).toFixed(3) : "---";
+      const obp = merged.pa > 0 ? ((merged.hits + merged.bb + merged.hbp) / merged.pa).toFixed(3) : "---";
+      const slg = merged.ab > 0
+        ? ((merged.hits - merged.doubles - merged.triples - merged.hr + merged.doubles * 2 + merged.triples * 3 + merged.hr * 4) / merged.ab).toFixed(3)
+        : "---";
+      const ops = obp !== "---" && slg !== "---" ? (parseFloat(obp) + parseFloat(slg)).toFixed(3) : "---";
+
+      return {
+        ...player,
+        name: canonicalName,
+        number: canonicalNumber,
+        avg,
+        obp,
+        slg,
+        ops,
+        pa: merged.pa,
+        hits: merged.hits,
+      };
+    })
+    .sort((a, b) => a.number - b.number || a.name.localeCompare(b.name, "ko"));
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0E1428", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <div style={{ background: "linear-gradient(135deg, #141B3D 0%, #0E1428 100%)", padding: "24px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+    <div className="app-page-shell">
+      <div className="app-page-header" style={{ padding: "24px 20px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -109,7 +175,7 @@ export default async function LineupPage({
               </h1>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <Link href={`/?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
+              <Link href={`/?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "var(--inline-muted-surface)", color: "var(--text-muted)", fontSize: 12, fontWeight: 600, textDecoration: "none", border: "1px solid var(--border)" }}>
                 {lang === "ko" ? "← 대시보드" : "← Dashboard"}
               </Link>
               <Link href={`/schedule?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(34,197,94,0.12)", color: "#4ade80", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
@@ -128,7 +194,7 @@ export default async function LineupPage({
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
         {isPlaceholderSeason && (
-          <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.7 }}>
+          <div className="app-page-note" style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, fontSize: 13, lineHeight: 1.7 }}>
             {lang === "ko"
               ? "2026 시즌은 공식 기록 업로드 전까지 라인업 시뮬레이터를 비워 둡니다."
               : "The 2026 lineup simulator stays blank until official records are uploaded."}

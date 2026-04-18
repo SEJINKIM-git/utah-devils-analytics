@@ -14,7 +14,10 @@ import {
   parseOfficialGamePitchingSheet,
 } from "@/lib/officialGameWorkbook";
 import { parseGameLines } from "@/lib/parseDocxGameRecord";
+import { sanitizeGameReviewContent } from "@/lib/gameReviewSanitizer";
+import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
+import { formatRateStat } from "@/lib/statFormatting";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -171,6 +174,40 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const cleanedBattingData = battingData
+      .map((row) => {
+        const name = sanitizeImportedPlayerName(row.name);
+        if (!name) return null;
+
+        const ab = Number(row.ab) || 0;
+        const hits = Number(row.hits) || 0;
+
+        return {
+          ...row,
+          name,
+          position: String(row.position || "").trim(),
+          avg: formatRateStat(row.avg ?? (ab > 0 ? hits / ab : 0), 3, "0.000"),
+        };
+      })
+      .filter(Boolean) as typeof battingData;
+
+    const cleanedPitchingData = pitchingData
+      .map((row) => {
+        const name = sanitizeImportedPlayerName(row.name);
+        if (!name) return null;
+
+        return {
+          ...row,
+          name,
+        };
+      })
+      .filter(Boolean) as typeof pitchingData;
+
+    battingData.length = 0;
+    battingData.push(...cleanedBattingData);
+    pitchingData.length = 0;
+    pitchingData.push(...cleanedPitchingData);
+
     // 팀 합산
     const teamAB = battingData.reduce((a, b) => a + b.ab, 0);
     const teamH = battingData.reduce((a, b) => a + b.hits, 0);
@@ -225,7 +262,7 @@ export async function POST(request: NextRequest) {
   "tactical_analysis": "4-5 sentences on strategic observations, lineup decisions, and tactical takeaways",
   "improvement_plan": ["Specific actionable improvement 1", "Improvement 2", "Improvement 3"],
   "next_game_strategy": "3-4 sentences on what to focus on for the next game based on this performance"
-}`
+}\n\nUse the opponent and player names exactly as provided in the source data. Do not alter spellings or replace them with similar words.`
       : `이 경기 기록을 종합적으로 분석해주세요:\n\n${statsText}\n\n개선 방안과 다음 경기 전략은 반드시 Utah Devils 봄학기 훈련 계획 안에서 실현 가능한 내용으로 작성해주세요. 월요일 팀훈련, 금요일 타격훈련, 포지션별 수비훈련, 피칭 점검, 경기 전 배팅장 준비와 연결해서 제안해야 합니다.\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{
   "game_summary": "4~5문장으로 경기 흐름과 결과 요약 (점수, 분위기 포함)",
   "mvp": {"name": "선수 이름", "reason": "구체적 수치로 MVP 선정 이유"},
@@ -235,7 +272,7 @@ export async function POST(request: NextRequest) {
   "tactical_analysis": "4~5문장으로 전략적 분석 (라인업 운용, 작전 평가, 전술적 시사점)",
   "improvement_plan": ["구체적 개선 방안 1", "개선 방안 2", "개선 방안 3"],
   "next_game_strategy": "3~4문장으로 다음 경기 대비 포인트"
-}`;
+}\n\n상대팀과 선수 이름은 위 기록에 나온 표기를 그대로 사용하고, 철자를 바꾸거나 비슷한 단어로 대체하지 마세요.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -254,6 +291,11 @@ export async function POST(request: NextRequest) {
     } catch {
       return Response.json({ error: "AI 응답 파싱 실패", raw: responseText }, { status: 500 });
     }
+
+    review = sanitizeGameReviewContent(review, {
+      opponent,
+      playerNames: [...battingData.map((entry) => entry.name), ...pitchingData.map((entry) => entry.name)],
+    });
 
     // DB 저장
     const { data: saved, error: dbError } = await saveGameRecord({
