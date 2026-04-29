@@ -5,7 +5,15 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
-import { sanitizeGameReviewContent } from "@/lib/gameReviewSanitizer";
+import {
+  localizeBattingRows,
+  localizeObjectNameFields,
+  localizePitchingRows,
+} from "@/lib/playerDisplay";
+import {
+  sanitizeGameReviewContent,
+  sanitizeOpponentName,
+} from "@/lib/gameReviewSanitizer";
 import { formatRateStat } from "@/lib/statFormatting";
 
 function getCookie(name: string) {
@@ -28,18 +36,24 @@ export default function GameReviewPage() {
   const [pitchingData, setPitchingData] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [pastGames, setPastGames] = useState<any[]>([]);
+  const [loadingReview, setLoadingReview] = useState(false);
   const [viewingPast, setViewingPast] = useState(false);
   const [viewingGameId, setViewingGameId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const syncLangFromCookie = () => setLang(getCookie("lang") === "en" ? "en" : "ko");
+
   const extractFromFilename = (filename: string) => {
     const meta = extractGameMetaFromFilename(filename, season);
-    if (!opponent && meta.opponent) setOpponent(meta.opponent);
+    if (!opponent && meta.opponent) setOpponent(sanitizeOpponentName(meta.opponent));
     if (!gameDate && meta.date) setGameDate(meta.date);
   };
 
   useEffect(() => {
-    setLang(getCookie("lang") === "en" ? "en" : "ko");
+    syncLangFromCookie();
+    const handleLangChange = () => syncLangFromCookie();
+    window.addEventListener("ud:lang-change", handleLangChange);
+    return () => window.removeEventListener("ud:lang-change", handleLangChange);
   }, []);
 
   useEffect(() => {
@@ -58,6 +72,49 @@ export default function GameReviewPage() {
       setPastGames(data.records || []);
     } catch (e) { console.error(e); }
   };
+
+  const applyRecord = (game: any) => {
+    if (!game) return;
+    setReview(game.ai_review || null);
+    setBattingData(game.batting_data || []);
+    setPitchingData(game.pitching_data || []);
+    setOpponent(sanitizeOpponentName(game.opponent || ""));
+    setGameDate(game.game_date || "");
+    setViewingGameId(game.id || null);
+    if (game.season) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("season", game.season);
+      router.replace(`/game-review?${params.toString()}`);
+      setSeason(game.season);
+    }
+  };
+
+  const fetchGameDetail = async (gameId: number, targetLang: "ko" | "en") => {
+    const res = await fetch(`/api/game-review?id=${gameId}&lang=${targetLang}`, { cache: "no-store" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error");
+    return data.record;
+  };
+
+  useEffect(() => {
+    if (!viewingGameId || !review) return;
+
+    let cancelled = false;
+    const refreshViewedGame = async () => {
+      try {
+        const detailed = await fetchGameDetail(viewingGameId, lang);
+        if (!cancelled) applyRecord(detailed);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    refreshViewedGame();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lang, viewingGameId]);
 
   const upload = async () => {
     if (!file) return;
@@ -78,6 +135,7 @@ export default function GameReviewPage() {
       setBattingData(data.battingData || []);
       setPitchingData(data.pitchingData || []);
       setViewingPast(false);
+      setViewingGameId(data.gameId || null);
       const nextSeason = data.season || season;
       const params = new URLSearchParams(searchParams.toString());
       params.set("season", nextSeason);
@@ -91,21 +149,21 @@ export default function GameReviewPage() {
     }
   };
 
-  const viewPast = (game: any) => {
-    setReview(game.ai_review);
-    setBattingData(game.batting_data || []);
-    setPitchingData(game.pitching_data || []);
-    setOpponent(game.opponent || "");
-    setGameDate(game.game_date || "");
-    if (game.season) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("season", game.season);
-      router.replace(`/game-review?${params.toString()}`);
-      setSeason(game.season);
-    }
+  const viewPast = async (game: any) => {
+    setLoadingReview(true);
+    applyRecord(game);
     setViewingPast(true);
     setViewingGameId(game.id);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    try {
+      const detailed = await fetchGameDetail(game.id, lang);
+      applyRecord(detailed);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      console.error(e);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      setLoadingReview(false);
+    }
   };
 
   const deleteGame = async (gameId: number, e: React.MouseEvent) => {
@@ -134,12 +192,16 @@ export default function GameReviewPage() {
     <div style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.8 }}>{children}</div>
   );
 
+  const displayOpponent = sanitizeOpponentName(opponent);
+  const localizedBattingData = localizeBattingRows(battingData, lang);
+  const localizedPitchingData = localizePitchingRows(pitchingData, lang);
+
   const displayReview = review
-    ? sanitizeGameReviewContent(review, {
-        opponent,
+    ? sanitizeGameReviewContent(localizeObjectNameFields(review, lang), {
+        opponent: displayOpponent,
         playerNames: [
-          ...battingData.map((entry) => entry.name),
-          ...pitchingData.map((entry) => entry.name),
+          ...localizedBattingData.map((entry) => entry.name),
+          ...localizedPitchingData.map((entry) => entry.name),
         ],
       })
     : null;
@@ -159,12 +221,12 @@ export default function GameReviewPage() {
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 40px" }}>
         {/* 업로드 영역 */}
-        {!review && !loading && (
+        {!review && !loading && !loadingReview && (
           <div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
               <div>
                 <label style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 6, display: "block" }}>{lang === "ko" ? "상대팀" : "Opponent"}</label>
-                <input type="text" value={opponent} onChange={(e) => setOpponent(e.target.value)} placeholder={lang === "ko" ? "예: 사회인" : "e.g. Team ABC"}
+                <input type="text" value={opponent} onChange={(e) => setOpponent(sanitizeOpponentName(e.target.value))} placeholder={lang === "ko" ? "예: 사회인" : "e.g. Team ABC"}
                   style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)", color: "#e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
               </div>
               <div>
@@ -224,7 +286,7 @@ export default function GameReviewPage() {
                       onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", minWidth: 80 }}>{game.game_date || "날짜 미상"}</div>
+                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", minWidth: 80 }}>{game.game_date || (lang === "ko" ? "날짜 미상" : "Date TBD")}</div>
                         <div style={{ fontSize: 14, fontWeight: 700 }}>vs {game.opponent || "?"}</div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -244,23 +306,31 @@ export default function GameReviewPage() {
         )}
 
         {/* 로딩 */}
-        {loading && (
+        {(loading || loadingReview) && (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
             <div style={{ width: 48, height: 48, border: "3px solid rgba(59,130,246,0.2)", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 20px" }} />
-            <div style={{ fontSize: 16, fontWeight: 600, color: "#60a5fa" }}>{lang === "ko" ? "AI가 경기를 분석하고 있습니다..." : "AI is analyzing the game..."}</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", marginTop: 8 }}>{lang === "ko" ? "15~25초 소요" : "15~25 seconds"}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#60a5fa" }}>
+              {loading
+                ? (lang === "ko" ? "AI가 경기를 분석하고 있습니다..." : "AI is analyzing the game...")
+                : (lang === "ko" ? "리뷰를 불러오는 중..." : "Loading review...")}
+            </div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", marginTop: 8 }}>
+              {loading
+                ? (lang === "ko" ? "15~25초 소요" : "15~25 seconds")
+                : (lang === "ko" ? "잠시만 기다려주세요" : "Please wait a moment")}
+            </div>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         )}
 
         {/* 리뷰 결과 */}
-        {displayReview && !loading && (
+        {displayReview && !loading && !loadingReview && (
           <div>
             {/* 헤더 */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
               <div>
                 <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", textTransform: "uppercase" as const, letterSpacing: 1 }}>{gameDate}</div>
-                <div style={{ fontSize: 20, fontWeight: 800 }}>vs {opponent || "?"}</div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>vs {displayOpponent || "?"}</div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 {viewingPast && viewingGameId && (
@@ -294,7 +364,7 @@ export default function GameReviewPage() {
             )}
 
             {/* 경기 기록 테이블 */}
-            {battingData.length > 0 && (
+            {localizedBattingData.length > 0 && (
               <Section icon="⚾" title={lang === "ko" ? "타격 기록" : "Batting Record"} color="#22c55e">
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -306,7 +376,7 @@ export default function GameReviewPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {battingData.map((b: any, i: number) => (
+                      {localizedBattingData.map((b: any, i: number) => (
                         <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                           <td style={{ padding: "6px", color: "rgba(255,255,255,0.35)" }}>{b.order}</td>
                           <td style={{ padding: "6px", color: "rgba(255,255,255,0.4)", fontSize: 11 }}>{b.position}</td>
@@ -330,7 +400,7 @@ export default function GameReviewPage() {
             )}
 
             {/* 투수 기록 테이블 */}
-            {pitchingData.length > 0 && (
+            {localizedPitchingData.length > 0 && (
               <Section icon="🏏" title={lang === "ko" ? "투수 기록" : "Pitching Record"} color="#60a5fa">
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -342,7 +412,7 @@ export default function GameReviewPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {pitchingData.map((p: any, i: number) => (
+                      {localizedPitchingData.map((p: any, i: number) => (
                         <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                           <td style={{ padding: "6px", fontWeight: 700 }}>{p.name}</td>
                           <td style={{ padding: "6px", fontWeight: 700, color: p.decision === "승" || p.decision === "W" ? "#22c55e" : p.decision === "패" || p.decision === "L" ? "#ef4444" : "rgba(255,255,255,0.4)" }}>{p.decision || "-"}</td>

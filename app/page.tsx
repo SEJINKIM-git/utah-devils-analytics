@@ -6,7 +6,9 @@ import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import LangToggle from "@/app/components/LangToggle";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
-import { buildPlayerIdentityKey, dedupePlayersByIdentity } from "@/lib/playerIdentity";
+import { getPlayerDisplayName } from "@/lib/playerDisplay";
+import { buildPlayerIdentityKey, dedupePlayersByIdentity, normalizePlayerName } from "@/lib/playerIdentity";
+import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
@@ -28,6 +30,64 @@ const C = {
   cardBg: "var(--card-bg)",
 };
 
+function hasBattingActivity(record: any) {
+  return [
+    record.pa,
+    record.ab,
+    record.runs,
+    record.hits,
+    record.doubles,
+    record.triples,
+    record.hr,
+    record.rbi,
+    record.bb,
+    record.hbp,
+    record.so,
+    record.sb,
+  ].some((value) => Number(value) > 0);
+}
+
+function hasPitchingActivity(record: any) {
+  return [
+    record.w,
+    record.l,
+    record.sv,
+    record.hld,
+    record.ip,
+    record.ha,
+    record.runs_allowed,
+    record.er,
+    record.bb,
+    record.hbp,
+    record.so,
+    record.hr_allowed,
+  ].some((value) => Number(value) > 0);
+}
+
+function findRosterPlayerMatch(players: any[], snapshotPlayer: { name: string; number: number }) {
+  const exactKey = buildPlayerIdentityKey(snapshotPlayer.name, snapshotPlayer.number);
+  const normalizedName = normalizePlayerName(snapshotPlayer.name);
+
+  const exact = [...players]
+    .filter((player) => buildPlayerIdentityKey(player.name, player.number) === exactKey)
+    .sort((a, b) => b.id - a.id)[0];
+  if (exact) return exact;
+
+  const byName = [...players]
+    .filter((player) => normalizePlayerName(player.name) === normalizedName)
+    .sort((a, b) => b.id - a.id)[0];
+  if (byName) return byName;
+
+  if (snapshotPlayer.number) {
+    const byNumber = [...players]
+      .filter((player) => player.number === snapshotPlayer.number)
+      .sort((a, b) => b.id - a.id)[0];
+    if (byNumber) return byNumber;
+  }
+
+  return null;
+}
+
 export default async function Dashboard({
   searchParams,
 }: {
@@ -48,6 +108,11 @@ export default async function Dashboard({
   const playerById = new Map(players.map((player) => [player.id, player]));
   const { data: allBatting } = await supabase.from("batting_stats").select("*");
   const { data: allPitching } = await supabase.from("pitching_stats").select("*");
+  const { data: allGames } = await supabase.from("games").select("id,season,created_at");
+  const { data: rosterUploads } = await supabase
+    .from("roster_uploads")
+    .select("filename,players_snapshot,source,uploaded_at")
+    .order("uploaded_at", { ascending: false });
 
   const visibility = await getSeasonVisibility(
     supabase,
@@ -75,13 +140,38 @@ export default async function Dashboard({
   const pitching = isPlaceholderSeason
     ? []
     : filterRecordsForSeason(allPitching || [], season, { lockedSeasons: visibility.lockedSeasons });
+  const latestRosterUpload = isPlaceholderSeason
+    ? null
+    : getLatestRosterUploadForSeason(rosterUploads || [], season);
+  const latestRosterSnapshot = latestRosterUpload?.snapshot || null;
+  const rosterUploadedAt = latestRosterUpload?.upload?.uploaded_at
+    ? new Date(latestRosterUpload.upload.uploaded_at).getTime()
+    : null;
+  const validGameIds = new Set(
+    (allGames || [])
+      .filter((game) => game.season === season)
+      .filter((game) => {
+        if (!rosterUploadedAt) return true;
+        if (!game.created_at) return false;
+        return new Date(game.created_at).getTime() >= rosterUploadedAt;
+      })
+      .map((game) => game.id)
+  );
+  const rosterKeys = new Set(
+    (latestRosterSnapshot?.players || []).map((player) => buildPlayerIdentityKey(player.name, player.number))
+  );
+  const shouldGateStatsToPostRosterGames = Boolean(latestRosterUpload);
 
   // ── 타자: 경기별 기록 전부 누적 합산 ──
   const battingByPlayer = new Map<string, any>();
   for (const b of batting) {
+    if (shouldGateStatsToPostRosterGames) {
+      if (!b.game_id || !validGameIds.has(b.game_id)) continue;
+    }
     const player = playerById.get(b.player_id);
     if (!player) continue;
     const identityKey = buildPlayerIdentityKey(player.name, player.number);
+    if (rosterKeys.size > 0 && !rosterKeys.has(identityKey)) continue;
 
     if (battingByPlayer.has(identityKey)) {
       const acc = battingByPlayer.get(identityKey);
@@ -106,14 +196,18 @@ export default async function Dashboard({
       battingByPlayer.set(identityKey, { ...b, player_id: player.id, player });
     }
   }
-  const uniqueBatting = Array.from(battingByPlayer.values());
+  const uniqueBatting = Array.from(battingByPlayer.values()).filter(hasBattingActivity);
 
   // ── 투수: 경기별 기록 전부 누적 합산 ──
   const pitchingByPlayer = new Map<string, any>();
   for (const p of pitching) {
+    if (shouldGateStatsToPostRosterGames) {
+      if (!p.game_id || !validGameIds.has(p.game_id)) continue;
+    }
     const player = playerById.get(p.player_id);
     if (!player) continue;
     const identityKey = buildPlayerIdentityKey(player.name, player.number);
+    if (rosterKeys.size > 0 && !rosterKeys.has(identityKey)) continue;
 
     if (pitchingByPlayer.has(identityKey)) {
       const acc = pitchingByPlayer.get(identityKey);
@@ -138,14 +232,22 @@ export default async function Dashboard({
       pitchingByPlayer.set(identityKey, { ...p, player_id: player.id, player });
     }
   }
-  const uniquePitching = Array.from(pitchingByPlayer.values());
-  const hasSeasonData = uniqueBatting.length > 0 || uniquePitching.length > 0;
-  const seasonPlayers = (uniqueBatting.length > 0 || uniquePitching.length > 0)
-    ? dedupePlayersByIdentity([
+  const uniquePitching = Array.from(pitchingByPlayer.values()).filter(hasPitchingActivity);
+  const rosterSeasonPlayers = isPlaceholderSeason
+    ? []
+    : dedupePlayersByIdentity(
+        (latestRosterSnapshot?.players || [])
+          .map((player) => findRosterPlayerMatch(players, player))
+          .filter(Boolean)
+      );
+  const hasStatData = uniqueBatting.length > 0 || uniquePitching.length > 0;
+  const seasonPlayers = rosterSeasonPlayers.length > 0
+    ? rosterSeasonPlayers
+    : dedupePlayersByIdentity([
         ...uniqueBatting.map((record) => record.player),
         ...uniquePitching.map((record) => record.player),
-      ])
-    : [];
+      ]);
+  const hasSeasonRoster = seasonPlayers.length > 0;
 
   const battingWithPlayers = uniqueBatting
     .map((b) => {
@@ -274,7 +376,7 @@ export default async function Dashboard({
                       className="app-display-title"
                       style={{ fontSize: 40, lineHeight: 1, fontWeight: 700, color: "var(--brand-coral)" }}
                     >
-                      {hasSeasonData ? seasonPlayers.length : 0}
+                      {hasSeasonRoster ? seasonPlayers.length : 0}
                     </span>
                     <span style={{ fontSize: 13, color: C.whiteDim }}>
                       {lang === "ko" ? "active players" : "active players"}
@@ -304,9 +406,9 @@ export default async function Dashboard({
               </div>
 
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <Link href={`/compare?season=${season}`} className="app-toolbar-link" style={{ color: C.redLight, background: "rgba(255,180,171,0.08)" }}>{lang === "ko" ? "⚔️ 선수 비교" : "⚔️ Compare"}</Link>
-                <Link href={`/team-analysis?season=${season}`} className="app-toolbar-link" style={{ color: "#7ee2a8", background: "rgba(34,197,94,0.08)" }}>{lang === "ko" ? "🏟️ 팀 분석" : "🏟️ Team"}</Link>
-                <Link href={`/game-review?season=${season}`} className="app-toolbar-link" style={{ color: "#ffb36d", background: "rgba(249,115,22,0.08)" }}>{lang === "ko" ? "📋 경기 리뷰" : "📋 Review"}</Link>
+                <Link href={`/compare?season=${season}`} className="app-toolbar-link" style={{ color: C.redLight, background: "rgba(255,180,171,0.08)" }}>{lang === "ko" ? "⚔️ 선수 비교" : "⚔️ Player Compare"}</Link>
+                <Link href={`/team-analysis?season=${season}`} className="app-toolbar-link" style={{ color: "#7ee2a8", background: "rgba(34,197,94,0.08)" }}>{lang === "ko" ? "🏟️ 팀 분석" : "🏟️ AI Analysis"}</Link>
+                <Link href={`/game-review?season=${season}`} className="app-toolbar-link" style={{ color: "#ffb36d", background: "rgba(249,115,22,0.08)" }}>{lang === "ko" ? "📋 경기 리뷰" : "📋 Game Review"}</Link>
                 <Link href={`/lineup?season=${season}`} className="app-toolbar-link" style={{ color: "#f7d56d", background: "rgba(234,179,8,0.08)" }}>{lang === "ko" ? "⚾ 라인업" : "⚾ Lineup"}</Link>
                 <Link href={`/schedule?season=${season}`} className="app-toolbar-link" style={{ color: "#cf9aff", background: "rgba(168,85,247,0.08)" }}>{lang === "ko" ? "📅 일정" : "📅 Schedule"}</Link>
                 <Link href={`/upload?season=${season}`} className="app-toolbar-link" style={{ color: "var(--brand-blue)", background: "rgba(164,201,255,0.08)" }}>{lang === "ko" ? "📤 업로드" : "📤 Upload"}</Link>
@@ -316,7 +418,7 @@ export default async function Dashboard({
 
               <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 14 }}>
                 <div style={{ flex: 1 }}>
-                  <SearchBar players={seasonPlayers} batting={uniqueBatting} pitching={uniquePitching} season={season} />
+                  <SearchBar players={seasonPlayers} batting={uniqueBatting} pitching={uniquePitching} season={season} lang={lang} />
                 </div>
                 <SeasonFilter seasons={seasons} basePath="/" />
               </div>
@@ -333,9 +435,9 @@ export default async function Dashboard({
             { label: t("stats.teamAvg", lang), value: teamAvg, color: "#22c55e" },
             { label: t("stats.teamOBP", lang), value: teamOBP, color: "#60a5fa" },
             { label: t("stats.teamERA", lang), value: teamERA, color: "#eab308" },
-            { label: t("stats.sb", lang), value: hasSeasonData ? teamSB : "---", color: "#a78bfa" },
-            { label: t("stats.wls", lang), value: hasSeasonData ? `${teamW}-${teamL}-${teamSV}` : "---", color: "#f97316" },
-            { label: t("stats.so", lang), value: hasSeasonData ? teamSO : "---", color: C.red },
+            { label: t("stats.sb", lang), value: hasStatData ? teamSB : "---", color: "#a78bfa" },
+            { label: t("stats.wls", lang), value: hasStatData ? `${teamW}-${teamL}-${teamSV}` : "---", color: "#f97316" },
+            { label: t("stats.so", lang), value: hasStatData ? teamSO : "---", color: C.red },
           ].map((stat, i) => (
             <div key={i} className="app-metric-card" style={{ borderRadius: 22, padding: "20px 18px" }}>
               <div className="app-kicker" style={{ marginBottom: 8, color: C.whiteDim }}>{stat.label}</div>
@@ -353,6 +455,74 @@ export default async function Dashboard({
               {lang === "ko"
                 ? "임시 테스트 데이터는 대시보드에서 표시하지 않도록 처리했습니다. 공식 파일 업로드가 시작되면 이 상태를 해제하면 됩니다."
                 : "Temporary test data is intentionally hidden from the dashboard. This can be lifted once official uploads begin."}
+            </div>
+          </div>
+        )}
+
+        {!isPlaceholderSeason && hasSeasonRoster && !hasStatData && (
+          <div className="app-glass-panel" style={{ marginBottom: 28, padding: "18px 20px", borderRadius: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+              {lang === "ko" ? "시즌 선수단은 등록되었고, 경기 기록이 올라오면 지표가 자동 계산됩니다." : "The roster is ready, and metrics will populate automatically once game records are uploaded."}
+            </div>
+            <div style={{ fontSize: 12, color: C.whiteDim }}>
+              {lang === "ko"
+                ? "지금은 명단만 표시하고 있으며, 타율·OPS·ERA·WHIP 같은 수치는 경기/시즌 기록 업로드 후 바로 시즌 대시보드에 반영됩니다."
+                : "The dashboard is showing the roster first. AVG, OPS, ERA, WHIP, and other metrics will appear as soon as records are uploaded."}
+            </div>
+          </div>
+        )}
+
+        {!isPlaceholderSeason && hasSeasonRoster && (
+          <div style={{ marginBottom: 32 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>
+              {lang === "ko" ? `👥 ${season} 선수단 명단 · ${seasonPlayers.length}명` : `👥 ${season} Roster · ${seasonPlayers.length}`}
+            </h2>
+            <div className="app-glass-panel" style={{ borderRadius: 20, padding: "18px 18px 16px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                  gap: 10,
+                }}
+              >
+                {seasonPlayers.map((player: any) => (
+                  <div
+                    key={`${player.number}-${player.name}-${player.id}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 12px",
+                      borderRadius: 14,
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 10,
+                        background: "linear-gradient(135deg, rgba(255,180,171,0.9), rgba(220,38,38,0.9))",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        fontWeight: 800,
+                        color: "#fff",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {player.number}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.white, lineHeight: 1.2 }}>
+                        {getPlayerDisplayName(player.name, lang)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -376,7 +546,7 @@ export default async function Dashboard({
                 {battingWithPlayers?.map((b: any, i: number) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
                     <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>{b.player.number}</td>
-                    <td style={{ padding: "12px", fontWeight: 700 }}><Link href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`} style={{ color: C.white, textDecoration: "none" }}>{b.player.name}</Link></td>
+                    <td style={{ padding: "12px", fontWeight: 700 }}><Link href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`} style={{ color: C.white, textDecoration: "none" }}>{getPlayerDisplayName(b.player.name, lang)}</Link></td>
                     <td style={{ padding: "12px" }}>{b.pa}</td>
                     <td style={{ padding: "12px" }}>{b.ab}</td>
                     <td style={{ padding: "12px", fontWeight: 700, color: b.hits >= 5 ? "#22c55e" : C.white }}>{b.hits}</td>
@@ -420,7 +590,7 @@ export default async function Dashboard({
                 {pitchingWithPlayers?.map((p: any, i: number) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
                     <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>{p.player.number}</td>
-                    <td style={{ padding: "12px", fontWeight: 700 }}>{p.player.name}</td>
+                    <td style={{ padding: "12px", fontWeight: 700 }}>{getPlayerDisplayName(p.player.name, lang)}</td>
                     <td style={{ padding: "12px", fontWeight: 700, color: p.w > 0 ? "#22c55e" : C.white }}>{p.w}</td>
                     <td style={{ padding: "12px", color: p.l > 0 ? C.red : C.white }}>{p.l}</td>
                     <td style={{ padding: "12px", color: p.sv > 0 ? "#eab308" : C.white }}>{p.sv}</td>

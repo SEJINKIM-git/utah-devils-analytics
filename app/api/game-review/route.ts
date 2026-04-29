@@ -14,10 +14,21 @@ import {
   parseOfficialGamePitchingSheet,
 } from "@/lib/officialGameWorkbook";
 import { parseGameLines } from "@/lib/parseDocxGameRecord";
-import { sanitizeGameReviewContent } from "@/lib/gameReviewSanitizer";
+import {
+  sanitizeEntityName,
+  sanitizeGameReviewContent,
+  sanitizeOpponentName,
+} from "@/lib/gameReviewSanitizer";
+import {
+  getKnownPlayerNamePairs,
+  localizeBattingRows,
+  localizeObjectNameFields,
+  localizePitchingRows,
+} from "@/lib/playerDisplay";
 import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
 import { formatRateStat } from "@/lib/statFormatting";
+import type { Lang } from "@/lib/translations";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,6 +36,138 @@ const supabase = createClient(
 );
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
+type ReviewLocalizationContext = {
+  opponent?: string | null;
+  playerNames: string[];
+};
+
+function extractReviewText(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap((entry) => extractReviewText(entry));
+  if (!value || typeof value !== "object") return [];
+
+  return Object.values(value).flatMap((entry) => extractReviewText(entry));
+}
+
+function stripKnownNames(text: string, context: ReviewLocalizationContext) {
+  const candidates = Array.from(
+    new Set(
+      [
+        context.opponent || "",
+        ...context.playerNames,
+        ...context.playerNames.flatMap((name) => {
+          const pair = getKnownPlayerNamePairs().find(
+            (entry) => entry.ko === name || entry.en === name
+          );
+          return pair ? [pair.ko, pair.en] : [];
+        }),
+      ].filter(Boolean)
+    )
+  ).sort((a, b) => b.length - a.length);
+
+  return candidates.reduce((acc, candidate) => acc.split(candidate).join(" "), text);
+}
+
+function needsReviewTranslation(review: unknown, lang: Lang, context: ReviewLocalizationContext) {
+  const text = stripKnownNames(extractReviewText(review).join(" "), context);
+  const hasHangul = /[가-힣]/u.test(text);
+  const hasLatinWord = /\b[A-Za-z]{3,}\b/.test(text);
+
+  if (lang === "en") return hasHangul;
+  return !hasHangul && hasLatinWord;
+}
+
+function buildPlayerNameGuide(playerNames: string[]) {
+  const normalized = new Set(playerNames);
+  const relevant = getKnownPlayerNamePairs().filter(
+    (entry) => normalized.has(entry.ko) || normalized.has(entry.en)
+  );
+
+  if (relevant.length === 0) return "";
+
+  return relevant
+    .map((entry) => `- Korean: ${entry.ko} | English: ${entry.en}`)
+    .join("\n");
+}
+
+async function translateStructuredReview(
+  review: unknown,
+  lang: Lang,
+  context: ReviewLocalizationContext
+) {
+  if (!review || typeof review !== "object") return review;
+  if (!needsReviewTranslation(review, lang, context)) {
+    return localizeObjectNameFields(review, lang);
+  }
+
+  const targetLanguage = lang === "en" ? "English" : "Korean";
+  const nameGuide = buildPlayerNameGuide(context.playerNames);
+  const systemPrompt = `You translate structured baseball game review JSON into natural ${targetLanguage}. Keep the same JSON object shape and keys. Do not change numbers, stats, or facts. Return JSON only.`;
+  const userPrompt = `${nameGuide ? `Use these exact player names when they appear:\n${nameGuide}\n\n` : ""}${context.opponent ? `Opponent name: ${context.opponent}\n\n` : ""}Translate every string value in the following JSON object into ${targetLanguage}. Keep arrays, keys, and numeric values unchanged.\n\n${JSON.stringify(review)}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+    });
+
+    const responseText = completion.choices[0].message.content || "";
+    const cleaned = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    return localizeObjectNameFields(JSON.parse(cleaned), lang);
+  } catch (error) {
+    console.error("Review translation failed:", error);
+    return localizeObjectNameFields(review, lang);
+  }
+}
+
+async function localizeGameRecord(record: any, lang: Lang, translateReview: boolean) {
+  const opponent = sanitizeOpponentName(record?.opponent);
+  const rawBattingData = (record?.batting_data || []).map((entry: any) => ({
+    ...entry,
+    name: sanitizeEntityName(entry?.name),
+  }));
+  const rawPitchingData = (record?.pitching_data || []).map((entry: any) => ({
+    ...entry,
+    name: sanitizeEntityName(entry?.name),
+  }));
+  const localizedBattingData = localizeBattingRows(rawBattingData, lang);
+  const localizedPitchingData = localizePitchingRows(rawPitchingData, lang);
+  const sourcePlayerNames = [
+    ...rawBattingData.map((entry: any) => entry.name),
+    ...rawPitchingData.map((entry: any) => entry.name),
+  ].filter(Boolean);
+  const localizedPlayerNames = [
+    ...localizedBattingData.map((entry: any) => entry.name),
+    ...localizedPitchingData.map((entry: any) => entry.name),
+  ].filter(Boolean);
+
+  let aiReview = sanitizeGameReviewContent(record?.ai_review, {
+    opponent,
+    playerNames: sourcePlayerNames,
+  });
+
+  if (translateReview) {
+    aiReview = await translateStructuredReview(aiReview, lang, {
+      opponent,
+      playerNames: localizedPlayerNames,
+    });
+  } else {
+    aiReview = localizeObjectNameFields(aiReview, lang);
+  }
+
+  return {
+    ...record,
+    opponent,
+    batting_data: localizedBattingData,
+    pitching_data: localizedPitchingData,
+    ai_review: aiReview,
+  };
+}
 
 function inferSeason(gameDate: string, fallback = String(new Date().getFullYear())) {
   const match = gameDate.match(/\b(20\d{2})\b/);
@@ -48,10 +191,10 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
-    const lang = (formData.get("lang") as string) || "ko";
+    const lang = ((formData.get("lang") as string) || "ko") === "en" ? "en" : "ko";
     const requestedSeason = (formData.get("season") as string) || String(new Date().getFullYear());
     const fileMeta = extractGameMetaFromFilename(file?.name || "", requestedSeason);
-    const opponent = ((formData.get("opponent") as string) || fileMeta.opponent || "").trim();
+    const opponent = sanitizeOpponentName((formData.get("opponent") as string) || fileMeta.opponent || "");
     const gameDate = ((formData.get("gameDate") as string) || fileMeta.date || "").trim();
     const season = requestedSeason || fileMeta.season || inferSeason(gameDate);
 
@@ -75,7 +218,7 @@ export async function POST(request: NextRequest) {
         battingData.push({
           order: index + 1,
           position: "",
-          name: batter.name,
+          name: sanitizeEntityName(batter.name),
           ab,
           runs: batter.runs || 0,
           hits,
@@ -95,7 +238,7 @@ export async function POST(request: NextRequest) {
         const ip = Number(pitcher.innings) || 0;
         const er = Number(pitcher.earnedRuns) || 0;
         pitchingData.push({
-          name: pitcher.name,
+          name: sanitizeEntityName(pitcher.name),
           decision: "",
           ip,
           ha: pitcher.hits || 0,
@@ -170,7 +313,7 @@ export async function POST(request: NextRequest) {
         const [label, ...valueParts] = line.split(":");
         const value = valueParts.join(":").trim();
         if (!label || !value) continue;
-        highlights[label.trim()] = value;
+        highlights[sanitizeEntityName(label)] = sanitizeEntityName(value);
       }
     }
 
@@ -297,6 +440,16 @@ export async function POST(request: NextRequest) {
       playerNames: [...battingData.map((entry) => entry.name), ...pitchingData.map((entry) => entry.name)],
     });
 
+    const localizedBattingData = localizeBattingRows(battingData, lang);
+    const localizedPitchingData = localizePitchingRows(pitchingData, lang);
+    const localizedReview = await translateStructuredReview(review, lang, {
+      opponent,
+      playerNames: [
+        ...localizedBattingData.map((entry) => entry.name),
+        ...localizedPitchingData.map((entry) => entry.name),
+      ],
+    });
+
     // DB 저장
     const { data: saved, error: dbError } = await saveGameRecord({
       game_date: gameDate,
@@ -306,13 +459,20 @@ export async function POST(request: NextRequest) {
       batting_data: battingData,
       pitching_data: pitchingData,
       highlights,
-      ai_review: review,
+      ai_review: localizedReview,
     });
 
     if (dbError) console.error("DB save error:", dbError);
     revalidatePath("/game-review");
 
-    return Response.json({ review, battingData, pitchingData, highlights, gameId: saved?.id, season });
+    return Response.json({
+      review: localizedReview,
+      battingData: localizedBattingData,
+      pitchingData: localizedPitchingData,
+      highlights,
+      gameId: saved?.id,
+      season,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "알 수 없는 에러";
     console.error("Game review error:", message);
@@ -323,17 +483,37 @@ export async function POST(request: NextRequest) {
 // 과거 기록 조회
 export async function GET(request: NextRequest) {
   const season = request.nextUrl.searchParams.get("season");
+  const id = request.nextUrl.searchParams.get("id");
+  const lang = request.nextUrl.searchParams.get("lang") === "en" ? "en" : "ko";
   const activatedSeasons = await getActivatedPlaceholderSeasons(supabase);
   if (season && isLockedSeason(season, activatedSeasons)) {
     return Response.json({ records: [] });
   }
+
+  if (id) {
+    const { data, error } = await supabase
+      .from("game_records")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) return Response.json({ error: error.message }, { status: 500 });
+    if (!data) return Response.json({ error: "Record not found" }, { status: 404 });
+
+    const record = await localizeGameRecord(data, lang, true);
+    return Response.json({ record });
+  }
+
   const { data } = await supabase
     .from("game_records")
     .select("*")
     .order("created_at", { ascending: false });
-  const records = !season
+  const filteredRecords = !season
     ? (data || [])
     : (data || []).filter((record: any) => !("season" in record) || record.season === season);
+  const records = await Promise.all(
+    filteredRecords.map((record: any) => localizeGameRecord(record, lang, false))
+  );
   return Response.json({ records });
 }
 

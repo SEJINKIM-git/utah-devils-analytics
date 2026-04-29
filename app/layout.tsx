@@ -37,32 +37,22 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies();
-  const lang = cookieStore.get("lang")?.value || "ko";
+  const lang = cookieStore.get("lang")?.value === "en" ? "en" : "ko";
 
   return (
-    <html lang="ko" suppressHydrationWarning>
+    <html lang={lang} suppressHydrationWarning>
       <head>
         {/* FOUC 방지: 페이지 로드 전 테마 적용 */}
         <script dangerouslySetInnerHTML={{ __html:
-          `(function(){var t=localStorage.getItem('ud-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();`
+          `(function(){var t=localStorage.getItem('ud-theme')==='light'?'light':'dark';var root=document.documentElement;root.setAttribute('data-theme',t);root.style.colorScheme=t;var meta=document.querySelector('meta[name="theme-color"]');if(meta){meta.setAttribute('content',t==='light'?'#eef3fb':'#0c1226');}})();`
         }} />
       </head>
       <body className="app-body">
         <ThemeProvider>
           {/* 상단 네비게이션 — ThemeToggle을 오른쪽에 배치 */}
-          <nav
-            style={{
-              position: "sticky",
-              top: 0,
-              zIndex: 50,
-              padding: "12px 18px",
-              backdropFilter: "blur(18px)",
-              WebkitBackdropFilter: "blur(18px)",
-              background: "linear-gradient(180deg, rgba(12,18,38,0.94), rgba(12,18,38,0.82))",
-              boxShadow: "0 18px 48px rgba(5, 10, 24, 0.26)",
-            }}
-          >
+          <nav className="app-top-nav">
             <div
+              className="app-top-nav-frame"
               style={{
                 maxWidth: 1320,
                 margin: "0 auto",
@@ -73,8 +63,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 20,
-                background: "linear-gradient(180deg, rgba(25,31,51,0.92), rgba(21,27,47,0.88))",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 24px 60px rgba(6,10,24,0.24)",
               }}
             >
               {/* 왼쪽: 로고 + 메뉴 */}
@@ -111,25 +99,24 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   Devils Insight AI
                 </Link>
                 <div style={{ minWidth: 0 }}>
-                  <SeasonNavLinks />
+                  <SeasonNavLinks lang={lang} />
                 </div>
               </div>
 
               {/* 오른쪽: 다크/라이트 모드 토글 */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                <ThemeToggle />
+                <ThemeToggle lang={lang} />
               </div>
             </div>
           </nav>
 
           <div
             aria-hidden="true"
+            className="app-ambient-glow"
             style={{
               position: "fixed",
               inset: 0,
               pointerEvents: "none",
-              background:
-                "radial-gradient(circle at 15% 20%, rgba(164,201,255,0.06), transparent 24%), radial-gradient(circle at 82% 12%, rgba(255,180,171,0.08), transparent 28%), radial-gradient(circle at 52% 100%, rgba(220,38,38,0.08), transparent 32%)",
               zIndex: 0,
             }}
           />

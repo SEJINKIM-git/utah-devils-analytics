@@ -2,9 +2,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { getPlayerDisplayName, getPlayerNameVariants } from "@/lib/playerDisplay";
+import type { Lang } from "@/lib/translations";
 
 type Player = {
-  id: number;
+  id: number | string;
   number: number;
   name: string;
   is_pitcher: boolean;
@@ -42,11 +44,13 @@ export default function SearchBar({
   batting,
   pitching,
   season,
+  lang,
 }: {
   players: Player[];
   batting: BattingStat[];
   pitching: PitchingStat[];
   season?: string;
+  lang: Lang;
 }) {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -84,12 +88,13 @@ export default function SearchBar({
   const filtered = query.trim()
     ? players.filter(
         (p) =>
-          p.name.includes(query) ||
-          p.number.toString() === query
+          getPlayerNameVariants(p.name).some((variant) =>
+            variant.toLowerCase().includes(query.trim().toLowerCase())
+          ) || p.number.toString() === query
       )
     : [];
 
-  const getPlayerStats = (playerId: number) => {
+  const getPlayerStats = (playerId: number | string) => {
     const bat = batting.find((b) => b.player_id === playerId);
     const pitch = pitching.find((p) => p.player_id === playerId);
 
@@ -116,12 +121,14 @@ export default function SearchBar({
     return { bat, pitch, avg, ops, era };
   };
 
-  const handleSelect = (playerId: number) => {
+  const handleSelect = (playerId: number | string) => {
     setQuery("");
     setFocused(false);
     const nextHref = season ? `/players/${playerId}?season=${encodeURIComponent(season)}` : `/players/${playerId}`;
     router.push(nextHref);
   };
+
+  const isKo = lang === "ko";
 
   return (
     <div ref={wrapperRef} className="app-search-shell">
@@ -139,7 +146,7 @@ export default function SearchBar({
         <input
           ref={inputRef}
           type="text"
-          placeholder="선수 검색 (이름 또는 등번호)"
+          placeholder={isKo ? "선수 검색 (이름 또는 등번호)" : "Search player (name or number)"}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -159,8 +166,8 @@ export default function SearchBar({
               color: "var(--text-dim)",
               padding: "4px 8px",
               borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.08)",
-              background: "rgba(255,255,255,0.03)",
+              border: "1px solid var(--icon-button-border)",
+              background: "var(--inline-muted-surface)",
             }}
           >
             ⌘K
@@ -197,11 +204,12 @@ export default function SearchBar({
                 fontSize: 13,
               }}
             >
-              &quot;{query}&quot;에 해당하는 선수가 없습니다
+              {isKo ? `"${query}"에 해당하는 선수가 없습니다` : `No players found for "${query}"`}
             </div>
           ) : (
             filtered.map((player) => {
               const stats = getPlayerStats(player.id);
+              const displayName = getPlayerDisplayName(player.name, lang);
               return (
                 <div
                   key={player.id}
@@ -210,7 +218,7 @@ export default function SearchBar({
                   style={{
                     transition: "background 0.15s",
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--inline-muted-surface)")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -233,11 +241,13 @@ export default function SearchBar({
                         {player.number}
                       </div>
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>{player.name}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{displayName}</div>
                         <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
                           <span style={{ fontSize: 11, color: "var(--text-dim)" }}>#{player.number}</span>
                           {player.is_pitcher && (
-                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(234,179,8,0.12)", color: "#eab308" }}>투수</span>
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(234,179,8,0.12)", color: "#eab308" }}>
+                              {isKo ? "투수" : "Pitcher"}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -248,7 +258,7 @@ export default function SearchBar({
                       {stats.bat && (
                         <>
                           <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: 10, color: "var(--text-dim)" }}>타율</div>
+                            <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{isKo ? "타율" : "AVG"}</div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: parseFloat(stats.avg) >= 0.3 ? "#22c55e" : "#eab308" }}>{stats.avg}</div>
                           </div>
                           <div style={{ textAlign: "right" }}>

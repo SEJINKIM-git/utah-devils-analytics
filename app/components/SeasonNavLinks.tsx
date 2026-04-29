@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
+import type { Lang } from "@/lib/translations";
 
 const NAV_ITEMS = [
-  { href: "/", label: "대시보드" },
-  { href: "/compare", label: "선수 비교" },
-  { href: "/lineup", label: "라인업" },
-  { href: "/schedule", label: "일정" },
-  { href: "/team-analysis", label: "AI 분석" },
-  { href: "/game-review", label: "경기 리뷰" },
+  { href: "/", labelKo: "대시보드", labelEn: "Dashboard" },
+  { href: "/compare", labelKo: "선수 비교", labelEn: "Player Compare" },
+  { href: "/lineup", labelKo: "라인업", labelEn: "Lineup" },
+  { href: "/schedule", labelKo: "일정", labelEn: "Schedule" },
+  { href: "/team-analysis", labelKo: "AI 분석", labelEn: "AI Analysis" },
+  { href: "/game-review", labelKo: "경기 리뷰", labelEn: "Game Review" },
 ];
 
 function buildHref(path: string, season: string | null) {
@@ -26,14 +27,15 @@ function readActiveSeasonCookie() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export default function SeasonNavLinks() {
+export default function SeasonNavLinks({ lang }: { lang: Lang }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const season = searchParams.get("season") || readActiveSeasonCookie();
+  const isKo = lang === "ko";
 
   return (
     <div className="app-nav-links">
-      {NAV_ITEMS.map(({ href, label }) => {
+      {NAV_ITEMS.map(({ href, labelKo, labelEn }) => {
         const active = pathname === href;
         return (
           <Link
@@ -41,7 +43,7 @@ export default function SeasonNavLinks() {
             href={buildHref(href, season)}
             className={active ? "app-nav-link active" : "app-nav-link"}
           >
-            {label}
+            {isKo ? labelKo : labelEn}
           </Link>
         );
       })}
@@ -49,7 +51,7 @@ export default function SeasonNavLinks() {
         href={buildHref("/upload", season)}
         className="app-nav-upload"
       >
-        📤 업로드
+        {isKo ? "📤 업로드" : "📤 Upload"}
       </Link>
     </div>
   );

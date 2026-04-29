@@ -8,6 +8,7 @@ export default function LangToggle({ lang }: { lang: "ko" | "en" }) {
   const toggle = () => {
     const next = lang === "ko" ? "en" : "ko";
     document.cookie = `lang=${next};path=/;max-age=31536000`;
+    window.dispatchEvent(new CustomEvent("ud:lang-change", { detail: next }));
     router.refresh();
   };
 
@@ -20,8 +21,8 @@ export default function LangToggle({ lang }: { lang: "ko" | "en" }) {
         width: 36,
         height: 42,
         borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.1)",
-        background: "linear-gradient(180deg, rgba(35,42,67,0.92), rgba(24,31,52,0.92))",
+        border: "1px solid var(--icon-button-border)",
+        background: "var(--icon-button-bg)",
         color: "var(--text)",
         fontSize: 13,
         fontWeight: 800,
@@ -30,7 +31,7 @@ export default function LangToggle({ lang }: { lang: "ko" | "en" }) {
         alignItems: "center",
         justifyContent: "center",
         transition: "all 0.2s",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 16px 36px rgba(6,10,24,0.18)",
+        boxShadow: "var(--icon-button-shadow)",
       }}
     >
       {lang === "ko" ? "EN" : "한"}

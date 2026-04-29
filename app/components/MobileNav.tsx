@@ -5,10 +5,10 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 
 const NAV_ITEMS = [
-  { href: "/", icon: "📊", labelKo: "대시보드", labelEn: "Stats" },
+  { href: "/", icon: "📊", labelKo: "대시보드", labelEn: "Dashboard" },
   { href: "/lineup", icon: "⚾", labelKo: "라인업", labelEn: "Lineup" },
   { href: "/schedule", icon: "📅", labelKo: "일정", labelEn: "Schedule" },
-  { href: "/compare", icon: "⚔️", labelKo: "비교", labelEn: "Compare" },
+  { href: "/compare", icon: "⚔️", labelKo: "선수 비교", labelEn: "Compare" },
   { href: "/upload", icon: "📤", labelKo: "업로드", labelEn: "Upload" },
 ];
 
@@ -39,11 +39,11 @@ export default function MobileNav({ lang }: { lang: string }) {
           left: 0,
           right: 0,
           zIndex: 9990,
-          background: "linear-gradient(180deg, rgba(17,25,51,0.92), rgba(12,18,38,0.96))",
+          background: "var(--mobile-nav-bg)",
           backdropFilter: "blur(20px)",
           WebkitBackdropFilter: "blur(20px)",
-          borderTop: "1px solid rgba(255,255,255,0.06)",
-          boxShadow: "0 -18px 40px rgba(6,10,24,0.24)",
+          borderTop: "1px solid var(--border)",
+          boxShadow: "var(--mobile-nav-shadow)",
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
         }}
         className="mobile-nav"
