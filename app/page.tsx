@@ -406,7 +406,7 @@ export default async function Dashboard({
               </div>
 
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <Link href={`/compare?season=${season}`} className="app-toolbar-link" style={{ color: C.redLight, background: "rgba(255,180,171,0.08)" }}>{lang === "ko" ? "⚔️ 선수 비교" : "⚔️ Player Compare"}</Link>
+                <Link href={`/compare?season=${season}`} className="app-toolbar-link" style={{ color: C.redLight, background: "rgba(255,180,171,0.08)" }}>{lang === "ko" ? "⚔️ 선수 비교" : "⚔️ Player Comparison"}</Link>
                 <Link href={`/team-analysis?season=${season}`} className="app-toolbar-link" style={{ color: "#7ee2a8", background: "rgba(34,197,94,0.08)" }}>{lang === "ko" ? "🏟️ 팀 분석" : "🏟️ AI Analysis"}</Link>
                 <Link href={`/game-review?season=${season}`} className="app-toolbar-link" style={{ color: "#ffb36d", background: "rgba(249,115,22,0.08)" }}>{lang === "ko" ? "📋 경기 리뷰" : "📋 Game Review"}</Link>
                 <Link href={`/lineup?season=${season}`} className="app-toolbar-link" style={{ color: "#f7d56d", background: "rgba(234,179,8,0.08)" }}>{lang === "ko" ? "⚾ 라인업" : "⚾ Lineup"}</Link>
@@ -420,7 +420,7 @@ export default async function Dashboard({
                 <div style={{ flex: 1 }}>
                   <SearchBar players={seasonPlayers} batting={uniqueBatting} pitching={uniquePitching} season={season} lang={lang} />
                 </div>
-                <SeasonFilter seasons={seasons} basePath="/" />
+                <SeasonFilter seasons={seasons} basePath="/" lang={lang} />
               </div>
             </div>
           </div>

@@ -52,8 +52,8 @@ export default async function SchedulePage({
     : games.filter((game) => (game.season || "2025") === selectedSeason);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0E1428", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <div style={{ background: "linear-gradient(135deg, #141B3D 0%, #0E1428 100%)", padding: "24px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+    <div className="app-page-shell">
+      <div className="app-page-header" style={{ padding: "24px 20px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -65,7 +65,7 @@ export default async function SchedulePage({
               </h1>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <Link href={`/?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
+              <Link href={`/?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "var(--inline-muted-surface)", color: "var(--text-muted)", fontSize: 12, fontWeight: 600, textDecoration: "none", border: "1px solid var(--border)" }}>
                 {lang === "ko" ? "← 대시보드" : "← Dashboard"}
               </Link>
               <Link href={`/lineup?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(220,38,38,0.12)", color: "#FF3B3B", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
@@ -78,13 +78,13 @@ export default async function SchedulePage({
             </div>
           </div>
           <div style={{ marginTop: 14 }}>
-            <SeasonFilter seasons={seasons} basePath="/schedule" />
+            <SeasonFilter seasons={seasons} basePath="/schedule" lang={lang} />
           </div>
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
         {isPlaceholderSeason && (
-          <div style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.7 }}>
+          <div className="app-page-note" style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, fontSize: 13, lineHeight: 1.7 }}>
             {lang === "ko"
               ? "2026 시즌 일정/경기 결과는 공식 업로드 전까지 비워 둡니다."
               : "The 2026 schedule stays blank until official uploads begin."}

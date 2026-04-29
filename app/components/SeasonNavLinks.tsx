@@ -7,7 +7,7 @@ import type { Lang } from "@/lib/translations";
 
 const NAV_ITEMS = [
   { href: "/", labelKo: "대시보드", labelEn: "Dashboard" },
-  { href: "/compare", labelKo: "선수 비교", labelEn: "Player Compare" },
+  { href: "/compare", labelKo: "선수 비교", labelEn: "Player Comparison" },
   { href: "/lineup", labelKo: "라인업", labelEn: "Lineup" },
   { href: "/schedule", labelKo: "일정", labelEn: "Schedule" },
   { href: "/team-analysis", labelKo: "AI 분석", labelEn: "AI Analysis" },

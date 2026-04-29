@@ -17,7 +17,10 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
+import LangToggle from '@/app/components/LangToggle';
+import { getPlayerDisplayName, getPlayerNameVariants } from '@/lib/playerDisplay';
 import { inferRosterSnapshotSeasons, parseRosterSnapshot, type RosterSnapshotPlayer } from '@/lib/rosterSnapshot';
+import type { Lang } from '@/lib/translations';
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────────
 
@@ -109,6 +112,12 @@ interface ComparePayload {
   seasonRosters: Record<string, Player[]>;
 }
 
+function readLangCookie(): Lang {
+  if (typeof document === 'undefined') return 'ko';
+  const match = document.cookie.match(/(?:^|; )lang=([^;]+)/);
+  return match?.[1] === 'en' ? 'en' : 'ko';
+}
+
 // ─── 데이터 페칭 (실제 업로드 데이터 기준) ────────────────────────────────────
 
 function normalizeName(name: string) {
@@ -170,7 +179,7 @@ function createSyntheticPlayer(snapshotPlayer: RosterSnapshotPlayer, season: num
 
 async function fetchPlayers(): Promise<ComparePayload> {
   const res = await fetch('/api/compare-data', { cache: 'no-store' });
-  if (!res.ok) throw new Error('비교 데이터 로드 실패');
+  if (!res.ok) throw new Error('compare-data-load-failed');
 
   const { players: rawPlayers, batting, pitching, rosterUploads }: {
     players: RawPlayer[];
@@ -435,20 +444,21 @@ function makeRow(
 interface RadarChartProps {
   b1: CalcBatting;
   b2: CalcBatting;
+  lang: Lang;
   color1?: string;
   color2?: string;
 }
 
-function RadarChart({ b1, b2, color1 = '#DC2626', color2 = '#3b82f6' }: RadarChartProps) {
+function RadarChart({ b1, b2, lang, color1 = '#DC2626', color2 = '#3b82f6' }: RadarChartProps) {
   const clamp = (v: number) => Math.min(Math.max(isFinite(v) ? v : 0, 0), 1);
 
   const axes = [
-    { label: '타율',   v1: b1.avg  / 0.40, v2: b2.avg  / 0.40 },
-    { label: '출루율', v1: b1.obp  / 0.50, v2: b2.obp  / 0.50 },
+    { label: lang === 'ko' ? '타율' : 'AVG', v1: b1.avg  / 0.40, v2: b2.avg  / 0.40 },
+    { label: lang === 'ko' ? '출루율' : 'OBP', v1: b1.obp  / 0.50, v2: b2.obp  / 0.50 },
     { label: 'OPS',   v1: b1.ops  / 1.00, v2: b2.ops  / 1.00 },
-    { label: '장타율', v1: b1.slg  / 0.70, v2: b2.slg  / 0.70 },
-    { label: '볼넷율', v1: (b1.walks / Math.max(b1.at_bats, 1)) / 0.25, v2: (b2.walks / Math.max(b2.at_bats, 1)) / 0.25 },
-    { label: '삼진↓',  v1: 1 - (b1.strikeouts / Math.max(b1.at_bats, 1)) / 0.40, v2: 1 - (b2.strikeouts / Math.max(b2.at_bats, 1)) / 0.40 },
+    { label: lang === 'ko' ? '장타율' : 'SLG', v1: b1.slg  / 0.70, v2: b2.slg  / 0.70 },
+    { label: lang === 'ko' ? '볼넷율' : 'BB Rate', v1: (b1.walks / Math.max(b1.at_bats, 1)) / 0.25, v2: (b2.walks / Math.max(b2.at_bats, 1)) / 0.25 },
+    { label: lang === 'ko' ? '삼진↓' : 'K Avoid', v1: 1 - (b1.strikeouts / Math.max(b1.at_bats, 1)) / 0.40, v2: 1 - (b2.strikeouts / Math.max(b2.at_bats, 1)) / 0.40 },
   ];
 
   const cx = 160, cy = 160, R = 106;
@@ -525,21 +535,27 @@ interface PlayerSearchProps {
   onSelect: (p: Player | null) => void;
   placeholder: string;
   accentColor: string;
+  lang: Lang;
   excludeId?: number;
 }
 
-function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, excludeId }: PlayerSearchProps) {
+function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, lang, excludeId }: PlayerSearchProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen]   = useState(false);
   // FIX: useRef<HTMLDivElement>(null) — ref.current.contains() 타입 에러 해결
   const ref = useRef<HTMLDivElement>(null);
+  const displayName = (name: string) => getPlayerDisplayName(name, lang);
 
   const filtered = players
     .filter((p) => p.id !== excludeId)
     .filter((p) => {
       if (!query) return true;
       const q = query.toLowerCase();
-      return p.name.includes(query) || String(p.number).startsWith(q) || p.position.toLowerCase().startsWith(q);
+      return (
+        getPlayerNameVariants(p.name).some((variant) => variant.toLowerCase().includes(q)) ||
+        String(p.number).startsWith(q) ||
+        p.position.toLowerCase().startsWith(q)
+      );
     });
 
   useEffect(() => {
@@ -566,7 +582,7 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
         )}
         <input
           type="text"
-          value={selected && !open ? `${selected.name}  (${selected.position})` : query}
+          value={selected && !open ? `${displayName(selected.name)} (${selected.position})` : query}
           placeholder={placeholder}
           onFocus={() => { setOpen(true); setQuery(''); }}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
@@ -585,7 +601,9 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
       {open && (
         <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 9999, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.4)', maxHeight: 320, overflowY: 'auto', overflow: 'hidden auto' }}>
           {filtered.length === 0 ? (
-            <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>검색 결과 없음</div>
+            <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+              {lang === 'ko' ? '검색 결과 없음' : 'No matching players'}
+            </div>
           ) : (
             filtered.map((p) => (
               <div key={p.id}
@@ -598,7 +616,7 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
                   {p.number}
                 </div>
                 <div>
-                  <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: 14 }}>{p.name}</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: 14 }}>{displayName(p.name)}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{p.position}</div>
                 </div>
               </div>
@@ -615,6 +633,7 @@ function PlayerSearch({ players, selected, onSelect, placeholder, accentColor, e
 export default function ComparePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [lang, setLang] = useState<Lang>('ko');
   const [seasonRosters, setSeasonRosters] = useState<Record<string, Player[]>>({});
   const [availableSeasons, setAvailableSeasons] = useState<number[]>([]);
   const [lockedSeasons, setLockedSeasons] = useState<number[]>([]);
@@ -624,6 +643,13 @@ export default function ComparePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const requestedSeason = Number(searchParams.get('season') || 0);
+
+  useEffect(() => {
+    const syncLang = () => setLang(readLangCookie());
+    syncLang();
+    window.addEventListener('ud:lang-change', syncLang);
+    return () => window.removeEventListener('ud:lang-change', syncLang);
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -668,6 +694,11 @@ export default function ComparePage() {
   const seasonPlayers = lockedSeasons.includes(season)
     ? []
     : (seasonRosters[String(season)] || []);
+  const isKo = lang === 'ko';
+  const displayName = (name: string) => getPlayerDisplayName(name, lang);
+  const errorMessage = error === 'compare-data-load-failed'
+    ? (isKo ? '선수 비교 데이터를 불러오지 못했습니다.' : 'Failed to load comparison data.')
+    : error;
 
   useEffect(() => {
     const seasonIds = new Set(seasonPlayers.map((player) => player.id));
@@ -677,12 +708,14 @@ export default function ComparePage() {
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-      <div style={{ color: 'var(--text-muted)', fontSize: 15 }}>로딩 중...</div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 15 }}>{isKo ? '로딩 중...' : 'Loading...'}</div>
     </div>
   );
 
   if (error) return (
-    <div style={{ padding: 32, textAlign: 'center', color: '#ef4444', fontSize: 15 }}>오류: {error}</div>
+    <div style={{ padding: 32, textAlign: 'center', color: '#ef4444', fontSize: 15 }}>
+      {isKo ? '오류' : 'Error'}: {errorMessage}
+    </div>
   );
 
   return (
@@ -700,43 +733,60 @@ export default function ComparePage() {
               color: 'var(--text-muted)', fontSize: 13, fontWeight: 500,
               textDecoration: 'none',
             }}>
-              ← 대시보드
+              {isKo ? '← 대시보드' : '← Dashboard'}
             </Link>
             <div>
-              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', margin: 0 }}>⚖️ 선수 비교</h1>
-              <p style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 13 }}>이름 · 등번호 · 포지션으로 검색하거나 버튼으로 빠르게 선택하세요.</p>
+              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', margin: 0 }}>
+                {isKo ? '⚖️ 선수 비교' : '⚖️ Player Comparison'}
+              </h1>
+              <p style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 13 }}>
+                {isKo
+                  ? '이름 · 등번호 · 포지션으로 검색하거나 버튼으로 빠르게 선택하세요.'
+                  : 'Search by name, jersey number, or position, or use the roster chips below.'}
+              </p>
             </div>
           </div>
-          <select
-            value={season}
-            onChange={(e) => {
-              const nextSeason = Number(e.target.value);
-              setSeason(nextSeason);
-              router.replace(`/compare?season=${nextSeason}`);
-            }}
-            style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 14px', color: 'var(--text)', fontSize: 14, cursor: 'pointer', outline: 'none' }}
-          >
-            {availableSeasons.map((y) => <option key={y} value={y}>{y} 시즌</option>)}
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <select
+              value={season}
+              onChange={(e) => {
+                const nextSeason = Number(e.target.value);
+                setSeason(nextSeason);
+                router.replace(`/compare?season=${nextSeason}`);
+              }}
+              style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 14px', color: 'var(--text)', fontSize: 14, cursor: 'pointer', outline: 'none' }}
+            >
+              {availableSeasons.map((y) => (
+                <option key={y} value={y}>
+                  {isKo ? `${y} 시즌` : `${y} Season`}
+                </option>
+              ))}
+            </select>
+            <LangToggle lang={lang} />
+          </div>
         </div>
 
         {lockedSeasons.includes(season) && (
           <div style={{ marginBottom: 20, padding: '16px 18px', borderRadius: 14, background: 'var(--card-bg)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.7 }}>
-            {season} 시즌은 공식 기록 업로드 전까지 선수 비교를 비워 둡니다.
+            {isKo
+              ? `${season} 시즌은 공식 기록 업로드 전까지 선수 비교를 비워 둡니다.`
+              : `Player comparison for ${season} stays blank until official records are uploaded.`}
           </div>
         )}
 
         {/* 검색창 */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 48px 1fr', gap: 12, alignItems: 'center', marginBottom: 20, position: 'relative', zIndex: 100 }}>
-          <PlayerSearch players={seasonPlayers} selected={p1} onSelect={setP1} placeholder="선수 1 검색…" accentColor="#DC2626" excludeId={p2?.id} />
+          <PlayerSearch players={seasonPlayers} selected={p1} onSelect={setP1} placeholder={isKo ? '선수 1 검색…' : 'Search player 1…'} accentColor="#DC2626" lang={lang} excludeId={p2?.id} />
           <div style={{ textAlign: 'center', fontWeight: 800, color: 'var(--text-dim)', fontSize: 18 }}>VS</div>
-          <PlayerSearch players={seasonPlayers} selected={p2} onSelect={setP2} placeholder="선수 2 검색…" accentColor="#3b82f6" excludeId={p1?.id} />
+          <PlayerSearch players={seasonPlayers} selected={p2} onSelect={setP2} placeholder={isKo ? '선수 2 검색…' : 'Search player 2…'} accentColor="#3b82f6" lang={lang} excludeId={p1?.id} />
         </div>
 
         {/* 빠른 선택 — 해당 시즌 기록 있는 선수만 */}
         <div style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 500 }}>
-            {season}시즌 선수 {seasonPlayers.length}명
+            {isKo
+              ? `${season}시즌 선수 ${seasonPlayers.length}명`
+              : `${season} Season Roster · ${seasonPlayers.length} players`}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32, position: 'relative', zIndex: 1 }}>
@@ -760,7 +810,7 @@ export default function ComparePage() {
                   transition: 'all 0.15s',
                 }}
               >
-                #{p.number} {p.name}
+                #{p.number} {displayName(p.name)}
               </button>
             );
           })}
@@ -781,7 +831,7 @@ export default function ComparePage() {
                     <div style={{ width: 54, height: 54, borderRadius: '50%', background: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 800, color: '#fff', margin: '0 auto 8px' }}>
                       {item.player.number}
                     </div>
-                    <div style={{ fontWeight: 700, fontSize: 17, color: 'var(--text)' }}>{item.player.name}</div>
+                    <div style={{ fontWeight: 700, fontSize: 17, color: 'var(--text)' }}>{displayName(item.player.name)}</div>
                     <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{item.player.position}</div>
                   </div>
                 )
@@ -791,7 +841,7 @@ export default function ComparePage() {
             {/* 타격 없음 안내 */}
             {!b1 && !b2 && (
               <div style={{ background: 'var(--card-bg)', borderRadius: 16, padding: 32, border: '1px solid var(--border)', textAlign: 'center', color: 'var(--text-muted)', marginBottom: 20 }}>
-                {season}시즌 타격 기록이 없습니다.
+                {isKo ? `${season}시즌 타격 기록이 없습니다.` : `No batting record is available for ${season}.`}
               </div>
             )}
 
@@ -799,29 +849,33 @@ export default function ComparePage() {
             {(b1 || b2) && (
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 20 }}>
                 <div style={{ background: 'var(--card-bg)', borderRadius: 16, padding: 24, border: '1px solid var(--border)', flex: '0 0 auto', width: 'min(100%, 320px)' }}>
-                  <h3 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600 }}>능력치 비교</h3>
+                  <h3 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600 }}>
+                    {isKo ? '능력치 비교' : 'Skill Profile'}
+                  </h3>
                   {/* FIX: b1 && b2 조건 후에만 RadarChart 렌더링 — null 아님을 보장 */}
-                  {b1 && b2 && <RadarChart b1={b1} b2={b2} />}
+                  {b1 && b2 && <RadarChart b1={b1} b2={b2} lang={lang} />}
                   <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 10 }}>
-                    <span style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>● {p1.name}</span>
-                    <span style={{ fontSize: 12, color: '#3b82f6', fontWeight: 600 }}>● {p2.name}</span>
+                    <span style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>● {displayName(p1.name)}</span>
+                    <span style={{ fontSize: 12, color: '#3b82f6', fontWeight: 600 }}>● {displayName(p2.name)}</span>
                   </div>
                 </div>
 
                 <div style={{ background: 'var(--card-bg)', borderRadius: 16, padding: 24, border: '1px solid var(--border)', flex: '1 1 280px' }}>
-                  <h3 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600 }}>🏏 타격 비교</h3>
+                  <h3 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600 }}>
+                    {isKo ? '🏏 타격 비교' : '🏏 Batting Comparison'}
+                  </h3>
                   {[
-                    makeRow('타수',   b1?.at_bats,    b2?.at_bats,    fmtInt),
-                    makeRow('안타',   b1?.hits,       b2?.hits,       fmtInt),
-                    makeRow('타율',   b1?.avg,        b2?.avg,        fmt3),
-                    makeRow('출루율', b1?.obp,        b2?.obp,        fmt3),
-                    makeRow('장타율', b1?.slg,        b2?.slg,        fmt3),
+                    makeRow(isKo ? '타수' : 'AB', b1?.at_bats, b2?.at_bats, fmtInt),
+                    makeRow(isKo ? '안타' : 'Hits', b1?.hits, b2?.hits, fmtInt),
+                    makeRow(isKo ? '타율' : 'AVG', b1?.avg, b2?.avg, fmt3),
+                    makeRow(isKo ? '출루율' : 'OBP', b1?.obp, b2?.obp, fmt3),
+                    makeRow(isKo ? '장타율' : 'SLG', b1?.slg, b2?.slg, fmt3),
                     makeRow('OPS',   b1?.ops,        b2?.ops,        fmt3),
-                    makeRow('홈런',   b1?.home_runs,  b2?.home_runs,  fmtInt),
-                    makeRow('타점',   b1?.rbi,        b2?.rbi,        fmtInt),
-                    makeRow('볼넷',   b1?.walks,      b2?.walks,      fmtInt),
-                    makeRow('삼진',   b1?.strikeouts, b2?.strikeouts, fmtInt, false),
-                    makeRow('득점',   b1?.runs,       b2?.runs,       fmtInt),
+                    makeRow(isKo ? '홈런' : 'HR', b1?.home_runs, b2?.home_runs, fmtInt),
+                    makeRow(isKo ? '타점' : 'RBI', b1?.rbi, b2?.rbi, fmtInt),
+                    makeRow(isKo ? '볼넷' : 'BB', b1?.walks, b2?.walks, fmtInt),
+                    makeRow(isKo ? '삼진' : 'SO', b1?.strikeouts, b2?.strikeouts, fmtInt, false),
+                    makeRow(isKo ? '득점' : 'Runs', b1?.runs, b2?.runs, fmtInt),
                   ].map((row) => <StatRow key={row.label} {...row} />)}
                 </div>
               </div>
@@ -830,14 +884,16 @@ export default function ComparePage() {
             {/* 투구 비교 */}
             {hasPitching && (
               <div style={{ background: 'var(--card-bg)', borderRadius: 16, padding: 24, border: '1px solid var(--border)' }}>
-                <h3 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600 }}>⚾ 투구 비교</h3>
+                <h3 style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12, fontWeight: 600 }}>
+                  {isKo ? '⚾ 투구 비교' : '⚾ Pitching Comparison'}
+                </h3>
                 {[
-                  makeRow('이닝',   pi1?.innings,     pi2?.innings,     fmtInt),
-                  makeRow('피안타', pi1?.hits,        pi2?.hits,        fmtInt, false),
-                  makeRow('실점',   pi1?.runs,        pi2?.runs,        fmtInt, false),
-                  makeRow('자책점', pi1?.earned_runs, pi2?.earned_runs, fmtInt, false),
-                  makeRow('볼넷',   pi1?.walks,       pi2?.walks,       fmtInt, false),
-                  makeRow('삼진',   pi1?.strikeouts,  pi2?.strikeouts,  fmtInt),
+                  makeRow(isKo ? '이닝' : 'IP', pi1?.innings, pi2?.innings, fmtInt),
+                  makeRow(isKo ? '피안타' : 'Hits Allowed', pi1?.hits, pi2?.hits, fmtInt, false),
+                  makeRow(isKo ? '실점' : 'Runs Allowed', pi1?.runs, pi2?.runs, fmtInt, false),
+                  makeRow(isKo ? '자책점' : 'ER', pi1?.earned_runs, pi2?.earned_runs, fmtInt, false),
+                  makeRow(isKo ? '볼넷' : 'BB', pi1?.walks, pi2?.walks, fmtInt, false),
+                  makeRow(isKo ? '삼진' : 'SO', pi1?.strikeouts, pi2?.strikeouts, fmtInt),
                   makeRow('ERA',   pi1?.era,         pi2?.era,         fmt2,   false),
                   makeRow('WHIP',  pi1?.whip,        pi2?.whip,        fmt2,   false),
                 ].map((row) => <StatRow key={row.label} {...row} />)}
@@ -847,8 +903,12 @@ export default function ComparePage() {
         ) : (
           <div style={{ textAlign: 'center', padding: '64px 24px', background: 'var(--card-bg)', borderRadius: 16, border: '1px solid var(--border)' }}>
             <div style={{ fontSize: 52, marginBottom: 14 }}>⚾</div>
-            <p style={{ color: 'var(--text-muted)', fontSize: 15 }}>비교할 선수를 2명 선택하세요</p>
-            <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 6 }}>위 검색창이나 버튼을 이용하세요</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: 15 }}>
+              {isKo ? '비교할 선수를 2명 선택하세요' : 'Select two players to compare'}
+            </p>
+            <p style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 6 }}>
+              {isKo ? '위 검색창이나 버튼을 이용하세요' : 'Use the search bars or roster chips above.'}
+            </p>
           </div>
         )}
       </div>

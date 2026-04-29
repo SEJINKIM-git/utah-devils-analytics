@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
+import type { Lang } from "@/lib/translations";
 
 function readActiveSeasonCookie() {
   if (typeof document === "undefined") return null;
@@ -12,9 +13,11 @@ function readActiveSeasonCookie() {
 export default function SeasonFilter({
   seasons,
   basePath = "/",
+  lang = "ko",
 }: {
   seasons: string[];
   basePath?: string;
+  lang?: Lang;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -34,7 +37,7 @@ export default function SeasonFilter({
           onClick={() => handleChange(s)}
           className={current === s ? "app-season-chip active" : "app-season-chip"}
         >
-          {s === "Career" ? "통산" : s}
+          {s === "Career" ? (lang === "ko" ? "통산" : "Career") : s}
         </button>
       ))}
     </div>

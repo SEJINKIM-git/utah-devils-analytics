@@ -15,7 +15,7 @@ export default function LangToggle({ lang }: { lang: "ko" | "en" }) {
   return (
     <button
       onClick={toggle}
-      title={lang === "ko" ? "Switch to English" : "한국어로 전환"}
+      title={lang === "ko" ? "Switch to English" : "Switch to Korean"}
       className="app-icon-button"
       style={{
         width: 36,
@@ -34,7 +34,7 @@ export default function LangToggle({ lang }: { lang: "ko" | "en" }) {
         boxShadow: "var(--icon-button-shadow)",
       }}
     >
-      {lang === "ko" ? "EN" : "한"}
+      {lang === "ko" ? "EN" : "KO"}
     </button>
   );
 }

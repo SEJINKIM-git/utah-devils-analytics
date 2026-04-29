@@ -27,7 +27,7 @@ const EN_BASE_GUIDANCE = `
 - Monday sessions are full-team practices focused on baserunning, communication, situational play, tactics, relay play, position-based fielding, and pitching check-ins.
 - Friday sessions are limited and therefore mainly used for hitting work such as tee and toss batting.
 - Defensive work is split by role or position group such as infield/outfield and battery.
-- Hitting work is fundamentals-first, with Park Jimin overseeing core mechanics and larger corrections, and Hwang Seohyeon reinforcing head stability, wrist position, and visual focus.
+- Hitting work is fundamentals-first, with Jimin Park overseeing core mechanics and larger corrections, and Seohyun Hwang reinforcing head stability, wrist position, and visual focus.
 - Pre-game batting cage visits are strongly recommended but remain voluntary.
 - Late-season development should be based on record analysis and player-specific growth plans.
 

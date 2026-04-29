@@ -5,6 +5,7 @@ import Image from "next/image";
 import LangToggle from "@/app/components/LangToggle";
 import LineupSimulator from "@/app/components/LineupSimulator";
 import SeasonFilter from "@/app/components/SeasonFilter";
+import { getPlayerDisplayName } from "@/lib/playerDisplay";
 import {
   buildPlayerIdentityKey,
   dedupePlayersByIdentity,
@@ -149,7 +150,7 @@ export default async function LineupPage({
 
       return {
         ...player,
-        name: canonicalName,
+        name: getPlayerDisplayName(canonicalName, lang),
         number: canonicalNumber,
         avg,
         obp,
@@ -159,7 +160,7 @@ export default async function LineupPage({
         hits: merged.hits,
       };
     })
-    .sort((a, b) => a.number - b.number || a.name.localeCompare(b.name, "ko"));
+    .sort((a, b) => a.number - b.number || a.name.localeCompare(b.name, lang === "ko" ? "ko" : "en"));
 
   return (
     <div className="app-page-shell">
@@ -182,13 +183,13 @@ export default async function LineupPage({
                 {lang === "ko" ? "📅 일정" : "📅 Schedule"}
               </Link>
               <Link href={`/team-analysis?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(59,130,246,0.12)", color: "#60a5fa", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
-                {lang === "ko" ? "🤖 팀 분석" : "🤖 Analysis"}
+                {lang === "ko" ? "🤖 팀 분석" : "🤖 AI Analysis"}
               </Link>
               <LangToggle lang={lang} />
             </div>
           </div>
           <div style={{ marginTop: 14 }}>
-            <SeasonFilter seasons={seasons} basePath="/lineup" />
+            <SeasonFilter seasons={seasons} basePath="/lineup" lang={lang} />
           </div>
         </div>
       </div>

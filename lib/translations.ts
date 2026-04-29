@@ -117,7 +117,7 @@ const translations = {
   "season.career": { ko: "통산", en: "Career" },
 
   // Lang
-  "lang.toggle": { ko: "EN", en: "한" },
+  "lang.toggle": { ko: "EN", en: "KO" },
 } as const;
 
 export type TransKey = keyof typeof translations;

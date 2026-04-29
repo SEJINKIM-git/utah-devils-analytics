@@ -6,7 +6,7 @@ type PlayerNamePair = {
 };
 
 const PLAYER_NAME_PAIRS: PlayerNamePair[] = [
-  { ko: "이호원", en: "Hwoon Lee" },
+  { ko: "이호원", en: "Howoon Lee" },
   { ko: "강배현", en: "Baehyun Kang" },
   { ko: "박지민", en: "Jimin Park" },
   { ko: "황서현", en: "Seohyun Hwang" },
