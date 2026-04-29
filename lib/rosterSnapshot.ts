@@ -5,6 +5,13 @@ export type RosterSnapshotPlayer = {
   is_pitcher?: boolean;
 };
 
+export type RosterUploadRecord = {
+  filename?: string | null;
+  players_snapshot?: string | null;
+  source?: string | null;
+  uploaded_at?: string | null;
+};
+
 type ParsedSnapshotObject = {
   season?: string;
   seasons?: Array<string | number | null | undefined>;
@@ -108,4 +115,35 @@ export function parseRosterSnapshot(
       seasons: uniqueSeasons(fallbackSeasons),
     };
   }
+}
+
+export function getLatestRosterSnapshotForSeason(
+  uploads: RosterUploadRecord[],
+  season: string
+) {
+  return getLatestRosterUploadForSeason(uploads, season)?.snapshot || null;
+}
+
+export function getLatestRosterUploadForSeason(
+  uploads: RosterUploadRecord[],
+  season: string
+) {
+  const targetSeason = String(season || "").trim();
+  if (!targetSeason) return null;
+
+  for (const upload of [...uploads].sort((a, b) =>
+    String(b.uploaded_at || "").localeCompare(String(a.uploaded_at || ""))
+  )) {
+    const snapshot = parseRosterSnapshot(
+      upload.players_snapshot,
+      inferRosterSnapshotSeasons(upload.filename, upload.source)
+    );
+
+    if (snapshot.players.length === 0) continue;
+    if (!snapshot.seasons.includes(targetSeason)) continue;
+
+    return { upload, snapshot };
+  }
+
+  return null;
 }

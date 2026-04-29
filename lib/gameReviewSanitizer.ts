@@ -3,6 +3,10 @@ type ReviewContext = {
   playerNames?: string[];
 };
 
+const KNOWN_ENTITY_CORRECTIONS: Record<string, string> = {
+  "사해인": "사회인",
+};
+
 const PARTICLES = [
   "으로",
   "에서",
@@ -42,6 +46,17 @@ function splitTrailingParticle(token: string) {
   return { base: token, suffix: "" };
 }
 
+function normalizeKnownEntity(base: string) {
+  const compact = normalizeToken(base);
+  if (!compact) return "";
+
+  for (const [wrong, correct] of Object.entries(KNOWN_ENTITY_CORRECTIONS)) {
+    if (normalizeToken(wrong) === compact) return correct;
+  }
+
+  return base.trim();
+}
+
 function levenshtein(a: string, b: string, maxDistance: number) {
   if (Math.abs(a.length - b.length) > maxDistance) return maxDistance + 1;
 
@@ -72,7 +87,14 @@ function levenshtein(a: string, b: string, maxDistance: number) {
 function correctEntityToken(token: string, canonicalNames: string[]) {
   const { base, suffix } = splitTrailingParticle(token);
   const normalizedBase = normalizeToken(base);
-  if (!normalizedBase || canonicalNames.length === 0) return token;
+  if (!normalizedBase) return token;
+
+  const correctedKnownEntity = normalizeKnownEntity(base);
+  if (normalizeToken(correctedKnownEntity) !== normalizedBase) {
+    return `${correctedKnownEntity}${suffix}`;
+  }
+
+  if (canonicalNames.length === 0) return token;
 
   let bestMatch = "";
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -123,10 +145,22 @@ export function sanitizeGameReviewContent<T>(value: T, context: ReviewContext): 
   const canonicalNames = Array.from(
     new Set(
       [context.opponent, ...(context.playerNames || [])]
-        .map((entry) => String(entry || "").trim())
+        .map((entry) => sanitizeEntityName(entry))
         .filter(Boolean)
     )
   );
 
   return sanitizeValue(value, canonicalNames) as T;
+}
+
+export function sanitizeEntityName(value: unknown) {
+  const candidate = String(value || "").trim();
+  if (!candidate) return "";
+
+  const { base, suffix } = splitTrailingParticle(candidate);
+  return `${normalizeKnownEntity(base)}${suffix}`.trim();
+}
+
+export function sanitizeOpponentName(value: unknown) {
+  return sanitizeEntityName(value);
 }
