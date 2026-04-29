@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 
 const POSITIONS = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"];
 
@@ -8,11 +8,19 @@ interface Player {
   id: number;
   name: string;
   number: number;
+  position?: string;
+  slg: string;
   avg: string;
   obp: string;
   ops: string;
   pa: number;
   hits: number;
+  recentGames: number;
+  recentPa: number;
+  recentAvg: string;
+  recentObp: string;
+  recentSlg: string;
+  recentOps: string;
 }
 
 interface LineupSlot {
@@ -36,6 +44,98 @@ function parseMetric(value: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function inferRecommendedPosition(position?: string) {
+  const normalized = String(position || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9/,\s]/g, " ");
+  const tokens = normalized.split(/[\/,\s]+/).filter(Boolean);
+
+  for (const token of tokens) {
+    if (POSITIONS.includes(token)) return token;
+  }
+
+  if (tokens.includes("OF")) return "CF";
+  if (tokens.includes("INF")) return "SS";
+  return "DH";
+}
+
+function buildRecommendedLineup(players: Player[]) {
+  const metric = (value?: string) => parseMetric(value || "0");
+
+  const candidates = players.map((player) => {
+    const seasonAvg = metric(player.avg);
+    const seasonObp = metric(player.obp);
+    const seasonSlg = metric(player.slg);
+    const seasonOps = metric(player.ops);
+    const recentAvg = metric(player.recentAvg);
+    const recentObp = metric(player.recentObp);
+    const recentSlg = metric(player.recentSlg);
+    const recentOps = metric(player.recentOps);
+    const recentWeight =
+      player.recentGames > 0
+        ? clamp(0.35 + player.recentPa / 30, 0.35, 0.75)
+        : 0;
+
+    const blendedAvg = seasonAvg * (1 - recentWeight) + recentAvg * recentWeight;
+    const blendedObp = seasonObp * (1 - recentWeight) + recentObp * recentWeight;
+    const blendedSlg = seasonSlg * (1 - recentWeight) + recentSlg * recentWeight;
+    const blendedOps = seasonOps * (1 - recentWeight) + recentOps * recentWeight;
+    const sampleBoost = Math.min(player.pa, 24) / 24;
+
+    return {
+      player,
+      position: inferRecommendedPosition(player.position),
+      hasRecord: player.pa > 0 || player.recentGames > 0,
+      leadoffScore: blendedObp * 1.85 + blendedAvg * 0.95 + blendedOps * 0.28 + sampleBoost * 0.08,
+      secondScore: blendedObp * 1.65 + blendedAvg * 0.82 + blendedOps * 0.4 + sampleBoost * 0.06,
+      thirdScore: blendedOps * 1.3 + blendedObp * 0.95 + blendedAvg * 0.5 + sampleBoost * 0.05,
+      cleanupScore: blendedSlg * 1.9 + blendedOps * 0.9 + blendedObp * 0.2 + sampleBoost * 0.04,
+      fifthScore: blendedSlg * 1.55 + blendedOps * 1.02 + blendedObp * 0.28 + sampleBoost * 0.04,
+      depthScore: blendedOps * 1.18 + blendedObp * 0.6 + blendedAvg * 0.32 + sampleBoost * 0.05,
+    };
+  });
+
+  const withRecord = candidates.filter((candidate) => candidate.hasRecord);
+  const withoutRecord = candidates.filter((candidate) => !candidate.hasRecord);
+  const pool = [...withRecord, ...withoutRecord];
+  const selected = new Set<number>();
+
+  const pickBest = (scoreKey: keyof typeof pool[number]) => {
+    const next = pool
+      .filter((candidate) => !selected.has(candidate.player.id))
+      .sort((a, b) => Number(b[scoreKey]) - Number(a[scoreKey]))[0];
+
+    if (!next) return null;
+    selected.add(next.player.id);
+    return next;
+  };
+
+  const ordered = [
+    pickBest("leadoffScore"),
+    pickBest("secondScore"),
+    pickBest("thirdScore"),
+    pickBest("cleanupScore"),
+    pickBest("fifthScore"),
+  ].filter(Boolean) as Array<(typeof pool)[number]>;
+
+  const remaining = pool
+    .filter((candidate) => !selected.has(candidate.player.id))
+    .sort((a, b) => b.depthScore - a.depthScore)
+    .slice(0, Math.max(0, 9 - ordered.length));
+
+  const picks = [...ordered, ...remaining].slice(0, 9);
+  const lineup = Array.from({ length: 9 }, () => ({ player: null, position: "" } as LineupSlot));
+
+  picks.forEach((candidate, index) => {
+    lineup[index] = {
+      player: candidate.player,
+      position: candidate.position,
+    };
+  });
+
+  return lineup;
 }
 
 export default function LineupSimulator({
@@ -321,6 +421,14 @@ export default function LineupSimulator({
   };
 
   const ko = lang === "ko";
+  const canRecommend = players.some((player) => player.pa > 0 || player.recentGames > 0);
+
+  const applyRecommendedLineup = () => {
+    const nextLineup = buildRecommendedLineup(players);
+    setLineup(nextLineup);
+    setShowSaved(false);
+    setLineupName(ko ? `${season} 추천 라인업` : `${season} Recommended Lineup`);
+  };
 
   return (
     <div>
@@ -521,6 +629,24 @@ export default function LineupSimulator({
             </h2>
             <div style={{ display: "flex", gap: 6 }}>
               <button
+                onClick={applyRecommendedLineup}
+                disabled={!canRecommend}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 7,
+                  border: "1px solid rgba(251,191,36,0.24)",
+                  background: canRecommend
+                    ? "rgba(234,179,8,0.12)"
+                    : "rgba(255,255,255,0.03)",
+                  color: canRecommend ? "#facc15" : "rgba(255,255,255,0.28)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: canRecommend ? "pointer" : "not-allowed",
+                }}
+              >
+                {ko ? "✨ 추천 라인업" : "✨ Recommend"}
+              </button>
+              <button
                 onClick={() => setShowSaved(!showSaved)}
                 style={{
                   padding: "6px 12px",
@@ -560,6 +686,11 @@ export default function LineupSimulator({
                 {ko ? "초기화" : "Clear"}
               </button>
             </div>
+          </div>
+          <div style={{ marginTop: -4, marginBottom: 14, fontSize: 11, color: "rgba(255,255,255,0.38)" }}>
+            {ko
+              ? "추천 라인업은 최근 5경기 기록을 우선 반영하고, 표본이 적으면 시즌 누적 기록을 함께 섞어 배치합니다."
+              : "Recommended lineups prioritize the last five games and blend season totals when the recent sample is small."}
           </div>
 
           {/* 저장된 라인업 목록 */}

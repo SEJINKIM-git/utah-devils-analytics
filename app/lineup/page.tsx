@@ -24,6 +24,104 @@ import { Lang } from "@/lib/translations";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const RECENT_LINEUP_WEIGHTS = [1.35, 1.18, 1.02, 0.9, 0.8];
+const RECENT_LINEUP_WINDOW = RECENT_LINEUP_WEIGHTS.length;
+
+type BattingRow = {
+  player_id: number;
+  game_id?: number | null;
+  pa?: number | null;
+  ab?: number | null;
+  hits?: number | null;
+  doubles?: number | null;
+  triples?: number | null;
+  hr?: number | null;
+  bb?: number | null;
+  hbp?: number | null;
+};
+
+type GameRow = {
+  id: number;
+  date?: string | null;
+  created_at?: string | null;
+};
+
+function getGameTimestamp(game: GameRow) {
+  if (game.date) {
+    const stamp = new Date(`${game.date}T00:00:00`).getTime();
+    if (Number.isFinite(stamp)) return stamp;
+  }
+
+  const fallback = new Date(game.created_at || "").getTime();
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
+function buildRecentBattingSummary(rows: BattingRow[], gameTimestamps: Map<number, number>) {
+  const recentRows = [...rows]
+    .filter((row) => row.game_id && gameTimestamps.has(row.game_id))
+    .sort(
+      (a, b) =>
+        (gameTimestamps.get(b.game_id as number) || 0) -
+        (gameTimestamps.get(a.game_id as number) || 0)
+    )
+    .slice(0, RECENT_LINEUP_WINDOW);
+
+  if (recentRows.length === 0) {
+    return {
+      recentGames: 0,
+      recentPa: 0,
+      recentAvg: "---",
+      recentObp: "---",
+      recentSlg: "---",
+      recentOps: "---",
+    };
+  }
+
+  const weighted = recentRows.reduce(
+    (acc, row, index) => {
+      const weight = RECENT_LINEUP_WEIGHTS[index] || 0.75;
+      return {
+        ab: acc.ab + (Number(row.ab) || 0) * weight,
+        hits: acc.hits + (Number(row.hits) || 0) * weight,
+        doubles: acc.doubles + (Number(row.doubles) || 0) * weight,
+        triples: acc.triples + (Number(row.triples) || 0) * weight,
+        hr: acc.hr + (Number(row.hr) || 0) * weight,
+        bb: acc.bb + (Number(row.bb) || 0) * weight,
+        hbp: acc.hbp + (Number(row.hbp) || 0) * weight,
+        pa: acc.pa + (Number(row.pa) || 0) * weight,
+      };
+    },
+    { ab: 0, hits: 0, doubles: 0, triples: 0, hr: 0, bb: 0, hbp: 0, pa: 0 }
+  );
+
+  const recentAvg = weighted.ab > 0 ? (weighted.hits / weighted.ab).toFixed(3) : "---";
+  const recentObp =
+    weighted.pa > 0 ? ((weighted.hits + weighted.bb + weighted.hbp) / weighted.pa).toFixed(3) : "---";
+  const recentSlg =
+    weighted.ab > 0
+      ? (
+          (weighted.hits - weighted.doubles - weighted.triples - weighted.hr +
+            weighted.doubles * 2 +
+            weighted.triples * 3 +
+            weighted.hr * 4) /
+          weighted.ab
+        ).toFixed(3)
+      : "---";
+  const recentOps =
+    recentObp !== "---" && recentSlg !== "---"
+      ? (parseFloat(recentObp) + parseFloat(recentSlg)).toFixed(3)
+      : "---";
+
+  return {
+    recentGames: recentRows.length,
+    recentPa: Math.round(weighted.pa * 10) / 10,
+    recentAvg,
+    recentObp,
+    recentSlg,
+    recentOps,
+  };
+}
+
 function findRosterPlayerMatches(players: any[], snapshotPlayer: RosterSnapshotPlayer) {
   const exactKey = buildPlayerIdentityKey(snapshotPlayer.name, snapshotPlayer.number);
   const normalizedName = normalizePlayerName(snapshotPlayer.name);
@@ -79,10 +177,19 @@ export default async function LineupPage({
   const { data: batting } = isPlaceholderSeason
     ? { data: [] as any[] }
     : await supabase.from("batting_stats").select("*").eq("season", selectedSeason);
+  const { data: seasonGames } = isPlaceholderSeason
+    ? { data: [] as GameRow[] }
+    : await supabase
+        .from("games")
+        .select("id,date,created_at")
+        .eq("season", selectedSeason);
   const latestRosterUpload = isPlaceholderSeason
     ? null
     : getLatestRosterUploadForSeason(rosterUploads || [], selectedSeason);
   const rosterSnapshotPlayers = latestRosterUpload?.snapshot?.players || [];
+  const gameTimestamps = new Map(
+    (seasonGames || []).map((game: GameRow) => [game.id, getGameTimestamp(game)])
+  );
 
   let lineups: any[] = [];
   if (!isPlaceholderSeason) {
@@ -123,10 +230,9 @@ export default async function LineupPage({
   const playersWithStats = playerEntries
     .map(({ player, relatedPlayers, canonicalName, canonicalNumber }) => {
       const relatedIds = new Set(relatedPlayers.map((entry) => entry.id));
-      const merged = (batting || []).reduce(
+      const relatedBattingRows = (batting || []).filter((row) => relatedIds.has(row.player_id));
+      const merged = relatedBattingRows.reduce(
         (acc, row) => {
-          if (!relatedIds.has(row.player_id)) return acc;
-
           return {
             pa: acc.pa + (row.pa || 0),
             ab: acc.ab + (row.ab || 0),
@@ -140,6 +246,7 @@ export default async function LineupPage({
         },
         { pa: 0, ab: 0, hits: 0, doubles: 0, triples: 0, hr: 0, bb: 0, hbp: 0 }
       );
+      const recent = buildRecentBattingSummary(relatedBattingRows, gameTimestamps);
 
       const avg = merged.ab > 0 ? (merged.hits / merged.ab).toFixed(3) : "---";
       const obp = merged.pa > 0 ? ((merged.hits + merged.bb + merged.hbp) / merged.pa).toFixed(3) : "---";
@@ -158,6 +265,12 @@ export default async function LineupPage({
         ops,
         pa: merged.pa,
         hits: merged.hits,
+        recentGames: recent.recentGames,
+        recentPa: recent.recentPa,
+        recentAvg: recent.recentAvg,
+        recentObp: recent.recentObp,
+        recentSlg: recent.recentSlg,
+        recentOps: recent.recentOps,
       };
     })
     .sort((a, b) => a.number - b.number || a.name.localeCompare(b.name, lang === "ko" ? "ko" : "en"));
