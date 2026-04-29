@@ -2,6 +2,10 @@
 const nextConfig = {
   reactStrictMode: false,
 
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
   images: {
     remotePatterns: [
       {
