@@ -4,6 +4,12 @@ import { formatRateStat } from "@/lib/statFormatting";
 
 type Row = unknown[];
 
+const OFFICIAL_GAME_SHEET_ALIASES = {
+  batting: ["타자 기록", "타자기록"],
+  pitching: ["투수 기록", "투수기록"],
+  highlights: ["주요 기록", "주요기록"],
+} as const;
+
 export type LiveGameBattingEntry = {
   order: number;
   position: string;
@@ -45,6 +51,12 @@ export type LiveGamePitchingEntry = {
 };
 
 const normalizeHeader = (value: unknown) =>
+  String(value ?? "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+
+const normalizeSheetName = (value: unknown) =>
   String(value ?? "")
     .replace(/\s+/g, "")
     .trim()
@@ -143,9 +155,18 @@ function findHeaderRowIndex(rows: Row[], kind: "batting" | "pitching") {
   return -1;
 }
 
+export function findOfficialGameSheet(
+  workbook: XLSX.WorkBook,
+  kind: keyof typeof OFFICIAL_GAME_SHEET_ALIASES
+) {
+  const candidates = OFFICIAL_GAME_SHEET_ALIASES[kind].map((name) => normalizeSheetName(name));
+  const sheetName = workbook.SheetNames.find((name) => candidates.includes(normalizeSheetName(name)));
+  return sheetName ? workbook.Sheets[sheetName] : undefined;
+}
+
 export function isOfficialLiveGameWorkbook(workbook: XLSX.WorkBook) {
-  const battingSheet = workbook.Sheets["타자 기록"];
-  const pitchingSheet = workbook.Sheets["투수 기록"];
+  const battingSheet = findOfficialGameSheet(workbook, "batting");
+  const pitchingSheet = findOfficialGameSheet(workbook, "pitching");
   if (!battingSheet && !pitchingSheet) return false;
 
   const battingOk = battingSheet ? findHeaderRowIndex(toRows(battingSheet), "batting") >= 0 : false;

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import {
+  findOfficialGameSheet,
   isOfficialLiveGameWorkbook,
   parseOfficialGameBattingSheet,
   parseOfficialGameHighlights,
@@ -789,13 +790,17 @@ async function processLiveGameWorkbook(
     throw new Error("현장 경기 파일은 파일명에 날짜와 상대팀이 포함되어야 합니다. 예: 9_26 VS 선학 경기 기록.xlsx");
   }
 
-  const battingRows = workbook.Sheets["타자 기록"]
-    ? parseOfficialGameBattingSheet(workbook.Sheets["타자 기록"])
+  const battingSheet = findOfficialGameSheet(workbook, "batting");
+  const pitchingSheet = findOfficialGameSheet(workbook, "pitching");
+  const highlightsSheet = findOfficialGameSheet(workbook, "highlights");
+
+  const battingRows = battingSheet
+    ? parseOfficialGameBattingSheet(battingSheet)
     : [];
-  const pitchingRows = workbook.Sheets["투수 기록"]
-    ? parseOfficialGamePitchingSheet(workbook.Sheets["투수 기록"])
+  const pitchingRows = pitchingSheet
+    ? parseOfficialGamePitchingSheet(pitchingSheet)
     : [];
-  const highlights = parseOfficialGameHighlights(workbook.Sheets["주요 기록"]);
+  const highlights = parseOfficialGameHighlights(highlightsSheet);
 
   const gameCache = new Map<string, number>();
   const gameId = await getOrCreateGameId(meta.date, meta.opponent, meta.season, gameCache, results);
