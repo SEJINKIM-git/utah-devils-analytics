@@ -6,9 +6,10 @@ import { revalidatePath } from "next/cache";
 import { NextRequest } from "next/server";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
-import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
+import { extractGameMetaFromFilename, normalizeGameDateInput } from "@/lib/gameFileMeta";
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 import {
+  findOfficialGameSheet,
   parseOfficialGameBattingSheet,
   parseOfficialGameHighlights,
   parseOfficialGamePitchingSheet,
@@ -219,8 +220,9 @@ export async function POST(request: NextRequest) {
     const requestedSeason = (formData.get("season") as string) || String(new Date().getFullYear());
     const fileMeta = extractGameMetaFromFilename(file?.name || "", requestedSeason);
     const opponent = sanitizeOpponentName((formData.get("opponent") as string) || fileMeta.opponent || "");
-    const gameDate = ((formData.get("gameDate") as string) || fileMeta.date || "").trim();
-    const season = requestedSeason || fileMeta.season || inferSeason(gameDate);
+    const rawGameDate = ((formData.get("gameDate") as string) || fileMeta.date || "").trim();
+    const season = requestedSeason || fileMeta.season || inferSeason(rawGameDate);
+    const gameDate = normalizeGameDateInput(rawGameDate, season) || rawGameDate;
 
     if (!file) return Response.json({ error: "파일이 없습니다" }, { status: 400 });
 
@@ -285,7 +287,7 @@ export async function POST(request: NextRequest) {
       if (noteText) highlights["현장 기록 메모"] = noteText.slice(0, 3000);
     } else {
       const wb = XLSX.read(buffer, { type: "buffer" });
-      const batSheet = wb.Sheets["타자 기록"];
+      const batSheet = findOfficialGameSheet(wb, "batting");
       if (batSheet) {
         for (const row of parseOfficialGameBattingSheet(batSheet)) {
           battingData.push({
@@ -308,7 +310,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const pitSheet = wb.Sheets["투수 기록"];
+      const pitSheet = findOfficialGameSheet(wb, "pitching");
       if (pitSheet) {
         for (const row of parseOfficialGamePitchingSheet(pitSheet)) {
           pitchingData.push({
@@ -333,7 +335,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      for (const line of parseOfficialGameHighlights(wb.Sheets["주요 기록"])) {
+      for (const line of parseOfficialGameHighlights(findOfficialGameSheet(wb, "highlights"))) {
         const [label, ...valueParts] = line.split(":");
         const value = valueParts.join(":").trim();
         if (!label || !value) continue;
@@ -374,6 +376,15 @@ export async function POST(request: NextRequest) {
     battingData.push(...cleanedBattingData);
     pitchingData.length = 0;
     pitchingData.push(...cleanedPitchingData);
+
+    if (battingData.length === 0 && pitchingData.length === 0) {
+      return Response.json(
+        {
+          error: "엑셀에서 경기 기록을 읽지 못했습니다. 시트명을 타자기록/타자 기록, 투수기록/투수 기록, 주요기록/주요 기록 형태로 확인해주세요.",
+        },
+        { status: 400 }
+      );
+    }
 
     // 팀 합산
     const teamAB = battingData.reduce((a, b) => a + b.ab, 0);
@@ -496,6 +507,8 @@ export async function POST(request: NextRequest) {
       highlights,
       gameId: saved?.id,
       season,
+      opponent,
+      gameDate,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "알 수 없는 에러";

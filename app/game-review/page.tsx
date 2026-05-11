@@ -136,6 +136,8 @@ export default function GameReviewPage() {
       setReview(data.review);
       setBattingData(data.battingData || []);
       setPitchingData(data.pitchingData || []);
+      if (data.opponent) setOpponent(sanitizeOpponentName(data.opponent));
+      if (data.gameDate) setGameDate(data.gameDate);
       setViewingPast(false);
       setViewingGameId(data.gameId || null);
       const nextSeason = data.season || season;
