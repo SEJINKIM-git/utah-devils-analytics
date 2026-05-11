@@ -15,6 +15,8 @@ import {
 } from "@/lib/officialGameWorkbook";
 import { parseGameLines } from "@/lib/parseDocxGameRecord";
 import {
+  getLocalizedOpponentName,
+  localizeKnownOpponentEntities,
   sanitizeEntityName,
   sanitizeGameReviewContent,
   sanitizeOpponentName,
@@ -72,10 +74,11 @@ function stripKnownNames(text: string, context: ReviewLocalizationContext) {
 function needsReviewTranslation(review: unknown, lang: Lang, context: ReviewLocalizationContext) {
   const text = stripKnownNames(extractReviewText(review).join(" "), context);
   const hasHangul = /[가-힣]/u.test(text);
+  const hasHan = /[\p{Script=Han}]/u.test(text);
   const hasLatinWord = /\b[A-Za-z]{3,}\b/.test(text);
 
-  if (lang === "en") return hasHangul;
-  return !hasHangul && hasLatinWord;
+  if (lang === "en") return hasHangul || hasHan;
+  return hasHan || (!hasHangul && hasLatinWord);
 }
 
 function buildPlayerNameGuide(playerNames: string[]) {
@@ -91,6 +94,16 @@ function buildPlayerNameGuide(playerNames: string[]) {
     .join("\n");
 }
 
+function buildOpponentNameGuide(opponent: string | null | undefined, lang: Lang) {
+  const original = sanitizeOpponentName(opponent);
+  if (!original) return "";
+
+  const localized = getLocalizedOpponentName(original, lang);
+  if (!localized || localized === original) return "";
+
+  return `Render the opponent name "${original}" exactly as "${localized}".`;
+}
+
 async function translateStructuredReview(
   review: unknown,
   lang: Lang,
@@ -98,13 +111,23 @@ async function translateStructuredReview(
 ) {
   if (!review || typeof review !== "object") return review;
   if (!needsReviewTranslation(review, lang, context)) {
-    return localizeObjectNameFields(review, lang);
+    return localizeKnownOpponentEntities(localizeObjectNameFields(review, lang), lang);
   }
 
   const targetLanguage = lang === "en" ? "English" : "Korean";
   const nameGuide = buildPlayerNameGuide(context.playerNames);
+  const opponentGuide = buildOpponentNameGuide(context.opponent, lang);
   const systemPrompt = `You translate structured baseball game review JSON into natural ${targetLanguage}. Keep the same JSON object shape and keys. Do not change numbers, stats, or facts. Return JSON only.`;
-  const userPrompt = `${nameGuide ? `Use these exact player names when they appear:\n${nameGuide}\n\n` : ""}${context.opponent ? `Opponent name: ${context.opponent}\n\n` : ""}Translate every string value in the following JSON object into ${targetLanguage}. Keep arrays, keys, and numeric values unchanged.\n\n${JSON.stringify(review)}`;
+  const userPrompt = `${nameGuide ? `Use these exact player names when they appear:
+${nameGuide}
+
+` : ""}${context.opponent ? `Opponent name: ${context.opponent}
+
+` : ""}${opponentGuide ? `${opponentGuide}
+
+` : ""}Translate every string value in the following JSON object into ${targetLanguage}. Keep arrays, keys, and numeric values unchanged.
+
+${JSON.stringify(review)}`;
 
   try {
     const completion = await openai.chat.completions.create({
@@ -118,15 +141,16 @@ async function translateStructuredReview(
 
     const responseText = completion.choices[0].message.content || "";
     const cleaned = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    return localizeObjectNameFields(JSON.parse(cleaned), lang);
+    return localizeKnownOpponentEntities(localizeObjectNameFields(JSON.parse(cleaned), lang), lang);
   } catch (error) {
     console.error("Review translation failed:", error);
-    return localizeObjectNameFields(review, lang);
+    return localizeKnownOpponentEntities(localizeObjectNameFields(review, lang), lang);
   }
 }
 
 async function localizeGameRecord(record: any, lang: Lang, translateReview: boolean) {
-  const opponent = sanitizeOpponentName(record?.opponent);
+  const sourceOpponent = sanitizeOpponentName(record?.opponent);
+  const opponent = getLocalizedOpponentName(sourceOpponent, lang);
   const rawBattingData = (record?.batting_data || []).map((entry: any) => ({
     ...entry,
     name: sanitizeEntityName(entry?.name),
@@ -147,17 +171,17 @@ async function localizeGameRecord(record: any, lang: Lang, translateReview: bool
   ].filter(Boolean);
 
   let aiReview = sanitizeGameReviewContent(record?.ai_review, {
-    opponent,
+    opponent: sourceOpponent,
     playerNames: sourcePlayerNames,
   });
 
   if (translateReview) {
     aiReview = await translateStructuredReview(aiReview, lang, {
-      opponent,
+      opponent: sourceOpponent,
       playerNames: localizedPlayerNames,
     });
   } else {
-    aiReview = localizeObjectNameFields(aiReview, lang);
+    aiReview = localizeKnownOpponentEntities(localizeObjectNameFields(aiReview, lang), lang);
   }
 
   return {

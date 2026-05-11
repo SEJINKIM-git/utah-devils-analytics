@@ -11,6 +11,8 @@ import {
   localizePitchingRows,
 } from "@/lib/playerDisplay";
 import {
+  getLocalizedOpponentName,
+  localizeKnownOpponentEntities,
   sanitizeGameReviewContent,
   sanitizeOpponentName,
 } from "@/lib/gameReviewSanitizer";
@@ -192,12 +194,12 @@ export default function GameReviewPage() {
     <div style={{ fontSize: 14, color: "rgba(255,255,255,0.65)", lineHeight: 1.8 }}>{children}</div>
   );
 
-  const displayOpponent = sanitizeOpponentName(opponent);
+  const displayOpponent = getLocalizedOpponentName(opponent, lang);
   const localizedBattingData = localizeBattingRows(battingData, lang);
   const localizedPitchingData = localizePitchingRows(pitchingData, lang);
 
   const displayReview = review
-    ? sanitizeGameReviewContent(localizeObjectNameFields(review, lang), {
+    ? sanitizeGameReviewContent(localizeKnownOpponentEntities(localizeObjectNameFields(review, lang), lang), {
         opponent: displayOpponent,
         playerNames: [
           ...localizedBattingData.map((entry) => entry.name),
@@ -287,7 +289,7 @@ export default function GameReviewPage() {
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", minWidth: 80 }}>{game.game_date || (lang === "ko" ? "날짜 미상" : "Date TBD")}</div>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>vs {game.opponent || "?"}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>vs {getLocalizedOpponentName(game.opponent || "?", lang)}</div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>{lang === "ko" ? "보기 →" : "View →"}</div>
