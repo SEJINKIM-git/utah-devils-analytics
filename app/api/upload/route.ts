@@ -18,6 +18,21 @@ import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason } from "@/lib/season";
 import { ensureSeasonActivated } from "@/lib/seasonVisibility";
 import { extractGameMetaFromFilename, extractSeasonFromFilename } from "@/lib/gameFileMeta";
+import {
+  COLUMN_ALIASES,
+  type SpreadsheetRow,
+  detectPlayerStatKind,
+  extractSeasonFromSheetName,
+  findColumnIndex,
+  findHeaderRowIndex,
+  findSheetNameByAliases,
+  getStructuredSheetNames,
+  hasColumn,
+  matchesAlias,
+  normalizeSpreadsheetDateValue,
+  rowHasAnyColumn,
+  SHEET_ALIASES,
+} from "@/lib/spreadsheetImport";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,7 +42,7 @@ const supabase = createClient(
 const TARGET_SEASON = "2026";
 const ACTIVE_PLAYER_COLOR = "EA9999";
 
-type Row = unknown[];
+type Row = SpreadsheetRow;
 
 type RosterPlayer = {
   number: number;
@@ -76,98 +91,95 @@ function uniqueSeasons(values: Array<string | number | null | undefined>) {
   );
 }
 
-function normalizeDateValue(value: unknown): string | null {
-  if (!value && value !== 0) return null;
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const parts = XLSX.SSF.format("yyyy.mm.dd", value).split(".");
-    if (parts.length === 3) {
-      return `${parts[0]}.${parts[1].padStart(2, "0")}.${parts[2].padStart(2, "0")}`;
-    }
-  }
-
-  const raw = String(value).trim();
-  if (!raw) return null;
-
-  const match = raw.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);
-  if (!match) return raw;
-
-  return `${match[1]}.${match[2].padStart(2, "0")}.${match[3].padStart(2, "0")}`;
-}
-
-function seasonFromSheetName(sheetName: string): string | null {
-  const trimmed = sheetName.trim();
-  if (trimmed === "Career Totals") return "Career";
-  if (/^\d{4}$/.test(trimmed)) return trimmed;
-
-  const shortYear = trimmed.match(/^(\d{2})\b/);
-  if (shortYear) return `20${shortYear[1]}`;
-
-  const longYear = trimmed.match(/^(\d{4})\b/);
-  if (longYear) return longYear[1];
-
-  return null;
+function normalizeDateValue(value: unknown, fallbackSeason = TARGET_SEASON): string | null {
+  return normalizeSpreadsheetDateValue(value, fallbackSeason);
 }
 
 let syntheticNumberCursor: number | null = null;
 
 function isStatSheet(sheet: XLSX.WorkSheet): boolean {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
-  if (rows.length === 0) return false;
-  const headers = rows[0].map((header) => String(header ?? "").trim());
-  return ["날짜", "타석", "타수", "이닝", "상대팀"].some((column) => headers.includes(column));
+  return rows.slice(0, 8).some((row) =>
+    rowHasAnyColumn(row, [
+      COLUMN_ALIASES.date,
+      COLUMN_ALIASES.opponent,
+      COLUMN_ALIASES.pa,
+      COLUMN_ALIASES.ab,
+      COLUMN_ALIASES.ip,
+      COLUMN_ALIASES.w,
+    ])
+  );
+}
+
+function hasPlayerIdentityColumns(row: Row) {
+  return hasColumn(row, COLUMN_ALIASES.number) && hasColumn(row, COLUMN_ALIASES.name);
 }
 
 function isSeasonTotalSheet(sheet: XLSX.WorkSheet): boolean {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
-  for (const row of rows.slice(0, 8)) {
-    const headers = row.map((cell) => String(cell ?? "").trim());
-    if (headers.includes("배번") && (headers.includes("타석") || headers.includes("승"))) {
-      return true;
+
+  return detectHeaderRows(rows).battingHeaderRow >= 0 || detectHeaderRows(rows).pitchingHeaderRow >= 0;
+}
+
+function describeDetailedBlockSheet(sheet: XLSX.WorkSheet) {
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const firstCell = String(row?.[0] ?? "").trim();
+    if (!/^\d+\.\s*.+$/.test(firstCell)) continue;
+
+    for (let headerIndex = index + 1; headerIndex < Math.min(rows.length, index + 4); headerIndex += 1) {
+      const headerRow = rows[headerIndex] ?? [];
+      if (!hasColumn(headerRow, COLUMN_ALIASES.date) || !hasColumn(headerRow, COLUMN_ALIASES.opponent)) continue;
+
+      const kind = detectPlayerStatKind("", headerRow);
+      if (kind) {
+        return { isMatch: true, kind };
+      }
     }
   }
-  return false;
+
+  return { isMatch: false, kind: null as "batting" | "pitching" | null };
 }
 
 function isDetailedBlockSheet(sheet: XLSX.WorkSheet): boolean {
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
-  if (rows.length < 2) return false;
-
-  const firstCell = String(rows[0]?.[0] ?? "").trim();
-  const secondRow = rows[1].map((cell) => String(cell ?? "").trim());
-
-  return /^\d+\.\s*.+$/.test(firstCell) && secondRow.includes("날짜") && secondRow.includes("상대팀");
+  return describeDetailedBlockSheet(sheet).isMatch;
 }
 
 function extractRosterPlayers(workbook: XLSX.WorkBook): RosterPlayer[] {
-  const sheetName = workbook.SheetNames.includes("전체") ? "전체" : workbook.SheetNames[0];
+  const sheetName =
+    findSheetNameByAliases(workbook.SheetNames, SHEET_ALIASES.roster) || workbook.SheetNames[0];
   if (!sheetName) return [];
 
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
-  if (rows.length < 2) return [];
+  if (rows.length === 0) return [];
 
-  const headers = rows[0].map((header) => String(header ?? "").trim());
-  const numCol = headers.indexOf("배번");
-  const nameCol = headers.indexOf("이름");
-  const roster: RosterPlayer[] = [];
+  const headerRowIndex = findHeaderRowIndex(rows, [COLUMN_ALIASES.number, COLUMN_ALIASES.name], 10);
+  const roster = new Map<string, RosterPlayer>();
 
-  if (numCol !== -1 && nameCol !== -1) {
-    for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+  if (headerRowIndex >= 0) {
+    const headerRow = rows[headerRowIndex];
+    const numCol = findColumnIndex(headerRow, COLUMN_ALIASES.number);
+    const nameCol = findColumnIndex(headerRow, COLUMN_ALIASES.name);
+
+    for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
       const row = rows[rowIndex];
       const number = Number(row[numCol]);
-      const name = String(row[nameCol] ?? "").trim();
+      const name = sanitizeImportedPlayerName(row[nameCol]);
       if (!number || !name) continue;
-      roster.push({ number, name });
+      roster.set(`${number}:${name}`, { number, name });
     }
-    return roster.sort((a, b) => a.number - b.number);
+
+    return Array.from(roster.values()).sort((a, b) => a.number - b.number);
   }
 
-  for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex];
     for (const base of [0, 2, 4, 6]) {
       const number = Number(row?.[base]);
-      const name = String(row?.[base + 1] ?? "").trim();
+      const name = sanitizeImportedPlayerName(row?.[base + 1]);
       if (!number || !name) continue;
 
       const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: base + 1 });
@@ -175,30 +187,32 @@ function extractRosterPlayers(workbook: XLSX.WorkBook): RosterPlayer[] {
       const color = cell?.s?.fgColor?.rgb || cell?.s?.bgColor?.rgb || "";
 
       if (color === ACTIVE_PLAYER_COLOR) {
-        roster.push({ number, name });
+        roster.set(`${number}:${name}`, { number, name });
       }
     }
   }
 
-  return roster.sort((a, b) => a.number - b.number);
+  return Array.from(roster.values()).sort((a, b) => a.number - b.number);
 }
 
 function collectStructuredStatSeasons(workbook: XLSX.WorkBook): string[] {
   const seasons = new Set<string>();
+  const structuredSheets = getStructuredSheetNames(workbook);
 
-  if (workbook.SheetNames.includes("경기")) {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets["경기"]) as Record<string, unknown>[];
-    for (const row of rows) {
-      const season = normalizeSeason(row["시즌"]);
-      if (season) seasons.add(season);
-    }
-  }
+  for (const sheetName of Object.values(structuredSheets)) {
+    if (!sheetName) continue;
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
 
-  for (const sheetName of ["타자", "투수"]) {
-    if (!workbook.SheetNames.includes(sheetName)) continue;
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]) as Record<string, unknown>[];
-    for (const row of rows) {
-      const season = normalizeSeason(row["시즌"]);
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
+    const headerRowIndex = findHeaderRowIndex(rows, [COLUMN_ALIASES.season], 8);
+    if (headerRowIndex === -1) continue;
+
+    const seasonCol = findColumnIndex(rows[headerRowIndex], COLUMN_ALIASES.season);
+    if (seasonCol === -1) continue;
+
+    for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+      const season = normalizeSeason(rows[rowIndex]?.[seasonCol]);
       if (season) seasons.add(season);
     }
   }
@@ -219,21 +233,20 @@ function collectFlexibleStatSeasons(
   }
 
   const seasons = new Set<string>();
-  const yearSheets = workbook.SheetNames.filter((sheetName) => {
-    const trimmed = sheetName.trim();
-    return /^\d{4}$/.test(trimmed) || trimmed === "Career Totals";
-  });
+  const yearSheets = workbook.SheetNames.filter((sheetName) =>
+    Boolean(extractSeasonFromSheetName(sheetName))
+  );
 
   if (yearSheets.length > 0) {
     yearSheets.forEach((sheetName) => {
-      const season = seasonFromSheetName(sheetName);
+      const season = extractSeasonFromSheetName(sheetName);
       if (season) seasons.add(season);
     });
     return Array.from(seasons);
   }
 
   for (const sheetName of workbook.SheetNames) {
-    const season = seasonFromSheetName(sheetName);
+    const season = extractSeasonFromSheetName(sheetName);
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
 
@@ -253,13 +266,13 @@ function collectFlexibleStatSeasons(
 function getSeasonTotalTargets(workbook: XLSX.WorkBook, fileName: string, fallbackSeason: string) {
   const targets: { sheetName: string; season: string }[] = [];
   const yearSheets = workbook.SheetNames.filter((sheetName) => {
-    const trimmed = sheetName.trim();
-    return /^\d{4}$/.test(trimmed) || trimmed === "Career Totals";
+    const sheet = workbook.Sheets[sheetName];
+    return Boolean(sheet && extractSeasonFromSheetName(sheetName) && isSeasonTotalSheet(sheet));
   });
 
   if (yearSheets.length > 0) {
     return yearSheets
-      .map((sheetName) => ({ sheetName, season: seasonFromSheetName(sheetName) }))
+      .map((sheetName) => ({ sheetName, season: extractSeasonFromSheetName(sheetName) }))
       .filter((target): target is { sheetName: string; season: string } => Boolean(target.season));
   }
 
@@ -271,7 +284,7 @@ function getSeasonTotalTargets(workbook: XLSX.WorkBook, fileName: string, fallba
 
     targets.push({
       sheetName,
-      season: seasonFromSheetName(sheetName) || defaultSeason,
+      season: extractSeasonFromSheetName(sheetName) || defaultSeason,
     });
   }
 
@@ -282,14 +295,19 @@ function getDetailedBlockTargets(workbook: XLSX.WorkBook, fileName: string, fall
   const defaultSeason = extractSeasonFromFilename(fileName, fallbackSeason);
 
   return workbook.SheetNames
-    .filter((sheetName) => {
+    .flatMap((sheetName) => {
       const sheet = workbook.Sheets[sheetName];
-      return sheet ? isDetailedBlockSheet(sheet) : false;
-    })
-    .map((sheetName) => ({
-      sheetName,
-      season: seasonFromSheetName(sheetName) || defaultSeason,
-    }));
+      if (!sheet) return [];
+
+      const descriptor = describeDetailedBlockSheet(sheet);
+      if (!descriptor.isMatch || !descriptor.kind) return [];
+
+      return [{
+        sheetName,
+        season: extractSeasonFromSheetName(sheetName) || defaultSeason,
+        kind: descriptor.kind,
+      }];
+    });
 }
 
 async function clearSeasonSnapshot(seasons: string[]) {
@@ -429,8 +447,7 @@ async function upsertPlayer(
   playerNumber: number | null,
   rawName: string,
   isPitcher: boolean,
-  results?: UploadResults,
-  options?: { position?: string | null }
+  results?: UploadResults
 ) {
   const name = sanitizeImportedPlayerName(rawName);
   if (!name) {
@@ -599,46 +616,48 @@ async function initializeRosterSeasons(
 }
 
 function detectHeaderRows(rows: Row[]) {
-  let battingHeaderRow = -1;
-  let pitchingHeaderRow = -1;
+  const battingHeaderRow = rows.findIndex(
+    (row) => hasPlayerIdentityColumns(row) && rowHasAnyColumn(row, [COLUMN_ALIASES.pa, COLUMN_ALIASES.ab, COLUMN_ALIASES.hits])
+  );
+  const pitchingHeaderRow = rows.findIndex(
+    (row) => hasPlayerIdentityColumns(row) && rowHasAnyColumn(row, [COLUMN_ALIASES.w, COLUMN_ALIASES.ip, COLUMN_ALIASES.er])
+  );
 
-  for (let index = 0; index < rows.length; index += 1) {
-    const header = rows[index].map((cell) => String(cell ?? "").trim());
-    if (header[0] === "배번" && header.includes("타석")) battingHeaderRow = index;
-    if (header[0] === "배번" && header.includes("승")) pitchingHeaderRow = index;
-  }
-
-  return { battingHeaderRow, pitchingHeaderRow };
+  return {
+    battingHeaderRow,
+    pitchingHeaderRow,
+  };
 }
 
 function detectColumns(headerRow: Row) {
-  const header = headerRow.map((cell) => String(cell ?? "").trim());
-  const findAny = (...labels: string[]) => header.findIndex((value) => labels.includes(value));
   return {
-    number: header.indexOf("배번"),
-    name: header.indexOf("이름"),
-    pa: header.indexOf("타석"),
-    ab: header.indexOf("타수"),
-    runs: header.indexOf("득점"),
-    hits: header.indexOf("안타"),
-    doubles: header.indexOf("2루타"),
-    triples: header.indexOf("3루타"),
-    hr: header.indexOf("홈런"),
-    rbi: header.indexOf("타점"),
-    battingBb: findAny("볼넷"),
-    pitchingBb: findAny("4사구", "4구", "볼넷"),
-    hbp: findAny("사구"),
-    so: header.indexOf("삼진"),
-    sb: header.indexOf("도루"),
-    w: header.indexOf("승"),
-    l: header.indexOf("패"),
-    sv: header.indexOf("세"),
-    hld: header.indexOf("홀"),
-    ip: header.indexOf("이닝"),
-    ha: header.indexOf("피안타"),
-    runsAllowed: header.indexOf("실점"),
-    er: header.indexOf("자책"),
-    hrAllowed: header.indexOf("피홈런"),
+    season: findColumnIndex(headerRow, COLUMN_ALIASES.season),
+    date: findColumnIndex(headerRow, COLUMN_ALIASES.date),
+    opponent: findColumnIndex(headerRow, COLUMN_ALIASES.opponent),
+    number: findColumnIndex(headerRow, COLUMN_ALIASES.number),
+    name: findColumnIndex(headerRow, COLUMN_ALIASES.name),
+    pa: findColumnIndex(headerRow, COLUMN_ALIASES.pa),
+    ab: findColumnIndex(headerRow, COLUMN_ALIASES.ab),
+    runs: findColumnIndex(headerRow, COLUMN_ALIASES.runs),
+    hits: findColumnIndex(headerRow, COLUMN_ALIASES.hits),
+    doubles: findColumnIndex(headerRow, COLUMN_ALIASES.doubles),
+    triples: findColumnIndex(headerRow, COLUMN_ALIASES.triples),
+    hr: findColumnIndex(headerRow, COLUMN_ALIASES.hr),
+    rbi: findColumnIndex(headerRow, COLUMN_ALIASES.rbi),
+    battingBb: findColumnIndex(headerRow, COLUMN_ALIASES.battingBb),
+    pitchingBb: findColumnIndex(headerRow, COLUMN_ALIASES.pitchingBb),
+    hbp: findColumnIndex(headerRow, COLUMN_ALIASES.hbp),
+    so: findColumnIndex(headerRow, COLUMN_ALIASES.so),
+    sb: findColumnIndex(headerRow, COLUMN_ALIASES.sb),
+    w: findColumnIndex(headerRow, COLUMN_ALIASES.w),
+    l: findColumnIndex(headerRow, COLUMN_ALIASES.l),
+    sv: findColumnIndex(headerRow, COLUMN_ALIASES.sv),
+    hld: findColumnIndex(headerRow, COLUMN_ALIASES.hld),
+    ip: findColumnIndex(headerRow, COLUMN_ALIASES.ip),
+    ha: findColumnIndex(headerRow, COLUMN_ALIASES.ha),
+    runsAllowed: findColumnIndex(headerRow, COLUMN_ALIASES.runsAllowed),
+    er: findColumnIndex(headerRow, COLUMN_ALIASES.er),
+    hrAllowed: findColumnIndex(headerRow, COLUMN_ALIASES.hrAllowed),
   };
 }
 
@@ -808,9 +827,7 @@ async function processLiveGameWorkbook(
   await clearGameSnapshot(gameId);
 
   for (const row of battingRows) {
-    const player = await upsertPlayer(null, row.name, row.position === "P", results, {
-      position: row.position || null,
-    });
+    const player = await upsertPlayer(null, row.name, row.position === "P", results);
     if (!player || !gameId) continue;
 
     await supabase.from("batting_stats").insert({
@@ -834,9 +851,7 @@ async function processLiveGameWorkbook(
   }
 
   for (const row of pitchingRows) {
-    const player = await upsertPlayer(null, row.name, true, results, {
-      position: "P",
-    });
+    const player = await upsertPlayer(null, row.name, true, results);
     if (!player || !gameId) continue;
 
     await supabase.from("pitching_stats").insert({
@@ -921,7 +936,7 @@ async function processLiveGameDocxFile(
   }
 
   for (const row of parsed.pitchingStats) {
-    const player = await upsertPlayer(null, row.name, true, results, { position: "P" });
+    const player = await upsertPlayer(null, row.name, true, results);
     if (!player || !gameId) continue;
 
     await supabase.from("pitching_stats").insert({
@@ -962,111 +977,130 @@ async function processLiveGameDocxFile(
   });
 }
 
-async function processStructuredWorkbook(workbook: XLSX.WorkBook, results: UploadResults) {
+async function processStructuredWorkbook(
+  workbook: XLSX.WorkBook,
+  defaultSeason: string,
+  results: UploadResults
+) {
   const gameCache = new Map<string, number>();
+  const structuredSheets = getStructuredSheetNames(workbook);
 
-  if (workbook.SheetNames.includes("경기")) {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets["경기"]) as Record<string, unknown>[];
-    for (const row of rows) {
-      const date = normalizeDateValue(row["날짜"]);
-      const opponent = String(row["상대팀"] ?? "").trim();
-      const season = normalizeSeason(row["시즌"]);
+  if (structuredSheets.games) {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[structuredSheets.games], { header: 1, defval: "" }) as Row[];
+    const headerRowIndex = findHeaderRowIndex(rows, [COLUMN_ALIASES.date, COLUMN_ALIASES.opponent], 10);
 
-      if (!date || !opponent || !season) continue;
-      await getOrCreateGameId(date, opponent, season, gameCache, results);
+    if (headerRowIndex >= 0) {
+      const cols = detectColumns(rows[headerRowIndex]);
+      for (let index = headerRowIndex + 1; index < rows.length; index += 1) {
+        const row = rows[index];
+        const season = normalizeSeason(cols.season !== -1 ? row[cols.season] : null) || defaultSeason;
+        const date = cols.date !== -1 ? normalizeDateValue(row[cols.date], season) : null;
+        const opponent = String((cols.opponent !== -1 ? row[cols.opponent] : "") ?? "").trim();
+
+        if (!date || !opponent || !season) continue;
+        await getOrCreateGameId(date, opponent, season, gameCache, results);
+      }
     }
   }
 
-  if (workbook.SheetNames.includes("타자")) {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets["타자"]) as Record<string, unknown>[];
-    for (const row of rows) {
-      const playerNumber = Number(row["배번"]);
-      const name = String(row["이름"] || "").trim();
-      if (!playerNumber || !name) continue;
+  const processPlayerSheet = async (sheetName: string | null, kind: "batting" | "pitching") => {
+    if (!sheetName) return;
 
-      const player = await upsertPlayer(playerNumber, name, false, results);
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return;
+
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
+    const headerRowIndex = rows.findIndex(
+      (row) =>
+        hasColumn(row, COLUMN_ALIASES.name) &&
+        rowHasAnyColumn(
+          row,
+          kind === "pitching"
+            ? [COLUMN_ALIASES.w, COLUMN_ALIASES.ip, COLUMN_ALIASES.er]
+            : [COLUMN_ALIASES.pa, COLUMN_ALIASES.ab, COLUMN_ALIASES.hits]
+        )
+    );
+
+    if (headerRowIndex === -1) return;
+
+    const cols = detectColumns(rows[headerRowIndex]);
+    for (let index = headerRowIndex + 1; index < rows.length; index += 1) {
+      const row = rows[index];
+      const playerNumberValue = cols.number !== -1 ? Number(row[cols.number]) : null;
+      const playerNumber =
+        typeof playerNumberValue === "number" && Number.isFinite(playerNumberValue) && playerNumberValue > 0
+          ? playerNumberValue
+          : null;
+      const name = sanitizeImportedPlayerName(cols.name !== -1 ? row[cols.name] : "");
+      if (!name || matchesAlias(name, SHEET_ALIASES.careerTotals)) continue;
+
+      const player = await upsertPlayer(playerNumber, name, kind === "pitching", results);
       if (!player) continue;
 
-      let gameId = null;
-      let season = normalizeSeason(row["시즌"]);
-      const date = normalizeDateValue(row["날짜"]);
-      const opponent = String(row["상대팀"] ?? "").trim();
+      const season = normalizeSeason(cols.season !== -1 ? row[cols.season] : null) || defaultSeason;
+      const date = cols.date !== -1 ? normalizeDateValue(row[cols.date], season) : null;
+      const opponent = String((cols.opponent !== -1 ? row[cols.opponent] : "") ?? "").trim();
+      const gameId =
+        date && opponent && season
+          ? await getOrCreateGameId(date, opponent, season, gameCache, results)
+          : null;
 
-      if (date && opponent && season) {
-        gameId = await getOrCreateGameId(date, opponent, season, gameCache, results);
+      if (kind === "pitching") {
+        await supabase.from("pitching_stats").insert({
+          player_id: player.id,
+          game_id: gameId,
+          season,
+          w: Number(row[cols.w]) || 0,
+          l: Number(row[cols.l]) || 0,
+          sv: Number(row[cols.sv]) || 0,
+          hld: Number(row[cols.hld]) || 0,
+          ip: Number(row[cols.ip]) || 0,
+          ha: Number(row[cols.ha]) || 0,
+          runs_allowed: Number(row[cols.runsAllowed]) || 0,
+          er: Number(row[cols.er]) || 0,
+          bb: Number(row[cols.pitchingBb]) || 0,
+          hbp: Number(row[cols.hbp]) || 0,
+          so: Number(row[cols.so]) || 0,
+          hr_allowed: Number(row[cols.hrAllowed]) || 0,
+        });
+        results.pitching += 1;
+      } else {
+        await supabase.from("batting_stats").insert({
+          player_id: player.id,
+          game_id: gameId,
+          season,
+          pa: Number(row[cols.pa]) || 0,
+          ab: Number(row[cols.ab]) || 0,
+          runs: Number(row[cols.runs]) || 0,
+          hits: Number(row[cols.hits]) || 0,
+          doubles: Number(row[cols.doubles]) || 0,
+          triples: Number(row[cols.triples]) || 0,
+          hr: Number(row[cols.hr]) || 0,
+          rbi: Number(row[cols.rbi]) || 0,
+          bb: Number(row[cols.battingBb]) || 0,
+          hbp: Number(row[cols.hbp]) || 0,
+          so: Number(row[cols.so]) || 0,
+          sb: Number(row[cols.sb]) || 0,
+        });
+        results.batting += 1;
       }
-
-      await supabase.from("batting_stats").insert({
-        player_id: player.id,
-        game_id: gameId,
-        season,
-        pa: Number(row["타석"]) || 0,
-        ab: Number(row["타수"]) || 0,
-        runs: Number(row["득점"]) || 0,
-        hits: Number(row["안타"]) || 0,
-        doubles: Number(row["2루타"]) || 0,
-        triples: Number(row["3루타"]) || 0,
-        hr: Number(row["홈런"]) || 0,
-        rbi: Number(row["타점"]) || 0,
-        bb: Number(row["볼넷"]) || 0,
-        hbp: Number(row["사구"]) || 0,
-        so: Number(row["삼진"]) || 0,
-        sb: Number(row["도루"]) || 0,
-      });
-      results.batting += 1;
     }
-  }
+  };
 
-  if (workbook.SheetNames.includes("투수")) {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets["투수"]) as Record<string, unknown>[];
-    for (const row of rows) {
-      const playerNumber = Number(row["배번"]);
-      const name = String(row["이름"] || "").trim();
-      if (!playerNumber || !name) continue;
-
-      const player = await upsertPlayer(playerNumber, name, true, results);
-      if (!player) continue;
-
-      let gameId = null;
-      let season = normalizeSeason(row["시즌"]);
-      const date = normalizeDateValue(row["날짜"]);
-      const opponent = String(row["상대팀"] ?? "").trim();
-
-      if (date && opponent && season) {
-        gameId = await getOrCreateGameId(date, opponent, season, gameCache, results);
-      }
-
-      await supabase.from("pitching_stats").insert({
-        player_id: player.id,
-        game_id: gameId,
-        season,
-        w: Number(row["승"]) || 0,
-        l: Number(row["패"]) || 0,
-        sv: Number(row["세"]) || 0,
-        hld: Number(row["홀"]) || 0,
-        ip: Number(row["이닝"]) || 0,
-        ha: Number(row["피안타"]) || 0,
-        runs_allowed: Number(row["실점"]) || 0,
-        er: Number(row["자책"]) || 0,
-        bb: Number(row["4사구"]) || Number(row["4구"]) || Number(row["볼넷"]) || 0,
-        hbp: Number(row["사구"]) || 0,
-        so: Number(row["삼진"]) || 0,
-        hr_allowed: Number(row["피홈런"]) || 0,
-      });
-      results.pitching += 1;
-    }
-  }
+  await processPlayerSheet(structuredSheets.batting, "batting");
+  await processPlayerSheet(structuredSheets.pitching, "pitching");
 }
 
 async function processDetailedBlockSheet(
   sheet: XLSX.WorkSheet,
   season: string,
-  isPitching: boolean,
+  kind: "batting" | "pitching",
   results: UploadResults,
   gameCache: Map<string, number>
 ) {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
   let currentPlayer: { number: number; name: string } | null = null;
+  let cols: ReturnType<typeof detectColumns> | null = null;
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
@@ -1076,40 +1110,50 @@ async function processDetailedBlockSheet(
     if (playerHeader) {
       currentPlayer = {
         number: Number(playerHeader[1]),
-        name: playerHeader[2].trim(),
+        name: sanitizeImportedPlayerName(playerHeader[2]),
       };
+      cols = null;
       continue;
     }
 
     if (!currentPlayer) continue;
-    if (firstCell === "날짜" || !firstCell || firstCell.includes("시즌")) continue;
+    if (hasColumn(row, COLUMN_ALIASES.date) && hasColumn(row, COLUMN_ALIASES.opponent)) {
+      cols = detectColumns(row);
+      continue;
+    }
 
-    const date = normalizeDateValue(row[0]);
-    const opponent = String(row[1] ?? "").trim();
-    if (!date || !opponent) continue;
+    if (!firstCell || firstCell.includes("시즌")) continue;
 
-    const player = await upsertPlayer(currentPlayer.number, currentPlayer.name, isPitching, results);
+    const activeCols = cols || detectColumns(["날짜", "상대팀"]);
+    const date = normalizeDateValue(
+      activeCols.date !== -1 ? row[activeCols.date] : row[0],
+      season
+    );
+    const opponent = String((activeCols.opponent !== -1 ? row[activeCols.opponent] : row[1]) ?? "").trim();
+    if (!date || !opponent || !currentPlayer.name) continue;
+
+    const player = await upsertPlayer(currentPlayer.number, currentPlayer.name, kind === "pitching", results);
     if (!player) continue;
 
     const gameId = await getOrCreateGameId(date, opponent, season, gameCache, results);
 
-    if (isPitching) {
+    if (kind === "pitching") {
       await supabase.from("pitching_stats").insert({
         player_id: player.id,
         game_id: gameId,
         season,
-        w: Number(row[3]) || 0,
-        l: Number(row[4]) || 0,
-        sv: Number(row[5]) || 0,
-        hld: Number(row[6]) || 0,
-        ip: Number(row[7]) || 0,
-        ha: Number(row[8]) || 0,
-        runs_allowed: Number(row[9]) || 0,
-        er: Number(row[10]) || 0,
-        bb: Number(row[11]) || 0,
-        hbp: Number(row[12]) || 0,
-        so: Number(row[13]) || 0,
-        hr_allowed: Number(row[14]) || 0,
+        w: Number(row[activeCols.w]) || 0,
+        l: Number(row[activeCols.l]) || 0,
+        sv: Number(row[activeCols.sv]) || 0,
+        hld: Number(row[activeCols.hld]) || 0,
+        ip: Number(row[activeCols.ip]) || 0,
+        ha: Number(row[activeCols.ha]) || 0,
+        runs_allowed: Number(row[activeCols.runsAllowed]) || 0,
+        er: Number(row[activeCols.er]) || 0,
+        bb: Number(row[activeCols.pitchingBb]) || 0,
+        hbp: Number(row[activeCols.hbp]) || 0,
+        so: Number(row[activeCols.so]) || 0,
+        hr_allowed: Number(row[activeCols.hrAllowed]) || 0,
       });
       results.pitching += 1;
     } else {
@@ -1117,18 +1161,18 @@ async function processDetailedBlockSheet(
         player_id: player.id,
         game_id: gameId,
         season,
-        pa: Number(row[3]) || 0,
-        ab: Number(row[4]) || 0,
-        runs: Number(row[5]) || 0,
-        hits: Number(row[6]) || 0,
-        doubles: Number(row[7]) || 0,
-        triples: Number(row[8]) || 0,
-        hr: Number(row[9]) || 0,
-        rbi: Number(row[10]) || 0,
-        bb: Number(row[11]) || 0,
-        hbp: Number(row[12]) || 0,
-        so: Number(row[13]) || 0,
-        sb: Number(row[14]) || 0,
+        pa: Number(row[activeCols.pa]) || 0,
+        ab: Number(row[activeCols.ab]) || 0,
+        runs: Number(row[activeCols.runs]) || 0,
+        hits: Number(row[activeCols.hits]) || 0,
+        doubles: Number(row[activeCols.doubles]) || 0,
+        triples: Number(row[activeCols.triples]) || 0,
+        hr: Number(row[activeCols.hr]) || 0,
+        rbi: Number(row[activeCols.rbi]) || 0,
+        bb: Number(row[activeCols.battingBb]) || 0,
+        hbp: Number(row[activeCols.hbp]) || 0,
+        so: Number(row[activeCols.so]) || 0,
+        sb: Number(row[activeCols.sb]) || 0,
       });
       results.batting += 1;
     }
@@ -1208,11 +1252,12 @@ export async function POST(request: NextRequest) {
 
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: "array", cellStyles: true });
+    const structuredSheets = getStructuredSheetNames(workbook);
 
     const hasStructuredStatSheet =
-      workbook.SheetNames.includes("경기") ||
-      (workbook.SheetNames.includes("타자") && isStatSheet(workbook.Sheets["타자"])) ||
-      (workbook.SheetNames.includes("투수") && isStatSheet(workbook.Sheets["투수"]));
+      Boolean(structuredSheets.games && isStatSheet(workbook.Sheets[structuredSheets.games])) ||
+      Boolean(structuredSheets.batting && isStatSheet(workbook.Sheets[structuredSheets.batting])) ||
+      Boolean(structuredSheets.pitching && isStatSheet(workbook.Sheets[structuredSheets.pitching]));
     const hasLiveGameStatSheet = isOfficialLiveGameWorkbook(workbook);
 
     const seasonTotalTargets = getSeasonTotalTargets(workbook, file.name, requestedSeason);
@@ -1290,7 +1335,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (hasStructuredStatSheet) {
-      await processStructuredWorkbook(workbook, results);
+      await processStructuredWorkbook(
+        workbook,
+        extractSeasonFromFilename(file.name, requestedSeason),
+        results
+      );
     } else if (seasonTotalTargets.length > 0) {
       for (const target of seasonTotalTargets) {
         const sheet = workbook.Sheets[target.sheetName];
@@ -1302,8 +1351,7 @@ export async function POST(request: NextRequest) {
       for (const target of detailedBlockTargets) {
         const sheet = workbook.Sheets[target.sheetName];
         if (!sheet) continue;
-        const isPitching = target.sheetName.includes("투수");
-        await processDetailedBlockSheet(sheet, target.season, isPitching, results, gameCache);
+        await processDetailedBlockSheet(sheet, target.season, target.kind, results, gameCache);
       }
     }
 
