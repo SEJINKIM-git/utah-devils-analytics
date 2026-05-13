@@ -123,10 +123,18 @@ export function extractGameMetaFromFilename(
   season = parsedDate.season || season;
   const date = parsedDate.date;
 
-  const opponentMatch = baseName.match(/[Vv][Ss]\s*([^]+?)(?:\s*경기\s*기록|\s*기록|$)/);
-  const opponent = opponentMatch
-    ? opponentMatch[1].replace(/[_:.]+/g, " ").trim()
-    : "";
+  const normalizedName = baseName.replace(/[_:.]+/g, " ").replace(/\s+/g, " ").trim();
+  const opponentMatch = normalizedName.match(/[Vv][Ss]\s*([^]+?)(?:\s*경기\s*기록|\s*기록|$)/);
+  const fallbackOpponent = normalizedName
+    .replace(/\b(20\d{2})\b/g, " ")
+    .replace(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b\.?\s*\d{1,2}(?:st|nd|rd|th)?/gi, " ")
+    .replace(/\d{1,2}\s*월\s*\d{1,2}\s*일?/g, " ")
+    .replace(/\d{1,2}\s*[./:\-_]\s*\d{1,2}/g, " ")
+    .replace(/\s*경기\s*기록.*$/u, " ")
+    .replace(/\s*기록.*$/u, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const opponent = opponentMatch ? opponentMatch[1].trim() : fallbackOpponent;
 
   return {
     baseName,
