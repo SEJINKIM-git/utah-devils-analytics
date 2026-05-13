@@ -48,7 +48,7 @@ const PARTICLES = [
 ];
 
 function normalizeToken(value: string) {
-  return value.replace(/\s+/g, "").trim().toLowerCase();
+  return value.normalize("NFC").replace(/\s+/g, "").trim().toLowerCase();
 }
 
 function splitTrailingParticle(token: string) {
@@ -167,6 +167,8 @@ function correctEntityToken(token: string, canonicalNames: string[]) {
 
 function sanitizeString(text: string, canonicalNames: string[]) {
   return text
+    .normalize("NFC")
+    .replace(/사회인\s*경기\s*기록/gu, "사회인")
     .split(ENTITY_TOKEN_SPLIT_REGEX)
     .map((part) =>
       ENTITY_TOKEN_REGEX.test(part)
@@ -196,7 +198,7 @@ function localizeKnownOpponentToken(token: string, lang: Lang) {
 }
 
 function localizeKnownOpponentString(text: string, lang: Lang) {
-  let normalizedText = text;
+  let normalizedText = text.normalize("NFC").replace(/사회인\s*경기\s*기록/gu, "사회인");
 
   for (const entry of KNOWN_OPPONENT_TRANSLATIONS) {
     const localized = lang === "en" ? entry.en : entry.ko;
@@ -239,7 +241,7 @@ export function sanitizeGameReviewContent<T>(value: T, context: ReviewContext): 
 }
 
 export function sanitizeEntityName(value: unknown) {
-  const candidate = String(value || "").trim();
+  const candidate = String(value || "").normalize("NFC").trim();
   if (!candidate) return "";
 
   const { base, suffix } = splitTrailingParticle(candidate);
@@ -249,6 +251,7 @@ export function sanitizeEntityName(value: unknown) {
 export function sanitizeOpponentName(value: unknown) {
   const candidate = sanitizeEntityName(
     String(value || "")
+      .normalize("NFC")
       .replace(/\.[^.]+$/, "")
       .replace(/[_:.]+/g, " ")
       .replace(/\s*경기\s*기록.*$/u, "")
