@@ -88,6 +88,20 @@ function findKnownOpponentTranslation(base: string) {
   );
 }
 
+function findKnownOpponentTranslationInText(base: string) {
+  const compact = normalizeToken(base);
+  if (!compact) return null;
+
+  return (
+    KNOWN_OPPONENT_TRANSLATIONS.find((entry) =>
+      [entry.ko, entry.en, ...entry.aliases].some((candidate) => {
+        const normalizedCandidate = normalizeToken(candidate);
+        return normalizedCandidate && compact.includes(normalizedCandidate);
+      })
+    ) || null
+  );
+}
+
 function levenshtein(a: string, b: string, maxDistance: number) {
   if (Math.abs(a.length - b.length) > maxDistance) return maxDistance + 1;
 
@@ -233,8 +247,16 @@ export function sanitizeEntityName(value: unknown) {
 }
 
 export function sanitizeOpponentName(value: unknown) {
-  const candidate = sanitizeEntityName(value);
-  const match = findKnownOpponentTranslation(candidate);
+  const candidate = sanitizeEntityName(
+    String(value || "")
+      .replace(/\.[^.]+$/, "")
+      .replace(/[_:.]+/g, " ")
+      .replace(/\s*경기\s*기록.*$/u, "")
+      .replace(/\s*기록.*$/u, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+  const match = findKnownOpponentTranslation(candidate) || findKnownOpponentTranslationInText(candidate);
   return match ? match.ko : candidate;
 }
 
