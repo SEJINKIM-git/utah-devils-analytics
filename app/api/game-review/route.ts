@@ -426,6 +426,14 @@ export async function POST(request: NextRequest) {
       statsText += `\n[Scouting Notes]\n${noteText.slice(0, 4000)}\n`;
     }
 
+    const isSocialGame = opponent === "사회인";
+    const socialGameNoteKo = isSocialGame
+      ? "\n\n중요: 이 경기의 상대는 사회인 야구팀입니다. 리뷰 전체에서 상대팀을 반드시 '사회인 야구팀'으로 지칭하세요. '사회인 경기 기록' 같은 파일명이나 문서명을 절대 팀 이름으로 사용하지 마세요."
+      : "";
+    const socialGameNoteEn = isSocialGame
+      ? "\n\nImportant: The opponent is a social/recreational baseball team. Refer to them as 'Social Baseball Team' throughout the review. Never use document or file names as team names."
+      : "";
+
     const systemPrompt = lang === "en"
       ? `You are an expert baseball analyst reviewing a school baseball team's game record. Provide a comprehensive post-game review with statistical analysis and strategic insights. Be specific with player names and numbers. Respond ONLY in JSON format.\n\n${getTrainingPlanGuidance("en", "gameReview")}`
       : `당신은 학교 야구부 전문 분석가입니다. 경기 기록을 바탕으로 수치와 지표 위주의 상세한 경기 리뷰를 작성합니다. 선수 이름을 구체적으로 언급하며, 전략적 시사점까지 포함해주세요. 반드시 JSON 형식으로만 응답하세요.\n\n${getTrainingPlanGuidance("ko", "gameReview")}`;
@@ -440,7 +448,7 @@ export async function POST(request: NextRequest) {
   "tactical_analysis": "4-5 sentences on strategic observations, lineup decisions, and tactical takeaways",
   "improvement_plan": ["Specific actionable improvement 1", "Improvement 2", "Improvement 3"],
   "next_game_strategy": "3-4 sentences on what to focus on for the next game based on this performance"
-}\n\nUse the opponent and player names exactly as provided in the source data. Do not alter spellings or replace them with similar words.`
+}\n\nUse the opponent and player names exactly as provided in the source data. Do not alter spellings or replace them with similar words.${socialGameNoteEn}`
       : `이 경기 기록을 종합적으로 분석해주세요:\n\n${statsText}\n\n개선 방안과 다음 경기 전략은 반드시 Utah Devils 봄학기 훈련 계획 안에서 실현 가능한 내용으로 작성해주세요. 월요일 팀훈련, 금요일 타격훈련, 포지션별 수비훈련, 피칭 점검, 경기 전 배팅장 준비와 연결해서 제안해야 합니다.\n\n반드시 아래 JSON 형식으로만 응답하세요:\n{
   "game_summary": "4~5문장으로 경기 흐름과 결과 요약 (점수, 분위기 포함)",
   "mvp": {"name": "선수 이름", "reason": "구체적 수치로 MVP 선정 이유"},
@@ -450,7 +458,7 @@ export async function POST(request: NextRequest) {
   "tactical_analysis": "4~5문장으로 전략적 분석 (라인업 운용, 작전 평가, 전술적 시사점)",
   "improvement_plan": ["구체적 개선 방안 1", "개선 방안 2", "개선 방안 3"],
   "next_game_strategy": "3~4문장으로 다음 경기 대비 포인트"
-}\n\n상대팀과 선수 이름은 위 기록에 나온 표기를 그대로 사용하고, 철자를 바꾸거나 비슷한 단어로 대체하지 마세요.`;
+}\n\n상대팀과 선수 이름은 위 기록에 나온 표기를 그대로 사용하고, 철자를 바꾸거나 비슷한 단어로 대체하지 마세요.${socialGameNoteKo}`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",

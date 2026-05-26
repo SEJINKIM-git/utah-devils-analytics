@@ -168,7 +168,7 @@ function correctEntityToken(token: string, canonicalNames: string[]) {
 function sanitizeString(text: string, canonicalNames: string[]) {
   return text
     .normalize("NFC")
-    .replace(/사회인\s*경기\s*기록/gu, "사회인")
+    .replace(/사회인\s*경기\s*기록(?:[-\s]*\d+)?/gu, "사회인 야구팀")
     .split(ENTITY_TOKEN_SPLIT_REGEX)
     .map((part) =>
       ENTITY_TOKEN_REGEX.test(part)
@@ -198,7 +198,7 @@ function localizeKnownOpponentToken(token: string, lang: Lang) {
 }
 
 function localizeKnownOpponentString(text: string, lang: Lang) {
-  let normalizedText = text.normalize("NFC").replace(/사회인\s*경기\s*기록/gu, "사회인");
+  let normalizedText = text.normalize("NFC").replace(/사회인\s*경기\s*기록(?:[-\s]*\d+)?/gu, "사회인 야구팀");
 
   for (const entry of KNOWN_OPPONENT_TRANSLATIONS) {
     const localized = lang === "en" ? entry.en : entry.ko;
