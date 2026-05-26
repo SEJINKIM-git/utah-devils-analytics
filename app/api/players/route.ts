@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// 선수 추가
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "배번과 이름은 필수입니다" }, { status: 400 });
     }
 
-    // 배번 중복 확인
+    
     const { data: existing } = await supabase
       .from("players")
       .select("id")
@@ -41,13 +41,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 선수 삭제
+
 export async function DELETE(request: NextRequest) {
   try {
     const { playerId } = await request.json();
     if (!playerId) return NextResponse.json({ error: "playerId 필요" }, { status: 400 });
 
-    // 관련 통계도 삭제
+    
     await supabase.from("batting_stats").delete().eq("player_id", playerId);
     await supabase.from("pitching_stats").delete().eq("player_id", playerId);
     const { error } = await supabase.from("players").delete().eq("id", playerId);

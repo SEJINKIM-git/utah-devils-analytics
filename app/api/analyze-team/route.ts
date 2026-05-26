@@ -11,9 +11,7 @@ import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  // ✅ 서버 라우트에서는 NEXT_PUBLIC 보단 서버 전용 키 권장
-  // 1순위: SUPABASE_SERVICE_ROLE_KEY (RLS 우회 가능, 서버에서만!)
-  // 2순위: SUPABASE_ANON_KEY (RLS 적용)
+  
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_ANON_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -82,10 +80,10 @@ export async function POST(request: NextRequest) {
     const playerById = new Map(safePlayers.map((player) => [player.id, player]));
     const identityPlayers = dedupePlayersByIdentity(safePlayers);
 
-    // ✅ 숫자 안전 변환 유틸
+   
     const n = (v: any) => (typeof v === "number" ? v : parseFloat(String(v ?? 0)) || 0);
 
-    // ✅ O(1) lookup을 위한 Map (find() 제거)
+    
     const battingByPlayer = new Map<string, ((typeof safeBatting)[number] & { player?: (typeof safePlayers)[number] })>();
     for (const row of safeBatting) {
       const player = playerById.get(row.player_id);

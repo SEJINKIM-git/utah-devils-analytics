@@ -1,4 +1,5 @@
 import { getLatestSeason, getPreferredSeason, sortSeasons } from "@/lib/season";
+import { inferRosterSnapshotSeasons, parseRosterSnapshot } from "@/lib/rosterSnapshot";
 
 export const PLACEHOLDER_SEASONS = ["2026"];
 const ACTIVATION_PREFIX = "[season-activation]";
@@ -19,19 +20,37 @@ function normalizeFileSignature(fileName: string) {
     .trim();
 }
 
-function parseActivatedSeason(row: { filename?: string | null; players_snapshot?: string | null }) {
+type RosterUploadRow = {
+  filename?: string | null;
+  players_snapshot?: string | null;
+  source?: string | null;
+};
+
+function getRosterUploadMeta(row: RosterUploadRow) {
   const filename = String(row.filename || "");
-  const filenameMatch = filename.match(/\[season-activation\]\s*(20\d{2})/);
-  if (filenameMatch?.[1]) return filenameMatch[1];
+  const snapshot = parseRosterSnapshot(
+    row.players_snapshot,
+    inferRosterSnapshotSeasons(filename, row.source)
+  );
 
-  const snapshot = row.players_snapshot;
-  if (!snapshot) return null;
+  return {
+    filename,
+    seasons: snapshot.seasons.filter(Boolean),
+    hasPlayers: snapshot.players.length > 0,
+    isActivation: filename.startsWith(ACTIVATION_PREFIX),
+  };
+}
 
+async function getRosterUploadRows(supabase: {
+  from: (table: string) => any;
+}) {
   try {
-    const parsed = JSON.parse(snapshot) as { season?: string };
-    return parsed?.season || null;
+    const { data } = await supabase
+      .from("roster_uploads")
+      .select("filename,players_snapshot,source");
+    return (data || []) as RosterUploadRow[];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -47,21 +66,41 @@ export function shouldAutoActivateSeasonUpload(season: string, fileName: string)
 export async function getActivatedPlaceholderSeasons(supabase: {
   from: (table: string) => any;
 }) {
-  try {
-    const { data } = await supabase.from("roster_uploads").select("filename,players_snapshot");
-    const seasons = new Set<string>();
+  const rows = await getRosterUploadRows(supabase);
+  const seasons = new Set<string>();
 
-    for (const row of data || []) {
-      const filename = String(row.filename || "");
-      if (!filename.startsWith(ACTIVATION_PREFIX)) continue;
-      const season = parseActivatedSeason(row);
-      if (season) seasons.add(season);
+  for (const row of rows) {
+    const meta = getRosterUploadMeta(row);
+    const shouldActivate = meta.isActivation || (meta.hasPlayers && !isKnownSampleUpload(meta.filename));
+    if (!shouldActivate) continue;
+
+    for (const season of meta.seasons) {
+      if (PLACEHOLDER_SEASONS.includes(season)) {
+        seasons.add(season);
+      }
     }
-
-    return Array.from(seasons);
-  } catch {
-    return [];
   }
+
+  return Array.from(seasons);
+}
+
+export async function getRosterUploadSeasons(supabase: {
+  from: (table: string) => any;
+}) {
+  const rows = await getRosterUploadRows(supabase);
+  const seasons = new Set<string>();
+
+  for (const row of rows) {
+    const meta = getRosterUploadMeta(row);
+    const shouldInclude = meta.isActivation || (meta.hasPlayers && !isKnownSampleUpload(meta.filename));
+    if (!shouldInclude) continue;
+
+    for (const season of meta.seasons) {
+      seasons.add(season);
+    }
+  }
+
+  return Array.from(seasons);
 }
 
 export async function ensureSeasonActivated(
@@ -124,8 +163,11 @@ export async function getSeasonVisibility(
   preferred: string | null | undefined,
   fallback = "2025"
 ) {
-  const activatedSeasons = await getActivatedPlaceholderSeasons(supabase);
-  const seasons = getVisibleSeasons(values, preferred, activatedSeasons);
+  const [activatedSeasons, rosterUploadSeasons] = await Promise.all([
+    getActivatedPlaceholderSeasons(supabase),
+    getRosterUploadSeasons(supabase),
+  ]);
+  const seasons = getVisibleSeasons([...values, ...rosterUploadSeasons], preferred, activatedSeasons);
   const lockedSeasons = seasons.filter((season) => isLockedSeason(season, activatedSeasons));
 
   return {

@@ -113,18 +113,15 @@ export default function TeamAnalysisPage() {
 
   return (
     <div
+      className="app-page-shell"
       style={{
-        minHeight: "100vh",
-        background: "#0a0e17",
-        color: "#e2e8f0",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
       <div
+        className="app-page-header"
         style={{
-          background: "linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)",
           padding: "28px 40px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
         }}
       >
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>

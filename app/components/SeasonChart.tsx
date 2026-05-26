@@ -46,14 +46,16 @@ function CustomTooltip({ active, payload, label }: any) {
   return (
     <div
       style={{
-        background: "#1a1f2e",
-        border: "1px solid rgba(255,255,255,0.1)",
+        background: "var(--surface-high)",
+        border: "1px solid var(--border)",
         borderRadius: 10,
         padding: "10px 14px",
         fontSize: 12,
+        color: "var(--text)",
+        boxShadow: "var(--shadow)",
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: 6, color: "#e2e8f0" }}>
+      <div style={{ fontWeight: 700, marginBottom: 6, color: "var(--text)" }}>
         {label}
       </div>
       {payload.map((p: any, i: number) => (
@@ -147,6 +149,12 @@ export default function SeasonChart({
   const wKey = lang === "ko" ? "승" : "W";
   const soKeyP = lang === "ko" ? "삼진" : "SO";
   const ipKey = lang === "ko" ? "이닝" : "IP";
+  const chartTitleColor = "var(--text)";
+  const chartAxisColor = "var(--text)";
+  const chartGridColor = "var(--border)";
+  const chartPanelBg = "var(--inline-muted-surface)";
+  const chartPanelBorder = "1px solid var(--border)";
+  const chartLegendStyle = { fontSize: 11, color: "var(--text)" };
 
   return (
     <div style={{ marginBottom: 40 }}>
@@ -161,7 +169,7 @@ export default function SeasonChart({
         }}
       >
         📈 {lang === "ko" ? "시즌 성장 추이" : "Season Growth Trends"}
-        <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>
+        <span style={{ fontSize: 12, color: "var(--text)" }}>
           {lang === "ko" ? "2시즌 이상 데이터 필요" : "Requires 2+ seasons"}
         </span>
       </h2>
@@ -178,8 +186,8 @@ export default function SeasonChart({
           {/* 타율/출루율/OPS 차트 */}
           <div
             style={{
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(255,255,255,0.06)",
+              background: chartPanelBg,
+              border: chartPanelBorder,
               borderRadius: 14,
               padding: "20px 16px 10px 8px",
             }}
@@ -188,7 +196,7 @@ export default function SeasonChart({
               style={{
                 fontSize: 13,
                 fontWeight: 700,
-                color: "rgba(255,255,255,0.6)",
+                color: chartTitleColor,
                 marginBottom: 12,
                 paddingLeft: 12,
               }}
@@ -197,13 +205,11 @@ export default function SeasonChart({
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={battingSeasons}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="season" stroke="rgba(255,255,255,0.3)" fontSize={11} />
-                <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} domain={[0, "auto"]} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis dataKey="season" stroke={chartAxisColor} fontSize={11} />
+                <YAxis stroke={chartAxisColor} fontSize={10} domain={[0, "auto"]} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend
-                  wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}
-                />
+                <Legend wrapperStyle={chartLegendStyle} />
                 <Line
                   type="monotone"
                   dataKey={avgKey}
@@ -235,8 +241,8 @@ export default function SeasonChart({
           {/* 안타/홈런/타점/도루 차트 */}
           <div
             style={{
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(255,255,255,0.06)",
+              background: chartPanelBg,
+              border: chartPanelBorder,
               borderRadius: 14,
               padding: "20px 16px 10px 8px",
             }}
@@ -245,7 +251,7 @@ export default function SeasonChart({
               style={{
                 fontSize: 13,
                 fontWeight: 700,
-                color: "rgba(255,255,255,0.6)",
+                color: chartTitleColor,
                 marginBottom: 12,
                 paddingLeft: 12,
               }}
@@ -254,13 +260,11 @@ export default function SeasonChart({
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={battingSeasons}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="season" stroke="rgba(255,255,255,0.3)" fontSize={11} />
-                <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis dataKey="season" stroke={chartAxisColor} fontSize={11} />
+                <YAxis stroke={chartAxisColor} fontSize={10} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend
-                  wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}
-                />
+                <Legend wrapperStyle={chartLegendStyle} />
                 <Line type="monotone" dataKey={hKey} stroke="#22c55e" strokeWidth={2} dot={{ r: 4, fill: "#22c55e" }} />
                 <Line type="monotone" dataKey={hrKey} stroke="#eab308" strokeWidth={2} dot={{ r: 4, fill: "#eab308" }} />
                 <Line type="monotone" dataKey={rbiKey} stroke="#f97316" strokeWidth={2} dot={{ r: 4, fill: "#f97316" }} />
@@ -282,8 +286,8 @@ export default function SeasonChart({
           {/* ERA/WHIP 차트 */}
           <div
             style={{
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(255,255,255,0.06)",
+              background: chartPanelBg,
+              border: chartPanelBorder,
               borderRadius: 14,
               padding: "20px 16px 10px 8px",
             }}
@@ -292,7 +296,7 @@ export default function SeasonChart({
               style={{
                 fontSize: 13,
                 fontWeight: 700,
-                color: "rgba(255,255,255,0.6)",
+                color: chartTitleColor,
                 marginBottom: 12,
                 paddingLeft: 12,
               }}
@@ -301,11 +305,11 @@ export default function SeasonChart({
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={pitchingSeasons}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="season" stroke="rgba(255,255,255,0.3)" fontSize={11} />
-                <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis dataKey="season" stroke={chartAxisColor} fontSize={11} />
+                <YAxis stroke={chartAxisColor} fontSize={10} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={chartLegendStyle} />
                 <Line type="monotone" dataKey="ERA" stroke="#ef4444" strokeWidth={2} dot={{ r: 4, fill: "#ef4444" }} />
                 <Line type="monotone" dataKey="WHIP" stroke="#f97316" strokeWidth={2} dot={{ r: 4, fill: "#f97316" }} />
               </LineChart>
@@ -315,8 +319,8 @@ export default function SeasonChart({
           {/* 승/삼진/이닝 차트 */}
           <div
             style={{
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(255,255,255,0.06)",
+              background: chartPanelBg,
+              border: chartPanelBorder,
               borderRadius: 14,
               padding: "20px 16px 10px 8px",
             }}
@@ -325,7 +329,7 @@ export default function SeasonChart({
               style={{
                 fontSize: 13,
                 fontWeight: 700,
-                color: "rgba(255,255,255,0.6)",
+                color: chartTitleColor,
                 marginBottom: 12,
                 paddingLeft: 12,
               }}
@@ -334,11 +338,11 @@ export default function SeasonChart({
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={pitchingSeasons}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="season" stroke="rgba(255,255,255,0.3)" fontSize={11} />
-                <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis dataKey="season" stroke={chartAxisColor} fontSize={11} />
+                <YAxis stroke={chartAxisColor} fontSize={10} />
                 <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={chartLegendStyle} />
                 <Line type="monotone" dataKey={wKey} stroke="#22c55e" strokeWidth={2} dot={{ r: 4, fill: "#22c55e" }} />
                 <Line type="monotone" dataKey={soKeyP} stroke="#60a5fa" strokeWidth={2} dot={{ r: 4, fill: "#60a5fa" }} />
                 <Line type="monotone" dataKey={ipKey} stroke="#a78bfa" strokeWidth={2} dot={{ r: 4, fill: "#a78bfa" }} />
