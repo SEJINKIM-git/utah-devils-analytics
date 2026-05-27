@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import DecisionCard, { type SituationRow } from "@/app/components/DecisionCard";
+import SituationsSubNav from "@/app/components/SituationsSubNav";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -32,36 +33,6 @@ function getCookie(name: string) {
   if (typeof document === "undefined") return null;
   const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
   return m ? m[2] : null;
-}
-
-// ── Sub-Nav ───────────────────────────────────────────────────────────────────
-
-function SituationsSubNav({ season }: { season: string }) {
-  const q = season ? `?season=${season}` : "";
-  const tabs = [
-    { href: `/situations${q}`,         label: "⚡ 로거"      },
-    { href: `/situations/offense${q}`, label: "⚔️ 공격 보드" },
-    { href: `/situations/defense${q}`, label: "🛡️ 수비 보드" },
-  ];
-  return (
-    <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
-      {tabs.map(t => {
-        const active = typeof window !== "undefined" && window.location.pathname === t.href.split("?")[0];
-        return (
-          <Link key={t.href} href={t.href} style={{
-            fontSize: 13, fontWeight: active ? 700 : 500,
-            padding: "6px 16px", borderRadius: 999, textDecoration: "none",
-            background: active ? "rgba(164,201,255,0.12)" : "transparent",
-            color: active ? "var(--brand-blue)" : "var(--text-dim)",
-            border: `1px solid ${active ? "rgba(164,201,255,0.28)" : "var(--border)"}`,
-            transition: "all 0.15s",
-          }}>
-            {t.label}
-          </Link>
-        );
-      })}
-    </div>
-  );
 }
 
 // ── Summary Bar ───────────────────────────────────────────────────────────────

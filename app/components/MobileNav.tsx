@@ -9,7 +9,7 @@ const NAV_ITEMS = [
   { href: "/lineup", icon: "⚾", labelKo: "라인업", labelEn: "Lineup" },
   { href: "/schedule", icon: "📅", labelKo: "일정", labelEn: "Schedule" },
   { href: "/compare", icon: "⚔️", labelKo: "선수 비교", labelEn: "Compare" },
-  { href: "/situations", icon: "⚡", labelKo: "상황", labelEn: "Situations" },
+  { href: "/situations/hub", icon: "⚡", labelKo: "상황", labelEn: "Situations" },
   { href: "/upload", icon: "📤", labelKo: "업로드", labelEn: "Upload" },
 ];
 
