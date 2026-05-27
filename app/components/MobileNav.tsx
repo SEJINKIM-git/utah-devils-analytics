@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { href: "/upload", icon: "📤", labelKo: "업로드", labelEn: "Upload" },
 ];
 
-export default function MobileNav({ lang }: { lang: string }) {
+export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const ko = lang === "ko";
