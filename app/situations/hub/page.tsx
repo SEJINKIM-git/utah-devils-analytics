@@ -434,7 +434,7 @@ export default function SituationHubPage() {
                     </p>
                   ) : (
                     filteredList.map(row => (
-                      <DecisionCard key={String(row.id)} row={row} onEvalUpdate={handleEvalUpdate} />
+                      <DecisionCard key={String(row.id)} row={row} onEvalUpdate={handleEvalUpdate} linkToDetail={true} />
                     ))
                   )}
                 </div>

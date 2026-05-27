@@ -27,6 +27,7 @@ export type SituationRow = {
   outcome_detail?: string | null;
   runs_scored_after?: number | null;
   retrospective_eval?: "correct" | "incorrect" | "ambiguous" | "pending" | null;
+  retrospective_note?: string | null;
   decided_by?: string | null;
   // game info (optional, may not be in all views)
   opponent?: string | null;
@@ -98,13 +99,17 @@ function MiniDiamond({ state }: { state: number }) {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export default function DecisionCard({ row, onEvalUpdate }: {
+export default function DecisionCard({ row, onEvalUpdate, noteMode = false, linkToDetail = false }: {
   row: SituationRow;
-  onEvalUpdate?: (id: string | number, eval_: string) => void;
+  onEvalUpdate?: (id: string | number, eval_: string, note?: string) => void;
+  noteMode?: boolean;
+  linkToDetail?: boolean;
 }) {
   const [eval_, setEval] = useState<string>(row.retrospective_eval ?? "pending");
+  const [note, setNote]   = useState<string>(row.retrospective_note ?? "");
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [showNote, setShowNote] = useState(noteMode && !!row.retrospective_note);
 
   const lev = LEV_COLOR[row.leverage_class ?? "medium"] ?? LEV_COLOR.medium;
   const evalCfg = EVAL_CONFIG[eval_ as keyof typeof EVAL_CONFIG] ?? EVAL_CONFIG.pending;
@@ -113,18 +118,23 @@ export default function DecisionCard({ row, onEvalUpdate }: {
   const inningText = `${row.inning}회 ${row.inning_half === "top" ? "초" : "말"}`;
   const outText = `${row.out_count}아웃`;
 
-  async function handleEval(next: string) {
+  async function handleEval(next: string, noteOverride?: string) {
     if (saving || !row.decision_id) return;
     setSaving(true);
+    const noteToSend = noteOverride ?? note;
     try {
       const res = await fetch(`/api/situations/${row.id}/evaluate`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision_id: row.decision_id, retrospective_eval: next }),
+        body: JSON.stringify({
+          decision_id:       row.decision_id,
+          retrospective_eval: next,
+          retrospective_note: noteToSend || null,
+        }),
       });
       if (res.ok) {
         setEval(next);
-        onEvalUpdate?.(row.id, next);
+        onEvalUpdate?.(row.id, next, noteToSend);
       }
     } finally {
       setSaving(false);
@@ -230,39 +240,87 @@ export default function DecisionCard({ row, onEvalUpdate }: {
         </div>
       )}
 
-      {/* ── Row 6: Retrospective eval buttons (only if decision exists) */}
+      {/* ── Row 6: Retrospective eval */}
       {row.decision_id && (
-        <div style={{ display: "flex", gap: 6, alignItems: "center", paddingTop: 4, borderTop: "1px solid var(--border)" }}>
-          <span style={{ fontSize: 10, color: "var(--text-muted)", marginRight: 2 }}>사후평가</span>
-          {(["correct", "incorrect", "ambiguous"] as const).map(e => {
-            const cfg = EVAL_CONFIG[e];
-            const active = eval_ === e;
-            return (
+        <div style={{ paddingTop: 4, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: "var(--text-muted)", marginRight: 2 }}>사후평가</span>
+            {(["correct", "incorrect", "ambiguous"] as const).map(e => {
+              const cfg = EVAL_CONFIG[e];
+              const active = eval_ === e;
+              return (
+                <button
+                  key={e}
+                  onClick={() => handleEval(e)}
+                  disabled={saving}
+                  style={{
+                    fontSize: 11, fontWeight: active ? 700 : 500,
+                    padding: "3px 10px", borderRadius: 999, cursor: saving ? "wait" : "pointer",
+                    border: `1px solid ${active ? cfg.border : "var(--border)"}`,
+                    background: active ? cfg.bg : "transparent",
+                    color: active ? cfg.text : "var(--text-dim)",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {cfg.icon} {cfg.label}
+                </button>
+              );
+            })}
+            {eval_ === "pending" && (
+              <span style={{
+                fontSize: 11, padding: "3px 10px", borderRadius: 999,
+                background: EVAL_CONFIG.pending.bg, color: EVAL_CONFIG.pending.text,
+                border: `1px solid ${EVAL_CONFIG.pending.border}`,
+              }}>
+                ? 미평가
+              </span>
+            )}
+            {(noteMode || showNote) ? null : (
               <button
-                key={e}
-                onClick={() => handleEval(e)}
-                disabled={saving}
-                style={{
-                  fontSize: 11, fontWeight: active ? 700 : 500,
-                  padding: "3px 10px", borderRadius: 999, cursor: saving ? "wait" : "pointer",
-                  border: `1px solid ${active ? cfg.border : "var(--border)"}`,
-                  background: active ? cfg.bg : "transparent",
-                  color: active ? cfg.text : "var(--text-dim)",
-                  transition: "all 0.15s",
-                }}
+                onClick={() => setShowNote(true)}
+                style={{ marginLeft: "auto", fontSize: 10, background: "none", border: "none",
+                  cursor: "pointer", color: "var(--text-muted)", padding: "2px 6px" }}
               >
-                {cfg.icon} {cfg.label}
+                + 메모
               </button>
-            );
-          })}
-          {eval_ === "pending" && (
-            <span style={{
-              fontSize: 11, padding: "3px 10px", borderRadius: 999,
-              background: EVAL_CONFIG.pending.bg, color: EVAL_CONFIG.pending.text,
-              border: `1px solid ${EVAL_CONFIG.pending.border}`,
-            }}>
-              ? 미평가
-            </span>
+            )}
+            {linkToDetail && (
+              <a href={`/situations/${row.id}`} style={{ marginLeft: "auto", fontSize: 10,
+                color: "var(--text-muted)", textDecoration: "none" }}>
+                유사 사례 →
+              </a>
+            )}
+          </div>
+
+          {/* Note textarea */}
+          {(noteMode || showNote) && (
+            <div style={{ display: "flex", gap: 6 }}>
+              <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="평가 메모 (선택)"
+                rows={2}
+                style={{
+                  flex: 1, fontSize: 12, padding: "6px 10px", borderRadius: 8,
+                  border: "1px solid var(--border)", background: "var(--input-bg, var(--card))",
+                  color: "var(--text)", resize: "vertical", fontFamily: "inherit",
+                }}
+              />
+              {eval_ !== "pending" && (
+                <button
+                  onClick={() => handleEval(eval_, note)}
+                  disabled={saving}
+                  style={{
+                    alignSelf: "flex-end", padding: "6px 12px", borderRadius: 8, fontSize: 11,
+                    fontWeight: 700, cursor: saving ? "wait" : "pointer",
+                    background: "rgba(164,201,255,0.12)", color: "var(--brand-blue)",
+                    border: "1px solid rgba(164,201,255,0.28)",
+                  }}
+                >
+                  저장
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
-  { href: "/situations/hub",     label: "🏠 허브"      },
-  { href: "/situations",         label: "⚡ 로거"      },
-  { href: "/situations/offense", label: "⚔️ 공격 보드" },
-  { href: "/situations/defense", label: "🛡️ 수비 보드" },
+  { href: "/situations/hub",       label: "🏠 허브"        },
+  { href: "/situations",           label: "⚡ 로거"        },
+  { href: "/situations/offense",   label: "⚔️ 공격 보드"  },
+  { href: "/situations/defense",   label: "🛡️ 수비 보드"  },
+  { href: "/situations/post-game", label: "📝 포스트게임"  },
 ];
 
 export default function SituationsSubNav({ season }: { season: string }) {
