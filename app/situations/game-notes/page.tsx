@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
@@ -238,6 +238,24 @@ export default function GameNotesPage() {
   const [parsing,    setParsing]    = useState(false);
   const [error,      setError]      = useState("");
   const [loggedIds,  setLoggedIds]  = useState<Set<number>>(new Set());
+  const [fileName,   setFileName]   = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = ev.target?.result as string;
+      setNoteText(text);
+      setFileName(file.name);
+      setResult(null);
+      setError("");
+    };
+    reader.readAsText(file, "UTF-8");
+    // reset so same file can be re-selected
+    e.target.value = "";
+  }
 
   const loadGames = useCallback(async () => {
     const res  = await fetch("/api/games");
@@ -352,9 +370,44 @@ export default function GameNotesPage() {
             </div>
 
             <div style={card}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", letterSpacing: 0.5, marginBottom: 10 }}>
-                기록 메모 붙여넣기
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", letterSpacing: 0.5 }}>
+                  기록 메모
+                </span>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8,
+                    cursor: "pointer", background: "rgba(164,201,255,0.08)",
+                    color: "var(--brand-blue)", border: "1px solid rgba(164,201,255,0.28)",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  📂 파일 업로드
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.text,text/plain"
+                  onChange={handleFileUpload}
+                  style={{ display: "none" }}
+                />
               </div>
+              {fileName && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8, marginBottom: 8,
+                  padding: "6px 10px", borderRadius: 8,
+                  background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.2)",
+                }}>
+                  <span style={{ fontSize: 11, color: "#22c55e" }}>✓</span>
+                  <span style={{ fontSize: 11, color: "var(--text-dim)", flex: 1 }}>{fileName}</span>
+                  <button onClick={() => { setFileName(""); setNoteText(""); setResult(null); }}
+                    style={{ fontSize: 10, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
+                    ✕
+                  </button>
+                </div>
+              )}
               <textarea
                 value={noteText}
                 onChange={e => setNoteText(e.target.value)}
