@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import DecisionCard, { type SituationRow } from "@/app/components/DecisionCard";
 import SituationsSubNav from "@/app/components/SituationsSubNav";
+import AIActionCards from "@/app/components/AIActionCards";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -214,17 +215,28 @@ export default function SituationDetailPage() {
         {row && !loading && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 24, alignItems: "start" }}>
 
-            {/* ── Left: Current situation */}
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)",
-                letterSpacing: 0.5, marginBottom: 12 }}>
-                현재 상황
+            {/* ── Left: situation + AI */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)",
+                  letterSpacing: 0.5, marginBottom: 12 }}>
+                  현재 상황
+                </div>
+                <DecisionCard
+                  row={row}
+                  noteMode={true}
+                  onEvalUpdate={handleEvalUpdate}
+                />
               </div>
-              <DecisionCard
-                row={row}
-                noteMode={true}
-                onEvalUpdate={handleEvalUpdate}
-              />
+
+              {/* AI Action Cards */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)",
+                  letterSpacing: 0.5, marginBottom: 12 }}>
+                  AI 전략 추천
+                </div>
+                <AIActionCards situationId={row.id} />
+              </div>
             </div>
 
             {/* ── Right: Similar cases */}

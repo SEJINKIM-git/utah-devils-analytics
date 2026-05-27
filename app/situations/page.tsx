@@ -112,7 +112,7 @@ export default function SituationsPage() {
   // ── UI state
   const [loading, setLoading]             = useState(false);
   const [error, setError]                 = useState("");
-  const [lastResult, setLastResult]       = useState<{ li: number | null; lc: string } | null>(null);
+  const [lastResult, setLastResult]       = useState<{ li: number | null; lc: string; situation_id?: string } | null>(null);
   const [sessionLog, setSessionLog]       = useState<LoggedSituation[]>([]);
   const [showOptions, setShowOptions]     = useState(false);
 
@@ -179,7 +179,7 @@ export default function SituationsPage() {
       const data = await res.json();
       if (!res.ok) { setError(data.error || "오류 발생"); return; }
 
-      setLastResult({ li: data.leverage_index, lc: data.leverage_class });
+      setLastResult({ li: data.leverage_index, lc: data.leverage_class, situation_id: data.situation_id });
       setSessionLog(prev => [{
         situation_id: data.situation_id,
         game_id: parseInt(selectedGameId),
@@ -468,17 +468,33 @@ export default function SituationsPage() {
 
           {/* LI Result */}
           {lastResult && lev && (
-            <div style={{ padding: "16px 20px", borderRadius: 12, background: lev.bg, border: `1px solid ${lev.text}33`, display: "flex", alignItems: "center", gap: 16 }}>
-              <div>
-                <div style={{ fontSize: 11, color: lev.text, fontWeight: 700, letterSpacing: 1 }}>LEVERAGE INDEX</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: lev.text }}>
-                  {lastResult.li != null ? lastResult.li.toFixed(2) : "—"}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ padding: "16px 20px", borderRadius: 12, background: lev.bg, border: `1px solid ${lev.text}33`, display: "flex", alignItems: "center", gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: lev.text, fontWeight: 700, letterSpacing: 1 }}>LEVERAGE INDEX</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: lev.text }}>
+                    {lastResult.li != null ? lastResult.li.toFixed(2) : "—"}
+                  </div>
                 </div>
+                <div style={{ padding: "4px 12px", borderRadius: 8, background: lev.bg, border: `1px solid ${lev.text}55`, fontSize: 13, fontWeight: 800, color: lev.text }}>
+                  {lev.label} LEVERAGE
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-dim)", marginLeft: "auto" }}>기록 완료 ✓</div>
               </div>
-              <div style={{ padding: "4px 12px", borderRadius: 8, background: lev.bg, border: `1px solid ${lev.text}55`, fontSize: 13, fontWeight: 800, color: lev.text }}>
-                {lev.label} LEVERAGE
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-dim)", marginLeft: "auto" }}>기록 완료 ✓</div>
+              {lastResult.situation_id && (
+                <Link
+                  href={`/situations/${lastResult.situation_id}?season=${season}`}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    padding: "10px 16px", borderRadius: 12, textDecoration: "none",
+                    background: "rgba(164,201,255,0.08)", border: "1px solid rgba(164,201,255,0.28)",
+                    color: "var(--brand-blue)", fontSize: 13, fontWeight: 700,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  🤖 AI 전략 분석 받기
+                </Link>
+              )}
             </div>
           )}
         </div>
