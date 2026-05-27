@@ -8,7 +8,8 @@ const TABS = [
   { href: "/situations",           label: "⚡ 로거"        },
   { href: "/situations/offense",   label: "⚔️ 공격 보드"  },
   { href: "/situations/defense",   label: "🛡️ 수비 보드"  },
-  { href: "/situations/post-game", label: "📝 포스트게임"  },
+  { href: "/situations/post-game",  label: "📝 포스트게임" },
+  { href: "/situations/game-notes", label: "📋 노트 분석"  },
 ];
 
 export default function SituationsSubNav({ season }: { season: string }) {
