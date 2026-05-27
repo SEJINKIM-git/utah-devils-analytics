@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/schedule", labelKo: "일정", labelEn: "Schedule" },
   { href: "/team-analysis", labelKo: "AI 분석", labelEn: "AI Analysis" },
   { href: "/game-review", labelKo: "경기 리뷰", labelEn: "Game Review" },
+  { href: "/situations", labelKo: "상황 로거", labelEn: "Situation Logger" },
 ];
 
 function buildHref(path: string, season: string | null) {
