@@ -196,6 +196,13 @@ function SituationLogButton({ sit, gameId, season, onDone }: {
           score_them:   sit.score_them,
           context_note: sit.context_note,
           logged_by:    "game-notes",
+          decision: {
+            decision_type:    sit.suggested_decision_type ?? "other",
+            decision_summary: sit.description,
+            rationale:        sit.context_note ?? undefined,
+            decided_by:       "game-notes",
+            retrospective_eval: "pending",
+          },
         }),
       });
       if (res.ok) { setStatus("done"); onDone(); }
@@ -263,10 +270,42 @@ export default function GameNotesPage() {
     const all: Game[] = Array.isArray(data) ? data : (data.games ?? []);
     const filtered = all.filter(g => g.season === season).reverse();
     setGames(filtered);
-    if (filtered.length > 0) setSelectedId(filtered[0].id);
+    setSelectedId(prev => {
+      if (prev && filtered.some(g => g.id === prev)) return prev;
+      return filtered.length > 0 ? filtered[0].id : 0;
+    });
   }, [season]);
 
   useEffect(() => { loadGames(); }, [loadGames]);
+
+  // Restore saved draft from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`game-notes-${season}`);
+      if (!raw) return;
+      const d = JSON.parse(raw) as {
+        noteText?: string; fileName?: string; result?: ParsedGameNotes;
+        selectedId?: number; loggedIds?: number[];
+      };
+      if (d.noteText)                       setNoteText(d.noteText);
+      if (d.fileName)                       setFileName(d.fileName);
+      if (d.result)                         setResult(d.result);
+      if (typeof d.selectedId === "number") setSelectedId(d.selectedId);
+      if (Array.isArray(d.loggedIds))       setLoggedIds(new Set(d.loggedIds));
+    } catch {}
+  }, [season]);
+
+  // Save draft to localStorage on every relevant state change
+  useEffect(() => {
+    const key = `game-notes-${season}`;
+    if (!noteText && !result) { localStorage.removeItem(key); return; }
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        noteText, fileName, result, selectedId,
+        loggedIds: [...loggedIds],
+      }));
+    } catch {}
+  }, [season, noteText, fileName, result, selectedId, loggedIds]);
 
   async function analyze() {
     if (!noteText.trim()) { setError("메모를 입력해주세요"); return; }
@@ -304,6 +343,13 @@ export default function GameNotesPage() {
             base_state: sit.base_state, out_count: sit.out_count,
             score_us: sit.score_us, score_them: sit.score_them,
             context_note: sit.context_note, logged_by: "game-notes",
+            decision: {
+              decision_type:    sit.suggested_decision_type ?? "other",
+              decision_summary: sit.description,
+              rationale:        sit.context_note ?? undefined,
+              decided_by:       "game-notes",
+              retrospective_eval: "pending",
+            },
           }),
         });
         if (res.ok) {
@@ -402,7 +448,7 @@ export default function GameNotesPage() {
                 }}>
                   <span style={{ fontSize: 11, color: "#22c55e" }}>✓</span>
                   <span style={{ fontSize: 11, color: "var(--text-dim)", flex: 1 }}>{fileName}</span>
-                  <button onClick={() => { setFileName(""); setNoteText(""); setResult(null); }}
+                  <button onClick={() => { setFileName(""); setNoteText(""); setResult(null); setLoggedIds(new Set()); }}
                     style={{ fontSize: 10, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
                     ✕
                   </button>
@@ -425,7 +471,7 @@ export default function GameNotesPage() {
                   {noteText.length > 0 ? `${noteText.length}자` : "라인업 + 이닝별 피치 메모를 그대로 붙여넣으세요"}
                 </span>
                 {noteText.length > 0 && (
-                  <button onClick={() => { setNoteText(""); setResult(null); }}
+                  <button onClick={() => { setNoteText(""); setFileName(""); setResult(null); setLoggedIds(new Set()); }}
                     style={{ fontSize: 11, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
                     지우기
                   </button>

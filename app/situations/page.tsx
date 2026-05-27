@@ -114,7 +114,45 @@ export default function SituationsPage() {
   const [error, setError]                 = useState("");
   const [lastResult, setLastResult]       = useState<{ li: number | null; lc: string; situation_id?: string } | null>(null);
   const [sessionLog, setSessionLog]       = useState<LoggedSituation[]>([]);
+  const [dbLog, setDbLog]                 = useState<LoggedSituation[]>([]);
   const [showOptions, setShowOptions]     = useState(false);
+
+  // ── Load existing situations from DB when game changes
+  useEffect(() => {
+    if (!selectedGameId) { setDbLog([]); return; }
+    fetch(`/api/situations?game_id=${selectedGameId}&season=${season}&limit=50`)
+      .then(r => r.json())
+      .then(data => {
+        type ApiRow = {
+          id: string; game_id: number; inning: number; inning_half: "top" | "bottom";
+          base_state: number; out_count: number; score_us: number; score_them: number;
+          leverage_index: number | null; leverage_class: string; context_note: string | null;
+          decision_type: string | null; decision_summary: string | null;
+          logged_at: string | null;
+        };
+        setDbLog((data.situations ?? []).map((r: ApiRow): LoggedSituation => ({
+          situation_id: String(r.id),
+          game_id:       r.game_id,
+          inning:        r.inning,
+          inning_half:   r.inning_half,
+          base_state:    r.base_state,
+          out_count:     r.out_count,
+          score_us:      r.score_us,
+          score_them:    r.score_them,
+          leverage_index: r.leverage_index,
+          leverage_class: r.leverage_class ?? "medium",
+          context_note:  r.context_note ?? "",
+          options:       [],
+          decision: r.decision_type ? {
+            decision_type:    r.decision_type,
+            decision_summary: r.decision_summary ?? "",
+            rationale:        "",
+          } : undefined,
+          logged_at: r.logged_at ?? "",
+        })));
+      })
+      .catch(() => {});
+  }, [selectedGameId, season]);
 
   // ── Fetch games
   useEffect(() => {
@@ -502,15 +540,23 @@ export default function SituationsPage() {
         {/* ── Right: Session Log ─────────────────────────────────────────────── */}
         <div style={{ position: "sticky", top: 100 }}>
           <div style={cardStyle}>
-            <SectionLabel icon="📋" label={`세션 로그 (${sessionLog.length}건)`} />
-            {sessionLog.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-dim)", fontSize: 13 }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
-                아직 기록된 상황이 없습니다
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "65vh", overflowY: "auto" }}>
-                {sessionLog.map((sit, i) => {
+            {(() => {
+              const merged = [
+                ...sessionLog,
+                ...dbLog.filter(d => !sessionLog.some(s => s.situation_id === d.situation_id)),
+              ];
+              const total = merged.length;
+              return (
+                <>
+                  <SectionLabel icon="📋" label={`경기 기록 (${total}건)`} />
+                  {total === 0 ? (
+                    <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-dim)", fontSize: 13 }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
+                      아직 기록된 상황이 없습니다
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "65vh", overflowY: "auto" }}>
+                      {merged.map((sit, i) => {
                   const lc = LEVERAGE_COLORS[sit.leverage_class] ?? LEVERAGE_COLORS.medium;
                   return (
                     <div key={i} style={{ padding: "12px 14px", borderRadius: 10, background: "var(--input-bg)", border: "1px solid var(--border)" }}>
@@ -539,8 +585,11 @@ export default function SituationsPage() {
                     </div>
                   );
                 })}
-              </div>
-            )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
           {/* Game summary */}
