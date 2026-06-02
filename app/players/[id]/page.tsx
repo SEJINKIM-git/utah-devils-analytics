@@ -49,8 +49,8 @@ export default async function PlayerDetail({
   const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
 
   const [{ data: allBatting }, { data: allPitching }, { data: reports }] = await Promise.all([
-    supabase.from("batting_stats").select("*").in("player_id", relatedPlayerIds),
-    supabase.from("pitching_stats").select("*").in("player_id", relatedPlayerIds),
+    supabase.from("batting_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
+    supabase.from("pitching_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
     supabase.from("ai_reports").select("*").in("player_id", relatedPlayerIds).order("generated_at", { ascending: false }).limit(1),
   ]);
 
