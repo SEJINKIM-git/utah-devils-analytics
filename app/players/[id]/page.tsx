@@ -9,7 +9,7 @@ import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
-import { formatIP } from "@/lib/statFormatting";
+import { formatIP, parseIP } from "@/lib/statFormatting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -94,7 +94,7 @@ export default async function PlayerDetail({
     ...acc,
     w: acc.w + (p.w || 0), l: acc.l + (p.l || 0), sv: acc.sv + (p.sv || 0),
     hld: acc.hld + (p.hld || 0),
-    ip: (parseFloat(String(acc.ip)) || 0) + (parseFloat(String(p.ip)) || 0),
+    ip: parseIP(acc.ip) + parseIP(p.ip),
     ha: acc.ha + (p.ha || 0), runs_allowed: acc.runs_allowed + (p.runs_allowed || 0),
     er: acc.er + (p.er || 0), bb: acc.bb + (p.bb || 0), hbp: acc.hbp + (p.hbp || 0),
     so: acc.so + (p.so || 0), hr_allowed: acc.hr_allowed + (p.hr_allowed || 0),

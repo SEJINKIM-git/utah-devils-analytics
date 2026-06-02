@@ -12,7 +12,8 @@ import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
-import { formatIP } from "@/lib/statFormatting";
+import { formatIP, parseIP } from "@/lib/statFormatting";
+import SbEditCell from "@/app/components/SbEditCell";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -220,7 +221,7 @@ export default async function Dashboard({
         l: acc.l + (p.l || 0),
         sv: acc.sv + (p.sv || 0),
         hld: acc.hld + (p.hld || 0),
-        ip: (parseFloat(acc.ip) || 0) + (parseFloat(p.ip) || 0),
+        ip: parseIP(acc.ip) + parseIP(p.ip),
         ha: acc.ha + (p.ha || 0),
         runs_allowed: acc.runs_allowed + (p.runs_allowed || 0),
         er: acc.er + (p.er || 0),
@@ -230,7 +231,7 @@ export default async function Dashboard({
         hr_allowed: acc.hr_allowed + (p.hr_allowed || 0),
       });
     } else {
-      pitchingByPlayer.set(identityKey, { ...p, player_id: player.id, player });
+      pitchingByPlayer.set(identityKey, { ...p, player_id: player.id, player, ip: parseIP(p.ip) });
     }
   }
   const uniquePitching = Array.from(pitchingByPlayer.values()).filter(hasPitchingActivity);
@@ -286,7 +287,7 @@ export default async function Dashboard({
   const teamW = uniquePitching.reduce((a, b) => a + b.w, 0);
   const teamL = uniquePitching.reduce((a, b) => a + b.l, 0);
   const teamSV = uniquePitching.reduce((a, b) => a + b.sv, 0);
-  const teamIP = uniquePitching.reduce((a, b) => a + parseFloat(b.ip), 0);
+  const teamIP = uniquePitching.reduce((a, b) => a + b.ip, 0);
   const teamER = uniquePitching.reduce((a, b) => a + b.er, 0);
   const teamERA = teamIP > 0 ? ((teamER / teamIP) * 5).toFixed(2) : "---";
 
@@ -557,7 +558,9 @@ export default async function Dashboard({
                     <td style={{ padding: "12px" }}>{b.rbi}</td>
                     <td style={{ padding: "12px" }}>{b.bb}</td>
                     <td style={{ padding: "12px", color: b.so >= 8 ? C.red : C.white }}>{b.so}</td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: b.sb >= 6 ? "#a78bfa" : C.white }}>{b.sb}</td>
+                    <td style={{ padding: "12px" }}>
+                      <SbEditCell playerId={b.player_id} season={season} initialSb={b.sb ?? 0} />
+                    </td>
                     <td style={{ padding: "12px", fontWeight: 700, color: parseFloat(b.avg) >= 0.3 ? "#22c55e" : parseFloat(b.avg) >= 0.2 ? "#eab308" : C.red }}>{b.avg}</td>
                     <td style={{ padding: "12px" }}>{b.obp}</td>
                     <td style={{ padding: "12px" }}>
