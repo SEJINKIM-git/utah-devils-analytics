@@ -16,7 +16,7 @@ import {
   sanitizeGameReviewContent,
   sanitizeOpponentName,
 } from "@/lib/gameReviewSanitizer";
-import { formatRateStat } from "@/lib/statFormatting";
+import { formatRateStat, formatIP } from "@/lib/statFormatting";
 
 function getCookie(name: string) {
   if (typeof document === "undefined") return null;
@@ -420,7 +420,7 @@ export default function GameReviewPage() {
                         <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
                           <td style={{ padding: "6px", fontWeight: 700 }}>{p.name}</td>
                           <td style={{ padding: "6px", fontWeight: 700, color: p.decision === "승" || p.decision === "W" ? "#22c55e" : p.decision === "패" || p.decision === "L" ? "#ef4444" : "rgba(255,255,255,0.4)" }}>{p.decision || "-"}</td>
-                          <td style={{ padding: "6px" }}>{p.ip}</td>
+                          <td style={{ padding: "6px" }}>{formatIP(p.ip)}</td>
                           <td style={{ padding: "6px" }}>{p.pitches}</td>
                           <td style={{ padding: "6px" }}>{p.ha}</td>
                           <td style={{ padding: "6px" }}>{p.er}</td>

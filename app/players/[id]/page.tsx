@@ -9,6 +9,7 @@ import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
+import { formatIP } from "@/lib/statFormatting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -222,7 +223,7 @@ export default async function PlayerDetail({
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 10, marginBottom: 40 }}>
               {[
-                { label: t("pitching.ip", lang), value: pitch.ip }, { label: t("pitching.ha", lang), value: pitch.ha },
+                { label: t("pitching.ip", lang), value: formatIP(pitch.ip) }, { label: t("pitching.ha", lang), value: pitch.ha },
                 { label: t("pitching.ra", lang), value: pitch.runs_allowed }, { label: t("pitching.er", lang), value: pitch.er },
                 { label: t("pitching.bb", lang), value: pitch.bb, color: pitch.bb >= 10 ? "#ef4444" : undefined },
                 { label: t("pitching.so", lang), value: pitch.so, color: pitch.so >= 10 ? "#22c55e" : undefined },

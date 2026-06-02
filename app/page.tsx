@@ -12,6 +12,7 @@ import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
+import { formatIP } from "@/lib/statFormatting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -594,7 +595,7 @@ export default async function Dashboard({
                     <td style={{ padding: "12px", fontWeight: 700, color: p.w > 0 ? "#22c55e" : C.white }}>{p.w}</td>
                     <td style={{ padding: "12px", color: p.l > 0 ? C.red : C.white }}>{p.l}</td>
                     <td style={{ padding: "12px", color: p.sv > 0 ? "#eab308" : C.white }}>{p.sv}</td>
-                    <td style={{ padding: "12px" }}>{p.ip}</td>
+                    <td style={{ padding: "12px" }}>{formatIP(p.ip)}</td>
                     <td style={{ padding: "12px" }}>{p.ha}</td>
                     <td style={{ padding: "12px" }}>{p.er}</td>
                     <td style={{ padding: "12px", color: p.bb >= 10 ? C.red : C.white }}>{p.bb}</td>
