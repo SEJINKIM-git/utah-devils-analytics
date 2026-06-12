@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
+import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
@@ -48,10 +49,12 @@ export default async function PlayerDetail({
   );
   const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
 
-  const [{ data: allBatting }, { data: allPitching }, { data: reports }] = await Promise.all([
+  const [{ data: allBatting }, { data: allPitching }, { data: reports }, { data: allGames }, { data: rosterUploads }] = await Promise.all([
     supabase.from("batting_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
     supabase.from("pitching_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
     supabase.from("ai_reports").select("*").in("player_id", relatedPlayerIds).order("generated_at", { ascending: false }).limit(1),
+    supabase.from("games").select("id, season, created_at"),
+    supabase.from("roster_uploads").select("filename, players_snapshot, source, uploaded_at").order("uploaded_at", { ascending: false }),
   ]);
 
   const seasonValues = Array.from(new Set([
@@ -77,9 +80,28 @@ export default async function PlayerDetail({
     preferredSeason
   );
 
-  const batRecords = filterRecordsForSeason(allBatting || [], selectedSeason, { lockedSeasons: visibility.lockedSeasons });
+  // ── 대시보드와 동일한 로스터 게이팅 ──────────────────────────────────────
+  const latestRosterUpload = getLatestRosterUploadForSeason(rosterUploads || [], selectedSeason);
+  const rosterUploadedAt = latestRosterUpload?.upload?.uploaded_at
+    ? new Date(latestRosterUpload.upload.uploaded_at).getTime()
+    : null;
+  const validGameIds = new Set(
+    (allGames || [])
+      .filter((g) => g.season === selectedSeason)
+      .filter((g) => {
+        if (!rosterUploadedAt) return true;
+        if (!g.created_at) return false;
+        return new Date(g.created_at).getTime() >= rosterUploadedAt;
+      })
+      .map((g) => g.id)
+  );
+  const shouldGateStats = Boolean(latestRosterUpload);
+
+  const batRecords = filterRecordsForSeason(allBatting || [], selectedSeason, { lockedSeasons: visibility.lockedSeasons })
+    .filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
   const pitRecords = filterRecordsForSeason(allPitching || [], selectedSeason, { lockedSeasons: visibility.lockedSeasons })
-    .filter((record) => (parseFloat(String(record.ip)) || 0) > 0);
+    .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
+    .filter((record) => parseIP(record.ip) > 0);
 
   const bat = batRecords.length > 0 ? batRecords.reduce((acc, b) => ({
     ...acc,
