@@ -103,16 +103,34 @@ export default async function PlayerDetail({
     .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
     .filter((record) => parseIP(record.ip) > 0);
 
-  const bat = batRecords.length > 0 ? batRecords.reduce((acc, b) => ({
+  // game_id 기준 중복 제거: 동일 경기 기록이 여러 player_id로 중복 집계되는 것을 방지
+  // PA가 가장 높은 레코드를 우선 유지 (가장 완전한 기록)
+  const batByGame = new Map<number, typeof batRecords[0]>();
+  for (const b of batRecords) {
+    if (b.game_id == null) continue;
+    const prev = batByGame.get(b.game_id);
+    if (!prev || (b.pa || 0) >= (prev.pa || 0)) batByGame.set(b.game_id, b);
+  }
+  const dedupedBat = Array.from(batByGame.values());
+
+  const pitByGame = new Map<number, typeof pitRecords[0]>();
+  for (const p of pitRecords) {
+    if (p.game_id == null) continue;
+    const prev = pitByGame.get(p.game_id);
+    if (!prev || parseIP(p.ip) >= parseIP(prev.ip)) pitByGame.set(p.game_id, p);
+  }
+  const dedupedPit = Array.from(pitByGame.values());
+
+  const bat = dedupedBat.length > 0 ? dedupedBat.reduce((acc, b) => ({
     ...acc,
     pa: acc.pa + (b.pa || 0), ab: acc.ab + (b.ab || 0), runs: acc.runs + (b.runs || 0),
     hits: acc.hits + (b.hits || 0), doubles: acc.doubles + (b.doubles || 0),
     triples: acc.triples + (b.triples || 0), hr: acc.hr + (b.hr || 0),
     rbi: acc.rbi + (b.rbi || 0), bb: acc.bb + (b.bb || 0), hbp: acc.hbp + (b.hbp || 0),
     so: acc.so + (b.so || 0), sb: acc.sb + (b.sb || 0),
-  }), { ...batRecords[0], pa:0, ab:0, runs:0, hits:0, doubles:0, triples:0, hr:0, rbi:0, bb:0, hbp:0, so:0, sb:0 }) : null;
+  }), { ...dedupedBat[0], pa:0, ab:0, runs:0, hits:0, doubles:0, triples:0, hr:0, rbi:0, bb:0, hbp:0, so:0, sb:0 }) : null;
 
-  const pitch = pitRecords.length > 0 ? pitRecords.reduce((acc, p) => ({
+  const pitch = dedupedPit.length > 0 ? dedupedPit.reduce((acc, p) => ({
     ...acc,
     w: acc.w + (p.w || 0), l: acc.l + (p.l || 0), sv: acc.sv + (p.sv || 0),
     hld: acc.hld + (p.hld || 0),
@@ -120,7 +138,7 @@ export default async function PlayerDetail({
     ha: acc.ha + (p.ha || 0), runs_allowed: acc.runs_allowed + (p.runs_allowed || 0),
     er: acc.er + (p.er || 0), bb: acc.bb + (p.bb || 0), hbp: acc.hbp + (p.hbp || 0),
     so: acc.so + (p.so || 0), hr_allowed: acc.hr_allowed + (p.hr_allowed || 0),
-  }), { ...pitRecords[0], w:0, l:0, sv:0, hld:0, ip:0, ha:0, runs_allowed:0, er:0, bb:0, hbp:0, so:0, hr_allowed:0 }) : null;
+  }), { ...dedupedPit[0], w:0, l:0, sv:0, hld:0, ip:0, ha:0, runs_allowed:0, er:0, bb:0, hbp:0, so:0, hr_allowed:0 }) : null;
 
   const report = reports?.[0];
 
