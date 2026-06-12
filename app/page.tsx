@@ -275,15 +275,24 @@ export default async function Dashboard({
     .filter(Boolean)
     .sort((a: any, b: any) => a.eraNum - b.eraNum);
 
-  const teamHits = uniqueBatting.reduce((a, b) => a + b.hits, 0);
-  const teamAB = uniqueBatting.reduce((a, b) => a + b.ab, 0);
-  const teamBB = uniqueBatting.reduce((a, b) => a + b.bb, 0);
-  const teamHBP = uniqueBatting.reduce((a, b) => a + b.hbp, 0);
-  const teamPA = uniqueBatting.reduce((a, b) => a + b.pa, 0);
-  const teamSB = uniqueBatting.reduce((a, b) => a + b.sb, 0);
-  const teamSO = uniqueBatting.reduce((a, b) => a + b.so, 0);
-  const teamAvg = teamAB > 0 ? (teamHits / teamAB).toFixed(3) : "---";
-  const teamOBP = teamPA > 0 ? ((teamHits + teamBB + teamHBP) / teamPA).toFixed(3) : "---";
+  const teamHits    = uniqueBatting.reduce((a, b) => a + b.hits, 0);
+  const teamAB      = uniqueBatting.reduce((a, b) => a + b.ab, 0);
+  const teamBB      = uniqueBatting.reduce((a, b) => a + b.bb, 0);
+  const teamHBP     = uniqueBatting.reduce((a, b) => a + b.hbp, 0);
+  const teamPA      = uniqueBatting.reduce((a, b) => a + b.pa, 0);
+  const teamSB      = uniqueBatting.reduce((a, b) => a + b.sb, 0);
+  const teamSO      = uniqueBatting.reduce((a, b) => a + b.so, 0);
+  const teamDoubles = uniqueBatting.reduce((a, b) => a + (b.doubles || 0), 0);
+  const teamTriples = uniqueBatting.reduce((a, b) => a + (b.triples || 0), 0);
+  const teamHRBat   = uniqueBatting.reduce((a, b) => a + (b.hr || 0), 0);
+  const teamBBHBP   = teamBB + teamHBP;
+  const teamAvg  = teamAB > 0 ? (teamHits / teamAB).toFixed(3) : "---";
+  const teamOBP  = teamPA > 0 ? ((teamHits + teamBB + teamHBP) / teamPA).toFixed(3) : "---";
+  const teamTB   = teamHits + teamDoubles + teamTriples * 2 + teamHRBat * 3;
+  const teamSLG  = teamAB > 0 ? (teamTB / teamAB).toFixed(3) : "---";
+  const teamOPS  = teamOBP !== "---" && teamSLG !== "---"
+    ? (parseFloat(teamOBP) + parseFloat(teamSLG)).toFixed(3)
+    : "---";
   const teamW = uniquePitching.reduce((a, b) => a + b.w, 0);
   const teamL = uniquePitching.reduce((a, b) => a + b.l, 0);
   const teamSV = uniquePitching.reduce((a, b) => a + b.sv, 0);
@@ -431,19 +440,23 @@ export default async function Dashboard({
 
       {/* ═══ 본문 ═══ */}
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 24px 40px" }}>
-        {/* 팀 통계 카드 */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14, marginBottom: 36 }}>
+        {/* 팀 통계 카드 — 5×2 */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 36 }}>
           {[
-            { label: t("stats.teamAvg", lang), value: teamAvg, color: "#22c55e" },
-            { label: t("stats.teamOBP", lang), value: teamOBP, color: "#60a5fa" },
-            { label: t("stats.teamERA", lang), value: teamERA, color: "#eab308" },
-            { label: t("stats.sb", lang), value: hasStatData ? teamSB : "---", color: "#a78bfa" },
-            { label: t("stats.wls", lang), value: hasStatData ? `${teamW}-${teamL}-${teamSV}` : "---", color: "#f97316" },
-            { label: t("stats.so", lang), value: hasStatData ? teamSO : "---", color: C.red },
+            { label: t("stats.teamAvg", lang), value: teamAvg,                               color: "#22c55e" },
+            { label: t("stats.teamOBP", lang), value: teamOBP,                               color: "#60a5fa" },
+            { label: t("stats.teamSLG", lang), value: hasStatData ? teamSLG : "---",         color: "#fb7185" },
+            { label: t("stats.teamOPS", lang), value: hasStatData ? teamOPS : "---",         color: "#f59e0b" },
+            { label: t("stats.teamH",   lang), value: hasStatData ? teamHits : "---",        color: "#34d399" },
+            { label: t("stats.bbhbp",   lang), value: hasStatData ? teamBBHBP : "---",       color: "#38bdf8" },
+            { label: t("stats.teamERA", lang), value: teamERA,                               color: "#eab308" },
+            { label: t("stats.sb",      lang), value: hasStatData ? teamSB : "---",          color: "#a78bfa" },
+            { label: t("stats.wls",     lang), value: hasStatData ? `${teamW}-${teamL}-${teamSV}` : "---", color: "#f97316" },
+            { label: t("stats.so",      lang), value: hasStatData ? teamSO : "---",          color: C.red },
           ].map((stat, i) => (
             <div key={i} className="app-metric-card" style={{ borderRadius: 22, padding: "20px 18px" }}>
               <div className="app-kicker" style={{ marginBottom: 8, color: C.whiteDim }}>{stat.label}</div>
-              <div className="app-display-title" style={{ fontSize: 32, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+              <div className="app-display-title" style={{ fontSize: 28, fontWeight: 700, color: stat.color }}>{stat.value}</div>
             </div>
           ))}
         </div>

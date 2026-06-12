@@ -19,6 +19,10 @@ const translations = {
   // Team Stats
   "stats.teamAvg": { ko: "팀 타율", en: "Team AVG" },
   "stats.teamOBP": { ko: "팀 출루율", en: "Team OBP" },
+  "stats.teamSLG": { ko: "팀 장타율", en: "Team SLG" },
+  "stats.teamOPS": { ko: "팀 OPS", en: "Team OPS" },
+  "stats.teamH":   { ko: "총 안타", en: "Total H" },
+  "stats.bbhbp":   { ko: "사사구", en: "BB+HBP" },
   "stats.teamERA": { ko: "팀 ERA", en: "Team ERA" },
   "stats.sb": { ko: "도루", en: "SB" },
   "stats.wls": { ko: "승-패-세", en: "W-L-SV" },
