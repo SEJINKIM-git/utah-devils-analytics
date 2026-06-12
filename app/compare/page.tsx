@@ -65,7 +65,9 @@ interface RawPlayer {
 
 interface RawBattingRow {
   player_id: number;
+  game_id?: number | null;
   season?: string | number | null;
+  pa?: number | null;
   ab?: number | null;
   hits?: number | null;
   doubles?: number | null;
@@ -79,6 +81,7 @@ interface RawBattingRow {
 
 interface RawPitchingRow {
   player_id: number;
+  game_id?: number | null;
   season?: string | number | null;
   ip?: string | number | null;
   ha?: number | null;
@@ -200,8 +203,29 @@ async function fetchPlayers(): Promise<ComparePayload> {
     });
   }
 
-  const battingByPlayerSeason = new Map<string, BattingStat>();
+  // game_id 기준 중복 제거: 동일 player_id + game_id 조합에서 PA가 가장 높은 레코드만 유지
+  const batGameDedup = new Map<string, any>();
   for (const row of batting || []) {
+    const playerId = Number(row.player_id);
+    if (!playerMap.has(playerId) || !row.game_id) continue;
+    const key = `${playerId}:${row.game_id}`;
+    const prev = batGameDedup.get(key);
+    if (!prev || Number(row.pa || 0) >= Number(prev.pa || 0)) batGameDedup.set(key, row);
+  }
+
+  const pitGameDedup = new Map<string, any>();
+  for (const row of pitching || []) {
+    const playerId = Number(row.player_id);
+    if (!playerMap.has(playerId) || !row.game_id) continue;
+    const key = `${playerId}:${row.game_id}`;
+    const prev = pitGameDedup.get(key);
+    const rowIP = parseFloat(String(row.ip || 0)) || 0;
+    const prevIP = prev ? parseFloat(String(prev.ip || 0)) || 0 : -1;
+    if (!prev || rowIP >= prevIP) pitGameDedup.set(key, row);
+  }
+
+  const battingByPlayerSeason = new Map<string, BattingStat>();
+  for (const row of batGameDedup.values()) {
     const playerId = Number(row.player_id);
     const season = parseSeasonNumber(row.season || 2025);
     if (!playerMap.has(playerId) || !season) continue;
@@ -233,7 +257,7 @@ async function fetchPlayers(): Promise<ComparePayload> {
   }
 
   const pitchingByPlayerSeason = new Map<string, PitchingStat>();
-  for (const row of pitching || []) {
+  for (const row of pitGameDedup.values()) {
     const playerId = Number(row.player_id);
     const season = parseSeasonNumber(row.season || 2025);
     if (!playerMap.has(playerId) || !season) continue;

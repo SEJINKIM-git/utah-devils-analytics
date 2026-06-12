@@ -282,7 +282,24 @@ export default async function PlayerDetail({
         <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} season={currentSeason} />
 
         {/* 📈 시즌 성장 그래프 */}
-        <SeasonChart batting={allBatting || []} pitching={allPitching || []} lang={lang} />
+        <SeasonChart batting={(() => {
+            // SeasonChart용 데이터도 game_id 기준 dedup (차트 수치 부풀림 방지)
+            const m = new Map<number, any>();
+            for (const b of allBatting || []) {
+              if (!b.game_id) continue;
+              const p = m.get(b.game_id);
+              if (!p || (b.pa || 0) >= (p.pa || 0)) m.set(b.game_id, b);
+            }
+            return Array.from(m.values());
+          })()} pitching={(() => {
+            const m = new Map<number, any>();
+            for (const p of allPitching || []) {
+              if (!p.game_id) continue;
+              const prev = m.get(p.game_id);
+              if (!prev || parseIP(p.ip) >= parseIP(prev.ip)) m.set(p.game_id, p);
+            }
+            return Array.from(m.values());
+          })()} lang={lang} />
 
         {/* AI 분석 리포트 */}
         <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 28 }}>

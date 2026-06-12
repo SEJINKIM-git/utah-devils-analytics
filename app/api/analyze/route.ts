@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { NextRequest } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
+import { parseIP } from "@/lib/statFormatting";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,8 +38,22 @@ export async function POST(request: NextRequest) {
       supabase.from("pitching_stats").select("*").in("player_id", relatedPlayerIds).order("season"),
     ]);
 
-    const battingBySeason = new Map<string, any>();
+    // game_id 기준 중복 제거: 여러 player_id가 동일 경기 기록을 가질 때 부풀림 방지
+    const batByGame = new Map<number, any>();
     for (const row of rawBatting || []) {
+      if (!row.game_id) continue;
+      const prev = batByGame.get(row.game_id);
+      if (!prev || (row.pa || 0) >= (prev.pa || 0)) batByGame.set(row.game_id, row);
+    }
+    const pitByGame = new Map<number, any>();
+    for (const row of rawPitching || []) {
+      if (!row.game_id) continue;
+      const prev = pitByGame.get(row.game_id);
+      if (!prev || parseIP(row.ip) >= parseIP(prev.ip)) pitByGame.set(row.game_id, row);
+    }
+
+    const battingBySeason = new Map<string, any>();
+    for (const row of batByGame.values()) {
       const key = String(row.season || "2025");
       const current = battingBySeason.get(key) || {
         season: key,
@@ -63,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     const pitchingBySeason = new Map<string, any>();
-    for (const row of rawPitching || []) {
+    for (const row of pitByGame.values()) {
       const key = String(row.season || "2025");
       const current = pitchingBySeason.get(key) || {
         season: key,
@@ -74,7 +89,7 @@ export async function POST(request: NextRequest) {
         w: current.w + (row.w || 0),
         l: current.l + (row.l || 0),
         sv: current.sv + (row.sv || 0),
-        ip: current.ip + (parseFloat(String(row.ip || 0)) || 0),
+        ip: current.ip + parseIP(row.ip),
         ha: current.ha + (row.ha || 0),
         runs_allowed: current.runs_allowed + (row.runs_allowed || 0),
         er: current.er + (row.er || 0),
