@@ -150,6 +150,24 @@ export default async function PlayerDetail({
   const era = pitch && pitch.ip > 0 ? ((pitch.er / pitch.ip) * 5).toFixed(2) : null;
   const whip = pitch && pitch.ip > 0 ? ((pitch.ha + pitch.bb) / pitch.ip).toFixed(2) : null;
 
+  const currentStats = {
+    avg: avg !== "---" ? parseFloat(avg) : 0,
+    obp: obp !== "---" ? parseFloat(obp) : 0,
+    ops: ops !== "---" ? parseFloat(ops) : 0,
+    hits: bat?.hits || 0,
+    hr: bat?.hr || 0,
+    rbi: bat?.rbi || 0,
+    sb: bat?.sb || 0,
+    bb: bat?.bb || 0,
+    so_bat: bat?.so || 0,
+    era: era ? parseFloat(era) : 0,
+    whip: whip ? parseFloat(whip) : 0,
+    wins: pitch?.w || 0,
+    saves: pitch?.sv || 0,
+    so_pit: pitch?.so || 0,
+    ip: pitch?.ip || 0,
+  };
+
   const getOpsGrade = (v: number) => {
     if (v >= 1.0) return { grade: "A+", color: "#22c55e", label: t("grade.elite", lang) };
     if (v >= 0.85) return { grade: "A", color: "#22c55e", label: t("grade.allstar", lang) };
@@ -279,7 +297,7 @@ export default async function PlayerDetail({
         })()}
 
         {/* 🎯 개인 목표 달성도 */}
-        <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} season={currentSeason} />
+        <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} season={currentSeason} currentStats={currentStats} />
 
         {/* 📈 시즌 성장 그래프 */}
         <SeasonChart batting={(() => {

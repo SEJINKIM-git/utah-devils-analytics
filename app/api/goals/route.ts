@@ -3,6 +3,8 @@ export const runtime = "nodejs";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
+import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
+import { parseIP } from "@/lib/statFormatting";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,41 +30,68 @@ export async function GET(request: NextRequest) {
   );
   const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
 
-  const { data: goals } = await supabase
-    .from("player_goals")
-    .select("*")
-    .in("player_id", relatedPlayerIds)
-    .eq("season", season)
-    .order("created_at");
+  const [{ data: goals }, { data: batting }, { data: pitching }, { data: allGames }, { data: rosterUploads }] = await Promise.all([
+    supabase.from("player_goals").select("*").in("player_id", relatedPlayerIds).eq("season", season).order("created_at"),
+    supabase.from("batting_stats").select("*").in("player_id", relatedPlayerIds).eq("season", season),
+    supabase.from("pitching_stats").select("*").in("player_id", relatedPlayerIds).eq("season", season),
+    supabase.from("games").select("id, season, created_at"),
+    supabase.from("roster_uploads").select("filename, players_snapshot, source, uploaded_at").order("uploaded_at", { ascending: false }),
+  ]);
 
-  const { data: batting } = await supabase
-    .from("batting_stats")
-    .select("*")
-    .in("player_id", relatedPlayerIds)
-    .eq("season", season);
+  // 대시보드/플레이어 페이지와 동일한 로스터 게이팅
+  const latestRosterUpload = getLatestRosterUploadForSeason(rosterUploads || [], season);
+  const rosterUploadedAt = latestRosterUpload?.upload?.uploaded_at
+    ? new Date(latestRosterUpload.upload.uploaded_at).getTime()
+    : null;
+  const validGameIds = new Set(
+    (allGames || [])
+      .filter((g) => g.season === season)
+      .filter((g) => {
+        if (!rosterUploadedAt) return true;
+        if (!g.created_at) return false;
+        return new Date(g.created_at).getTime() >= rosterUploadedAt;
+      })
+      .map((g) => g.id)
+  );
+  const shouldGateStats = Boolean(latestRosterUpload);
 
-  const { data: pitching } = await supabase
-    .from("pitching_stats")
-    .select("*")
-    .in("player_id", relatedPlayerIds)
-    .eq("season", season);
+  const gatedBatting = (batting || []).filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
+  const gatedPitching = (pitching || [])
+    .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
+    .filter((p) => parseIP(p.ip) > 0);
 
-  // 해당 시즌 기록 전부 합산
-  const bat = (batting && batting.length > 0) ? batting.reduce((acc, b) => ({
+  // game_id 기준 중복 제거 (플레이어 페이지와 동일)
+  const batByGame = new Map<number, typeof gatedBatting[0]>();
+  for (const b of gatedBatting) {
+    if (b.game_id == null) continue;
+    const prev = batByGame.get(b.game_id);
+    if (!prev || (b.pa || 0) >= (prev.pa || 0)) batByGame.set(b.game_id, b);
+  }
+  const dedupedBatting = Array.from(batByGame.values());
+
+  const pitByGame = new Map<number, typeof gatedPitching[0]>();
+  for (const p of gatedPitching) {
+    if (p.game_id == null) continue;
+    const prev = pitByGame.get(p.game_id);
+    if (!prev || parseIP(p.ip) >= parseIP(prev.ip)) pitByGame.set(p.game_id, p);
+  }
+  const dedupedPitching = Array.from(pitByGame.values());
+
+  const bat = dedupedBatting.length > 0 ? dedupedBatting.reduce((acc, b) => ({
     ...acc,
     pa: (acc.pa||0)+(b.pa||0), ab: (acc.ab||0)+(b.ab||0),
     hits: (acc.hits||0)+(b.hits||0), doubles: (acc.doubles||0)+(b.doubles||0),
     triples: (acc.triples||0)+(b.triples||0), hr: (acc.hr||0)+(b.hr||0),
     rbi: (acc.rbi||0)+(b.rbi||0), bb: (acc.bb||0)+(b.bb||0),
     hbp: (acc.hbp||0)+(b.hbp||0), so: (acc.so||0)+(b.so||0), sb: (acc.sb||0)+(b.sb||0),
-  }), { ...batting[0], pa:0,ab:0,hits:0,doubles:0,triples:0,hr:0,rbi:0,bb:0,hbp:0,so:0,sb:0 }) : null;
-  const pit = (pitching && pitching.length > 0) ? pitching.reduce((acc, p) => ({
+  }), { ...dedupedBatting[0], pa:0,ab:0,hits:0,doubles:0,triples:0,hr:0,rbi:0,bb:0,hbp:0,so:0,sb:0 }) : null;
+  const pit = dedupedPitching.length > 0 ? dedupedPitching.reduce((acc, p) => ({
     ...acc,
-    ip: (parseFloat(String(acc.ip||0))||0)+(parseFloat(String(p.ip||0))||0),
+    ip: (acc.ip||0) + parseIP(p.ip),
     w: (acc.w||0)+(p.w||0), l: (acc.l||0)+(p.l||0), sv: (acc.sv||0)+(p.sv||0),
     ha: (acc.ha||0)+(p.ha||0), er: (acc.er||0)+(p.er||0),
     bb: (acc.bb||0)+(p.bb||0), so: (acc.so||0)+(p.so||0),
-  }), { ...pitching[0], ip:0,w:0,l:0,sv:0,ha:0,er:0,bb:0,so:0 }) : null;
+  }), { ...dedupedPitching[0], ip:0,w:0,l:0,sv:0,ha:0,er:0,bb:0,so:0 }) : null;
 
   const getCurrentValue = (statType: string) => {
     if (!bat && !pit) return 0;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { formatIP } from "@/lib/statFormatting";
 
 type Goal = {
   id: number;
@@ -10,6 +11,12 @@ type Goal = {
   current: number;
   progress: number;
   lowerIsBetter: boolean;
+};
+
+type CurrentStats = {
+  avg?: number; obp?: number; ops?: number; hits?: number; hr?: number;
+  rbi?: number; sb?: number; bb?: number; so_bat?: number;
+  era?: number; whip?: number; wins?: number; saves?: number; so_pit?: number; ip?: number;
 };
 
 const BATTING_PRESETS = {
@@ -61,11 +68,13 @@ export default function PlayerGoals({
   season: propSeason,
   isPitcher,
   lang = "ko",
+  currentStats,
 }: {
   playerId: number;
   season?: string;
   isPitcher: boolean;
   lang?: "ko" | "en";
+  currentStats?: CurrentStats;
 }) {
   const currentSeason = propSeason || String(new Date().getFullYear());
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -80,11 +89,29 @@ export default function PlayerGoals({
     ...(isPitcher ? (PITCHING_PRESETS[lang] || PITCHING_PRESETS.ko) : []),
   ];
 
+  const applyCurrentStats = (rawGoals: Goal[]): Goal[] => {
+    if (!currentStats) return rawGoals;
+    return rawGoals.map((goal) => {
+      const statKey = goal.stat_type as keyof CurrentStats;
+      if (!(statKey in currentStats)) return goal;
+      const current = currentStats[statKey] ?? goal.current;
+      const lowerIsBetter = ["era", "whip", "so_bat"].includes(goal.stat_type);
+      let progress: number;
+      if (lowerIsBetter) {
+        if (goal.target_value === 0) progress = current === 0 ? 100 : 0;
+        else progress = current <= goal.target_value ? 100 : Math.max(0, 100 - ((current - goal.target_value) / goal.target_value) * 100);
+      } else {
+        progress = goal.target_value > 0 ? Math.min(100, (current / goal.target_value) * 100) : 0;
+      }
+      return { ...goal, current, lowerIsBetter, progress: Math.round(progress) };
+    });
+  };
+
   const fetchGoals = async () => {
     try {
       const res = await fetch(`/api/goals?playerId=${playerId}&season=${currentSeason}`);
       const data = await res.json();
-      setGoals(data.goals || []);
+      setGoals(applyCurrentStats(data.goals || []));
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -169,7 +196,7 @@ export default function PlayerGoals({
                   <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
                     {goal.lowerIsBetter
                       ? `${goal.current} → ${lang === "ko" ? "목표" : "goal"} ≤${goal.target_value}`
-                      : `${goal.current} / ${goal.target_value}`}
+                      : `${goal.stat_type === "ip" ? formatIP(goal.current) : goal.current} / ${goal.target_value}`}
                   </span>
                   <button onClick={() => deleteGoal(goal.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer", fontSize: 14, padding: 0 }}>✕</button>
                 </div>
