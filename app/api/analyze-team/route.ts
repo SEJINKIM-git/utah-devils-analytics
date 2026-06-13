@@ -8,10 +8,11 @@ import { filterRecordsForSeason, isCareerSeason } from "@/lib/careerStats";
 import { buildPlayerIdentityKey, dedupePlayersByIdentity } from "@/lib/playerIdentity";
 import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
+import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
+import { parseIP, formatIP } from "@/lib/statFormatting";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_ANON_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -37,27 +38,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ✅ 필요한 컬럼만 + DB에서 시즌 필터
-    const [{ data: players, error: playersErr }, { data: batting, error: batErr }, { data: pitching, error: pitErr }] =
-      await Promise.all([
-        supabase.from("players").select("id, name, number").order("number", { ascending: true }),
-        isCareerSeason(season)
-          ? supabase
-              .from("batting_stats")
-              .select("player_id, season, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples")
-          : supabase
-              .from("batting_stats")
-              .select("player_id, season, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples")
-              .eq("season", season),
-        isCareerSeason(season)
-          ? supabase
-              .from("pitching_stats")
-              .select("player_id, season, ip, er, w, l, sv, so, bb, ha")
-          : supabase
-              .from("pitching_stats")
-              .select("player_id, season, ip, er, w, l, sv, so, bb, ha")
-              .eq("season", season),
-      ]);
+    // game_id 포함 + 로스터 게이팅용 games/roster_uploads 추가
+    const [
+      { data: players, error: playersErr },
+      { data: batting, error: batErr },
+      { data: pitching, error: pitErr },
+      { data: allGames },
+      { data: rosterUploads },
+    ] = await Promise.all([
+      supabase.from("players").select("id, name, number").order("number", { ascending: true }),
+      isCareerSeason(season)
+        ? supabase.from("batting_stats").select("player_id, season, game_id, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples")
+        : supabase.from("batting_stats").select("player_id, season, game_id, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples").eq("season", season),
+      isCareerSeason(season)
+        ? supabase.from("pitching_stats").select("player_id, season, game_id, ip, er, w, l, sv, so, bb, ha")
+        : supabase.from("pitching_stats").select("player_id, season, game_id, ip, er, w, l, sv, so, bb, ha").eq("season", season),
+      supabase.from("games").select("id, season, created_at"),
+      supabase.from("roster_uploads").select("filename, players_snapshot, source, uploaded_at").order("uploaded_at", { ascending: false }),
+    ]);
 
     if (playersErr) throw new Error(playersErr.message);
     if (batErr) throw new Error(batErr.message);
@@ -70,22 +68,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 대시보드와 동일한 로스터 게이팅
+    const latestRosterUpload = getLatestRosterUploadForSeason(rosterUploads || [], season);
+    const rosterUploadedAt = latestRosterUpload?.upload?.uploaded_at
+      ? new Date(latestRosterUpload.upload.uploaded_at).getTime()
+      : null;
+    const validGameIds = new Set(
+      (allGames || [])
+        .filter((g) => g.season === season)
+        .filter((g) => {
+          if (!rosterUploadedAt) return true;
+          if (!g.created_at) return false;
+          return new Date(g.created_at).getTime() >= rosterUploadedAt;
+        })
+        .map((g) => g.id)
+    );
+    const shouldGateStats = Boolean(latestRosterUpload);
+
     const safePlayers = players ?? [];
     const lockedSeasons = [...new Set([
       ...((batting || []).map((row) => row.season)),
       ...((pitching || []).map((row) => row.season)),
     ].filter((value): value is string => Boolean(value)))].filter((value) => isLockedSeason(value, activatedSeasons));
-    const safeBatting = filterRecordsForSeason(batting ?? [], season, { lockedSeasons });
-    const safePitching = filterRecordsForSeason(pitching ?? [], season, { lockedSeasons });
+
+    const safeBatting = filterRecordsForSeason(batting ?? [], season, { lockedSeasons })
+      .filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
+    const safePitching = filterRecordsForSeason(pitching ?? [], season, { lockedSeasons })
+      .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
+      .filter((p) => parseIP(p.ip) > 0);
+
     const playerById = new Map(safePlayers.map((player) => [player.id, player]));
     const identityPlayers = dedupePlayersByIdentity(safePlayers);
 
-   
     const n = (v: any) => (typeof v === "number" ? v : parseFloat(String(v ?? 0)) || 0);
 
-    
-    const battingByPlayer = new Map<string, ((typeof safeBatting)[number] & { player?: (typeof safePlayers)[number] })>();
+    // 선수별 + 경기별 중복 제거 (같은 선수의 여러 player_id가 같은 game_id를 가질 경우 한 번만 집계)
+    const batDedupMap = new Map<string, (typeof safeBatting)[number]>();
     for (const row of safeBatting) {
+      const player = playerById.get(row.player_id);
+      if (!player || !row.game_id) continue;
+      const identKey = buildPlayerIdentityKey(player.name, player.number);
+      const key = `${identKey}::${row.game_id}`;
+      const prev = batDedupMap.get(key);
+      if (!prev || n(row.pa) >= n(prev.pa)) batDedupMap.set(key, row);
+    }
+    const dedupedBatting = Array.from(batDedupMap.values());
+
+    const pitDedupMap = new Map<string, (typeof safePitching)[number]>();
+    for (const row of safePitching) {
+      const player = playerById.get(row.player_id);
+      if (!player || !row.game_id) continue;
+      const identKey = buildPlayerIdentityKey(player.name, player.number);
+      const key = `${identKey}::${row.game_id}`;
+      const prev = pitDedupMap.get(key);
+      if (!prev || parseIP(row.ip) >= parseIP(prev.ip)) pitDedupMap.set(key, row);
+    }
+    const dedupedPitching = Array.from(pitDedupMap.values());
+
+    // 선수별 누적 타격 통계 (dedup 완료된 레코드 기준)
+    const battingByPlayer = new Map<string, (typeof dedupedBatting)[number] & { player?: (typeof safePlayers)[number] }>();
+    for (const row of dedupedBatting) {
       const player = playerById.get(row.player_id);
       if (!player) continue;
       const key = buildPlayerIdentityKey(player.name, player.number);
@@ -111,8 +153,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const pitchingByPlayer = new Map<string, ((typeof safePitching)[number] & { player?: (typeof safePlayers)[number] })>();
-    for (const row of safePitching) {
+    // 선수별 누적 투구 통계 (parseIP 적용하여 IP 정확 계산)
+    const pitchingByPlayer = new Map<string, (typeof dedupedPitching)[number] & { player?: (typeof safePlayers)[number]; ip: number }>();
+    for (const row of dedupedPitching) {
       const player = playerById.get(row.player_id);
       if (!player) continue;
       const key = buildPlayerIdentityKey(player.name, player.number);
@@ -121,7 +164,7 @@ export async function POST(request: NextRequest) {
         pitchingByPlayer.set(key, {
           ...current,
           player: current.player && current.player.id > player.id ? current.player : player,
-          ip: n(current.ip) + n(row.ip),
+          ip: (current.ip || 0) + parseIP(row.ip),
           er: n(current.er) + n(row.er),
           w: n(current.w) + n(row.w),
           l: n(current.l) + n(row.l),
@@ -131,37 +174,39 @@ export async function POST(request: NextRequest) {
           ha: n(current.ha) + n(row.ha),
         });
       } else {
-        pitchingByPlayer.set(key, { ...row, player });
+        pitchingByPlayer.set(key, { ...row, player, ip: parseIP(row.ip) });
       }
     }
 
-    // 팀 종합 스탯 계산 (batting)
-    const teamPA = safeBatting.reduce((a, b) => a + n(b.pa), 0);
-    const teamAB = safeBatting.reduce((a, b) => a + n(b.ab), 0);
-    const teamH = safeBatting.reduce((a, b) => a + n(b.hits), 0);
-    const teamHR = safeBatting.reduce((a, b) => a + n(b.hr), 0);
-    const teamRBI = safeBatting.reduce((a, b) => a + n(b.rbi), 0);
-    const teamBB = safeBatting.reduce((a, b) => a + n(b.bb), 0);
-    const teamHBP = safeBatting.reduce((a, b) => a + n(b.hbp), 0);
-    const teamSO = safeBatting.reduce((a, b) => a + n(b.so), 0);
-    const teamSB = safeBatting.reduce((a, b) => a + n(b.sb), 0);
-    const team2B = safeBatting.reduce((a, b) => a + n(b.doubles), 0);
-    const team3B = safeBatting.reduce((a, b) => a + n(b.triples), 0);
+    // 팀 합계: dedup 완료된 선수별 통계에서 집계 (대시보드와 동일한 기준)
+    const allBatStats = Array.from(battingByPlayer.values());
+    const allPitStats = Array.from(pitchingByPlayer.values());
+
+    const teamPA = allBatStats.reduce((a, b) => a + n(b.pa), 0);
+    const teamAB = allBatStats.reduce((a, b) => a + n(b.ab), 0);
+    const teamH = allBatStats.reduce((a, b) => a + n(b.hits), 0);
+    const teamHR = allBatStats.reduce((a, b) => a + n(b.hr), 0);
+    const teamRBI = allBatStats.reduce((a, b) => a + n(b.rbi), 0);
+    const teamBB = allBatStats.reduce((a, b) => a + n(b.bb), 0);
+    const teamHBP = allBatStats.reduce((a, b) => a + n(b.hbp), 0);
+    const teamSO = allBatStats.reduce((a, b) => a + n(b.so), 0);
+    const teamSB = allBatStats.reduce((a, b) => a + n(b.sb), 0);
+    const team2B = allBatStats.reduce((a, b) => a + n(b.doubles), 0);
+    const team3B = allBatStats.reduce((a, b) => a + n(b.triples), 0);
 
     const teamAvg = teamAB > 0 ? (teamH / teamAB).toFixed(3) : "0.000";
     const teamOBP = teamPA > 0 ? ((teamH + teamBB + teamHBP) / teamPA).toFixed(3) : "0.000";
 
-    // 팀 종합 스탯 계산 (pitching)
-    const teamIP = safePitching.reduce((a, b) => a + n(b.ip), 0);
-    const teamER = safePitching.reduce((a, b) => a + n(b.er), 0);
-    const teamW = safePitching.reduce((a, b) => a + n(b.w), 0);
-    const teamL = safePitching.reduce((a, b) => a + n(b.l), 0);
-    const teamSV = safePitching.reduce((a, b) => a + n(b.sv), 0);
-    const teamPSO = safePitching.reduce((a, b) => a + n(b.so), 0);
-    const teamPBB = safePitching.reduce((a, b) => a + n(b.bb), 0);
-    const teamHA = safePitching.reduce((a, b) => a + n(b.ha), 0);
+    const teamIP = allPitStats.reduce((a, b) => a + (b.ip || 0), 0);
+    const teamER = allPitStats.reduce((a, b) => a + n(b.er), 0);
+    const teamW = allPitStats.reduce((a, b) => a + n(b.w), 0);
+    const teamL = allPitStats.reduce((a, b) => a + n(b.l), 0);
+    const teamSV = allPitStats.reduce((a, b) => a + n(b.sv), 0);
+    const teamPSO = allPitStats.reduce((a, b) => a + n(b.so), 0);
+    const teamPBB = allPitStats.reduce((a, b) => a + n(b.bb), 0);
+    const teamHA = allPitStats.reduce((a, b) => a + n(b.ha), 0);
 
-    // ✅ 5이닝제(아마추어/리그 규정) 기준 유지: ERA = ER/IP * 5
+    // 5이닝제(아마추어/리그 규정) 기준: ERA = ER/IP * 5
     const teamERA = teamIP > 0 ? ((teamER / teamIP) * 5).toFixed(2) : "0.00";
     const teamWHIP = teamIP > 0 ? ((teamHA + teamPBB) / teamIP).toFixed(2) : "0.00";
 
@@ -187,25 +232,18 @@ export async function POST(request: NextRequest) {
 
         const avg = (hits / ab).toFixed(3);
         const obp = pa > 0 ? ((hits + bb + hbp) / pa).toFixed(3) : "0.000";
-
-        // SLG 계산: (1B + 2*2B + 3*3B + 4*HR)/AB
         const singles = hits - doubles - triples - hr;
         const slg = ((singles + doubles * 2 + triples * 3 + hr * 4) / ab).toFixed(3);
-
         const ops = (parseFloat(obp) + parseFloat(slg)).toFixed(3);
 
-        playerStats += `  Batting: AVG ${avg} | OBP ${obp} | OPS ${ops} | H ${hits} | HR ${hr} | RBI ${n(
-          bat.rbi
-        )} | BB ${bb} | SO ${n(bat.so)} | SB ${n(bat.sb)}\n`;
+        playerStats += `  Batting: AVG ${avg} | OBP ${obp} | OPS ${ops} | H ${hits} | HR ${hr} | RBI ${n(bat.rbi)} | BB ${bb} | SO ${n(bat.so)} | SB ${n(bat.sb)}\n`;
       }
 
-      if (pit && n(pit.ip) > 0) {
-        const ip = n(pit.ip);
+      if (pit && (pit.ip || 0) > 0) {
+        const ip = pit.ip || 0;
         const er = n(pit.er);
         const era = ((er / ip) * 5).toFixed(2);
-        playerStats += `  Pitching: ERA ${era} | W${n(pit.w)}-L${n(pit.l)} | IP ${ip} | SO ${n(
-          pit.so
-        )} | BB ${n(pit.bb)}\n`;
+        playerStats += `  Pitching: ERA ${era} | W${n(pit.w)}-L${n(pit.l)} | IP ${formatIP(ip)} | SO ${n(pit.so)} | BB ${n(pit.bb)}\n`;
       }
     }
 
@@ -213,9 +251,7 @@ export async function POST(request: NextRequest) {
 Players: ${players.length}
 Players (deduped): ${identityPlayers.length}
 Batting: AVG ${teamAvg} | OBP ${teamOBP} | H ${teamH} | HR ${teamHR} | 2B ${team2B} | 3B ${team3B} | RBI ${teamRBI} | BB ${teamBB} | SO ${teamSO} | SB ${teamSB}
-Pitching: ERA ${teamERA} | WHIP ${teamWHIP} | W${teamW}-L${teamL}-SV${teamSV} | IP ${teamIP.toFixed(
-      1
-    )} | SO ${teamPSO} | BB ${teamPBB} | HA ${teamHA}
+Pitching: ERA ${teamERA} | WHIP ${teamWHIP} | W${teamW}-L${teamL}-SV${teamSV} | IP ${formatIP(teamIP)} | SO ${teamPSO} | BB ${teamPBB} | HA ${teamHA}
 ${playerStats}`;
 
     const systemPrompt =
@@ -260,7 +296,6 @@ ${statsText}
   "key_matchup_tips": "3~4문장으로 경기에서 팀 강점을 활용하는 전략"
 }`;
 
-    // ✅ JSON 강제: response_format (가능한 모델일 때) + 온도 낮춤(파싱 안정)
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -268,7 +303,7 @@ ${statsText}
         { role: "user", content: userPrompt },
       ],
       temperature: 0.4,
-      // @ts-ignore - openai 타입 버전에 따라 없을 수 있음
+      // @ts-ignore
       response_format: { type: "json_object" },
     });
 
@@ -282,7 +317,6 @@ ${statsText}
       return Response.json({ error: "AI 응답 파싱 실패", raw: responseText }, { status: 500 });
     }
 
-    // 기존 팀 리포트 삭제 후 새로 저장
     const del = await supabase.from("ai_reports").delete().eq("report_type", "team");
     if (del.error) throw new Error(del.error.message);
 
