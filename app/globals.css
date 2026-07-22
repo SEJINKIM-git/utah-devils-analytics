@@ -953,3 +953,19 @@ tbody tr:hover {
     animation: none !important;
   }
 }
+
+/* ══════════════════════════════════════════
+   Dashboard 2-column grid (responsive)
+══════════════════════════════════════════ */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 356px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 880px) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+}

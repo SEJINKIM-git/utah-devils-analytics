@@ -13,7 +13,7 @@ import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
 import SbEditCell from "@/app/components/SbEditCell";
-import { Users } from "lucide-react";
+import { Users, Trophy, TrendingUp, TrendingDown, BrainCircuit } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -110,7 +110,7 @@ export default async function Dashboard({
   const playerById = new Map(players.map((player) => [player.id, player]));
   const { data: allBatting } = await supabase.from("batting_stats").select("*");
   const { data: allPitching } = await supabase.from("pitching_stats").select("*");
-  const { data: allGames } = await supabase.from("games").select("id,season,created_at");
+  const { data: allGames } = await supabase.from("games").select("id,season,created_at,date,opponent");
   const { data: rosterUploads } = await supabase
     .from("roster_uploads")
     .select("filename,players_snapshot,source,uploaded_at")
@@ -200,6 +200,47 @@ export default async function Dashboard({
   }
   const uniqueBatting = Array.from(battingByPlayer.values()).filter(hasBattingActivity);
 
+  // ── Per-game team batting for mini bar chart (last 7 games) ──
+  const perGameBatMap = new Map<string, { hits: number; ab: number }>();
+  for (const b of batting) {
+    if (!b.game_id) continue;
+    if (shouldGateStatsToPostRosterGames && !validGameIds.has(b.game_id)) continue;
+    const player = playerById.get(b.player_id);
+    if (!player) continue;
+    const identKey = buildPlayerIdentityKey(player.name, player.number);
+    if (rosterKeys.size > 0 && !rosterKeys.has(identKey)) continue;
+    const cur = perGameBatMap.get(b.game_id) || { hits: 0, ab: 0 };
+    perGameBatMap.set(b.game_id, { hits: cur.hits + (b.hits || 0), ab: cur.ab + (b.ab || 0) });
+  }
+  const perGameEraMap = new Map<string, { er: number; ip: number }>();
+  for (const p of pitching) {
+    if (!p.game_id) continue;
+    if (shouldGateStatsToPostRosterGames && !validGameIds.has(p.game_id)) continue;
+    const player = playerById.get(p.player_id);
+    if (!player) continue;
+    const identKey = buildPlayerIdentityKey(player.name, player.number);
+    if (rosterKeys.size > 0 && !rosterKeys.has(identKey)) continue;
+    const cur = perGameEraMap.get(p.game_id) || { er: 0, ip: 0 };
+    perGameEraMap.set(p.game_id, { er: cur.er + (p.er || 0), ip: cur.ip + parseIP(p.ip) });
+  }
+  const gamesSorted = (allGames || [])
+    .filter((g) => g.season === season && validGameIds.has(g.id))
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const perGameAvgList = gamesSorted
+    .map((g) => {
+      const s = perGameBatMap.get(g.id);
+      return s && s.ab > 0 ? s.hits / s.ab : null;
+    })
+    .filter((v): v is number => v !== null)
+    .slice(-7);
+  const perGameEraList = gamesSorted
+    .map((g) => {
+      const s = perGameEraMap.get(g.id);
+      return s && s.ip > 0 ? (s.er / s.ip) * 5 : null;
+    })
+    .filter((v): v is number => v !== null)
+    .slice(-7);
+
   // ── 투수: 경기별 기록 전부 누적 합산 ──
   const pitchingByPlayer = new Map<string, any>();
   for (const p of pitching) {
@@ -235,6 +276,30 @@ export default async function Dashboard({
     }
   }
   const uniquePitching = Array.from(pitchingByPlayer.values()).filter(hasPitchingActivity);
+
+  // ── Recent 3 games ──
+  const recentGames = gamesSorted
+    .slice(-3)
+    .reverse()
+    .map((g) => {
+      const batStats = (batting || []).filter((b) => b.game_id === g.id);
+      const topPerformerEntry = batStats
+        .map((b) => {
+          const pl = playerById.get(b.player_id);
+          if (!pl) return null;
+          return { player: pl, score: (b.hits || 0) + (b.rbi || 0) + (b.bb || 0), b };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b!.score - a!.score)[0];
+      const gs = perGameBatMap.get(g.id) || { hits: 0, ab: 0 };
+      return {
+        game: g,
+        gameAvg: gs.ab > 0 ? (gs.hits / gs.ab).toFixed(3) : "---",
+        topPerformer: topPerformerEntry?.player || null,
+        topScore: topPerformerEntry?.score || 0,
+      };
+    });
+
   const rosterSeasonPlayers = isPlaceholderSeason
     ? []
     : dedupePlayersByIdentity(
@@ -243,12 +308,13 @@ export default async function Dashboard({
           .filter(Boolean)
       );
   const hasStatData = uniqueBatting.length > 0 || uniquePitching.length > 0;
-  const seasonPlayers = rosterSeasonPlayers.length > 0
-    ? rosterSeasonPlayers
-    : dedupePlayersByIdentity([
-        ...uniqueBatting.map((record) => record.player),
-        ...uniquePitching.map((record) => record.player),
-      ]);
+  const seasonPlayers =
+    rosterSeasonPlayers.length > 0
+      ? rosterSeasonPlayers
+      : dedupePlayersByIdentity([
+          ...uniqueBatting.map((record) => record.player),
+          ...uniquePitching.map((record) => record.player),
+        ]);
   const hasSeasonRoster = seasonPlayers.length > 0;
 
   const battingWithPlayers = uniqueBatting
@@ -257,8 +323,15 @@ export default async function Dashboard({
       if (!player) return null;
       const avg = b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
       const obp = b.pa > 0 ? ((b.hits + b.bb + b.hbp) / b.pa).toFixed(3) : "---";
-      const slg = b.ab > 0 ? ((b.hits - b.doubles - b.triples - b.hr + b.doubles * 2 + b.triples * 3 + b.hr * 4) / b.ab).toFixed(3) : "---";
-      const ops = obp !== "---" && slg !== "---" ? (parseFloat(obp) + parseFloat(slg)).toFixed(3) : "---";
+      const slg =
+        b.ab > 0
+          ? (
+              (b.hits - b.doubles - b.triples - b.hr + b.doubles * 2 + b.triples * 3 + b.hr * 4) /
+              b.ab
+            ).toFixed(3)
+          : "---";
+      const ops =
+        obp !== "---" && slg !== "---" ? (parseFloat(obp) + parseFloat(slg)).toFixed(3) : "---";
       return { ...b, player, avg, obp, slg, ops, opsNum: parseFloat(ops) || 0 };
     })
     .filter(Boolean)
@@ -290,285 +363,1200 @@ export default async function Dashboard({
   const teamOBP  = teamPA > 0 ? ((teamHits + teamBB + teamHBP) / teamPA).toFixed(3) : "---";
   const teamTB   = teamHits + teamDoubles + teamTriples * 2 + teamHRBat * 3;
   const teamSLG  = teamAB > 0 ? (teamTB / teamAB).toFixed(3) : "---";
-  const teamOPS  = teamOBP !== "---" && teamSLG !== "---"
-    ? (parseFloat(teamOBP) + parseFloat(teamSLG)).toFixed(3)
-    : "---";
-  const teamW = uniquePitching.reduce((a, b) => a + b.w, 0);
-  const teamL = uniquePitching.reduce((a, b) => a + b.l, 0);
+  const teamOPS  =
+    teamOBP !== "---" && teamSLG !== "---"
+      ? (parseFloat(teamOBP) + parseFloat(teamSLG)).toFixed(3)
+      : "---";
+  const teamW  = uniquePitching.reduce((a, b) => a + b.w, 0);
+  const teamL  = uniquePitching.reduce((a, b) => a + b.l, 0);
   const teamSV = uniquePitching.reduce((a, b) => a + b.sv, 0);
   const teamIP = uniquePitching.reduce((a, b) => a + b.ip, 0);
   const teamER = uniquePitching.reduce((a, b) => a + b.er, 0);
   const teamERA = teamIP > 0 ? ((teamER / teamIP) * 5).toFixed(2) : "---";
 
-  const seasonLabel = season === "Career" ? t("site.career", lang) : `${season} ${t("site.season", lang)}`;
+  const seasonLabel =
+    season === "Career" ? t("site.career", lang) : `${season} ${t("site.season", lang)}`;
 
-  const batHeaders = ["#", t("batting.name", lang), t("batting.pa", lang), t("batting.ab", lang), t("batting.h", lang), t("batting.doubles", lang), t("batting.triples", lang), t("batting.hr", lang), t("batting.rbi", lang), t("batting.bb", lang), t("batting.so", lang), t("batting.sb", lang), t("batting.avg", lang), t("batting.obp", lang), "OPS"];
-  const pitHeaders = ["#", t("batting.name", lang), t("pitching.w", lang), t("pitching.l", lang), t("pitching.sv", lang), t("pitching.ip", lang), t("pitching.ha", lang), t("pitching.er", lang), t("pitching.bb", lang), t("pitching.so", lang), "ERA", "WHIP"];
+  const batHeaders = [
+    "#",
+    t("batting.name", lang),
+    t("batting.pa", lang),
+    t("batting.ab", lang),
+    t("batting.h", lang),
+    t("batting.doubles", lang),
+    t("batting.triples", lang),
+    t("batting.hr", lang),
+    t("batting.rbi", lang),
+    t("batting.bb", lang),
+    t("batting.so", lang),
+    t("batting.sb", lang),
+    t("batting.avg", lang),
+    t("batting.obp", lang),
+    "OPS",
+  ];
+  const pitHeaders = [
+    "#",
+    t("batting.name", lang),
+    t("pitching.w", lang),
+    t("pitching.l", lang),
+    t("pitching.sv", lang),
+    t("pitching.ip", lang),
+    t("pitching.ha", lang),
+    t("pitching.er", lang),
+    t("pitching.bb", lang),
+    t("pitching.so", lang),
+    "ERA",
+    "WHIP",
+  ];
+
+  // ── AI insights from supabase ──
+  const { data: aiReport } = await supabase
+    .from("ai_reports")
+    .select("summary, strengths, improvements, generated_at")
+    .eq("report_type", "team")
+    .order("generated_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  let aiStrengths: string[] = [];
+  let aiImprovement = "";
+  let aiSummary = aiReport?.summary || "";
+  try {
+    if (aiReport?.strengths) {
+      const s = JSON.parse(aiReport.strengths);
+      aiStrengths = (s.team_strengths || []).slice(0, 2);
+    }
+    if (aiReport?.improvements) {
+      const imp = JSON.parse(aiReport.improvements);
+      aiImprovement = (imp.team_weaknesses || [])[0] || "";
+    }
+  } catch {}
+  // Rule-based fallback if no AI report
+  if (!aiSummary) {
+    const topBatterName = battingWithPlayers[0]?.player?.name || "";
+    aiSummary =
+      lang === "ko"
+        ? `팀 타율 ${teamAvg}, ERA ${teamERA}로 시즌을 운영 중입니다.`
+        : `Team AVG ${teamAvg}, ERA ${teamERA} for the season.`;
+    aiStrengths =
+      lang === "ko"
+        ? [
+            `출루율 ${teamOBP} — 득점 기회 창출`,
+            topBatterName ? `OPS 리더: ${topBatterName}` : `팀 출루율 상위`,
+          ]
+        : [
+            `OBP ${teamOBP} — strong on-base skill`,
+            topBatterName ? `OPS leader: ${topBatterName}` : "Strong OBP",
+          ];
+    aiImprovement =
+      lang === "ko"
+        ? `팀 탈삼진 ${uniquePitching.reduce((a, b) => a + (b.so || 0), 0)}개 — 볼카운트 관리 집중`
+        : `Pitch count management focus`;
+  }
+
+  // ── SVG Helper components (server-renderable) ──
+  function MiniBarChart({ values, accentColor }: { values: number[]; accentColor: string }) {
+    if (!values.length) return null;
+    const H = 48;
+    const W = 9;
+    const G = 5;
+    const max = Math.max(...values, 0.001);
+    return (
+      <svg width={(W + G) * values.length - G} height={H} style={{ display: "block" }}>
+        {values.map((v, i) => {
+          const h = Math.max(Math.round((v / max) * H), 3);
+          const isLast = i === values.length - 1;
+          return (
+            <rect
+              key={i}
+              x={i * (W + G)}
+              y={H - h}
+              width={W}
+              height={h}
+              rx={3}
+              fill={isLast ? accentColor : "rgba(148,163,184,0.18)"}
+            />
+          );
+        })}
+      </svg>
+    );
+  }
+
+  function DonutChart({
+    percent,
+    color,
+    size = 96,
+  }: {
+    percent: number;
+    color: string;
+    size?: number;
+  }) {
+    const r = (size - 16) / 2;
+    const circ = 2 * Math.PI * r;
+    const dash = Math.min(percent / 100, 1) * circ;
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        style={{ display: "block" }}
+      >
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="rgba(148,163,184,0.1)"
+          strokeWidth={10}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={10}
+          strokeDasharray={`${dash} ${circ - dash}`}
+          strokeDashoffset={circ * 0.25}
+          strokeLinecap="round"
+        />
+        <text
+          x={size / 2}
+          y={size / 2 + 6}
+          textAnchor="middle"
+          fill="currentColor"
+          fontSize={16}
+          fontWeight={800}
+          fontFamily="var(--font-body)"
+        >
+          {Number.isFinite(percent) ? `${Math.round(percent)}%` : "—"}
+        </text>
+      </svg>
+    );
+  }
 
   return (
-    <div style={{ minHeight: "100vh", background: "transparent", color: C.white, fontFamily: "var(--font-body)" }}>
-      {/* ═══ 헤더 ═══ */}
-      <div style={{ padding: "28px 32px 10px" }}>
-          <div
-            className="app-surface-panel"
-            style={{
-              borderRadius: 30,
-              padding: "28px 28px 22px",
-              position: "relative",
-              overflow: "hidden",
-              background:
-                "linear-gradient(135deg, rgba(17,25,51,0.96) 0%, rgba(12,18,38,0.96) 56%, rgba(25,31,51,0.98) 100%)",
-            }}
-          >
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "transparent",
+        color: C.white,
+        fontFamily: "var(--font-body)",
+      }}
+    >
+      <div style={{ padding: "28px 32px 48px" }}>
+        {/* ── Search + Season filter (full-width above grid) ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+          <SearchBar
+            players={seasonPlayers}
+            batting={uniqueBatting}
+            pitching={uniquePitching}
+            season={season}
+            lang={lang}
+          />
+          <SeasonFilter seasons={seasons} basePath="/" lang={lang} />
+        </div>
+
+        {/* ── 2-column dashboard grid ── */}
+        <div className="dash-grid">
+          {/* ════ LEFT COLUMN ════ */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {/* Hero card */}
             <div
-              aria-hidden="true"
               style={{
-                position: "absolute",
-                inset: 0,
                 background:
-                  "radial-gradient(circle at 12% 14%, rgba(164,201,255,0.14), transparent 26%), radial-gradient(circle at 92% 8%, rgba(255,180,171,0.12), transparent 28%)",
-                opacity: 0.9,
+                  "linear-gradient(135deg,var(--surface) 0%,var(--sidebar-bg) 100%)",
+                borderRadius: "var(--radius)",
+                padding: "var(--pad-card)",
+                boxShadow: "var(--shadow-md)",
+                position: "relative",
+                overflow: "hidden",
               }}
-            />
-
-            <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 22 }}>
-              <div style={{ display: "flex", alignItems: "stretch", justifyContent: "space-between", gap: 18, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 16, minWidth: 280, flex: "1 1 420px" }}>
-                  <div
-                    style={{
-                      width: 72,
-                      height: 72,
-                      borderRadius: 20,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      background: "linear-gradient(135deg, rgba(255,180,171,0.18), rgba(220,38,38,0.92))",
-                      boxShadow: "0 24px 54px rgba(220,38,38,0.18)",
-                    }}
-                  >
-                    <Image src="/logos/cap-logo.png" alt="Utah Devils" width={52} height={52} style={{ borderRadius: 16 }} />
-                  </div>
-                  <div>
-                    <div className="app-kicker">{seasonLabel}</div>
-                    <h1
-                      className="app-display-title"
-                      style={{
-                        fontSize: "clamp(2rem, 4vw, 3.5rem)",
-                        lineHeight: 0.94,
-                        fontWeight: 700,
-                        margin: "6px 0 8px",
-                      }}
-                    >
-                      {t("site.title", lang)}
-                    </h1>
-                    <p style={{ fontSize: 14, color: C.whiteDim, margin: 0, maxWidth: 540 }}>
-                      {lang === "ko"
-                        ? `${seasonPlayers.length}명의 시즌 로스터와 핵심 기록을 한 화면에서 확인하고, 바로 분석과 운영 화면으로 이어집니다.`
-                        : `Track ${seasonPlayers.length} players, core team metrics, and jump straight into analysis and operations.`}
-                    </p>
-                  </div>
-                </div>
-
-                <div
-                  className="app-glass-panel"
+            >
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background:
+                    "radial-gradient(circle at 10% 10%,var(--blue-dim),transparent 40%),radial-gradient(circle at 90% 80%,var(--coral-dim),transparent 40%)",
+                }}
+              />
+              <div style={{ position: "relative" }}>
+                <p
                   style={{
-                    borderRadius: 22,
-                    padding: "18px 18px 16px",
-                    minWidth: 220,
-                    flex: "0 1 260px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.15em",
+                    color: "var(--coral)",
+                    textTransform: "uppercase",
+                    marginBottom: 8,
                   }}
                 >
-                  <div className="app-kicker" style={{ marginBottom: 8 }}>
-                    {lang === "ko" ? "Season Snapshot" : "Season Snapshot"}
+                  SEASON PERFORMANCE · {season}
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <Image
+                      src="/logos/cap-logo.png"
+                      alt="Utah Devils"
+                      width={56}
+                      height={56}
+                      style={{ borderRadius: 14 }}
+                    />
+                    <div>
+                      <h1
+                        style={{
+                          fontSize: "clamp(1.8rem,3vw,2.8rem)",
+                          fontWeight: 800,
+                          letterSpacing: "-0.03em",
+                          lineHeight: 1,
+                          margin: 0,
+                          color: "var(--text-strong)",
+                        }}
+                      >
+                        {t("site.title", lang)}
+                      </h1>
+                      <p
+                        style={{
+                          fontSize: 13,
+                          color: "var(--text-muted)",
+                          margin: "6px 0 0",
+                        }}
+                      >
+                        {lang === "ko"
+                          ? `${seasonPlayers.length}명 로스터`
+                          : `${seasonPlayers.length} players`}
+                      </p>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
-                    <span
-                      className="app-display-title"
-                      style={{ fontSize: 40, lineHeight: 1, fontWeight: 700, color: "var(--brand-coral)" }}
+                  {hasStatData && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "10px 18px",
+                        borderRadius: "var(--radius-sm)",
+                        background: "var(--coral-dim)",
+                        color: "var(--coral)",
+                      }}
                     >
-                      {hasSeasonRoster ? seasonPlayers.length : 0}
-                    </span>
-                    <span style={{ fontSize: 13, color: C.whiteDim }}>
-                      {lang === "ko" ? "active players" : "active players"}
-                    </span>
-                  </div>
+                      <Trophy size={16} strokeWidth={1.8} />
+                      <span
+                        style={{
+                          fontSize: 20,
+                          fontWeight: 800,
+                          letterSpacing: "-0.02em",
+                        }}
+                      >
+                        {lang === "ko"
+                          ? `${teamW}승 ${teamL}패`
+                          : `${teamW}W ${teamL}L`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Placeholder/locked season notice */}
+            {isPlaceholderSeason && (
+              <div
+                className="app-glass-panel"
+                style={{ padding: "18px 20px", borderRadius: 20 }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+                  {lang === "ko"
+                    ? "2026 시즌은 공식 기록 업로드 전까지 비워 둡니다."
+                    : "The 2026 season stays blank until official records are uploaded."}
+                </div>
+                <div style={{ fontSize: 12, color: C.whiteDim }}>
+                  {lang === "ko"
+                    ? "임시 테스트 데이터는 대시보드에서 표시하지 않도록 처리했습니다. 공식 파일 업로드가 시작되면 이 상태를 해제하면 됩니다."
+                    : "Temporary test data is intentionally hidden from the dashboard. This can be lifted once official uploads begin."}
+                </div>
+              </div>
+            )}
+
+            {!isPlaceholderSeason && hasSeasonRoster && !hasStatData && (
+              <div
+                className="app-glass-panel"
+                style={{ padding: "18px 20px", borderRadius: 20 }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+                  {lang === "ko"
+                    ? "시즌 선수단은 등록되었고, 경기 기록이 올라오면 지표가 자동 계산됩니다."
+                    : "The roster is ready, and metrics will populate automatically once game records are uploaded."}
+                </div>
+                <div style={{ fontSize: 12, color: C.whiteDim }}>
+                  {lang === "ko"
+                    ? "지금은 명단만 표시하고 있으며, 타율·OPS·ERA·WHIP 같은 수치는 경기/시즌 기록 업로드 후 바로 시즌 대시보드에 반영됩니다."
+                    : "The dashboard is showing the roster first. AVG, OPS, ERA, WHIP, and other metrics will appear as soon as records are uploaded."}
+                </div>
+              </div>
+            )}
+
+            {/* Season roster */}
+            {!isPlaceholderSeason && hasSeasonRoster && (
+              <div>
+                <h2
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 700,
+                    marginBottom: 16,
+                  }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <Users size={18} />
+                    {lang === "ko"
+                      ? `${season} 선수단 명단 · ${seasonPlayers.length}명`
+                      : `${season} Roster · ${seasonPlayers.length}`}
+                  </span>
+                </h2>
+                <div
+                  className="app-glass-panel"
+                  style={{ borderRadius: 20, padding: "18px 18px 16px" }}
+                >
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
                       gap: 10,
                     }}
                   >
-                    <div style={{ padding: "10px 12px", borderRadius: 16, background: "rgba(255,255,255,0.05)" }}>
-                      <div className="app-kicker" style={{ marginBottom: 4 }}>
-                        {lang === "ko" ? "Batting" : "Batting"}
+                    {seasonPlayers.map((player: any) => (
+                      <div
+                        key={`${player.number}-${player.name}-${player.id}`}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "10px 12px",
+                          borderRadius: 14,
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.06)",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 10,
+                            background:
+                              "linear-gradient(135deg, rgba(255,180,171,0.9), rgba(220,38,38,0.9))",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 12,
+                            fontWeight: 800,
+                            color: "#fff",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {player.number}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: C.white,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            {getPlayerDisplayName(player.name, lang)}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "#8ef0aa" }}>{teamAvg}</div>
-                    </div>
-                    <div style={{ padding: "10px 12px", borderRadius: 16, background: "rgba(255,255,255,0.05)" }}>
-                      <div className="app-kicker" style={{ marginBottom: 4 }}>
-                        ERA
-                      </div>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "var(--brand-blue)" }}>{teamERA}</div>
-                    </div>
+                    ))}
                   </div>
                 </div>
               </div>
+            )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 14 }}>
-                <div style={{ flex: 1 }}>
-                  <SearchBar players={seasonPlayers} batting={uniqueBatting} pitching={uniquePitching} season={season} lang={lang} />
-                </div>
-                <SeasonFilter seasons={seasons} basePath="/" lang={lang} />
-              </div>
-            </div>
-          </div>
-      </div>
-
-      {/* ═══ 본문 ═══ */}
-      <div style={{ padding: "24px 32px 48px" }}>
-        {/* 팀 통계 카드 — 5×2 */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 36 }}>
-          {[
-            { label: t("stats.teamAvg", lang), value: teamAvg,                               color: "#22c55e" },
-            { label: t("stats.teamOBP", lang), value: teamOBP,                               color: "#60a5fa" },
-            { label: t("stats.teamSLG", lang), value: hasStatData ? teamSLG : "---",         color: "#fb7185" },
-            { label: t("stats.teamOPS", lang), value: hasStatData ? teamOPS : "---",         color: "#f59e0b" },
-            { label: t("stats.teamH",   lang), value: hasStatData ? teamHits : "---",        color: "#34d399" },
-            { label: t("stats.bbhbp",   lang), value: hasStatData ? teamBBHBP : "---",       color: "#38bdf8" },
-            { label: t("stats.teamERA", lang), value: teamERA,                               color: "#eab308" },
-            { label: t("stats.sb",      lang), value: hasStatData ? teamSB : "---",          color: "#a78bfa" },
-            { label: t("stats.wls",     lang), value: hasStatData ? `${teamW}-${teamL}-${teamSV}` : "---", color: "#f97316" },
-            { label: t("stats.so",      lang), value: hasStatData ? teamSO : "---",          color: C.red },
-          ].map((stat, i) => (
-            <div key={i} className="app-metric-card" style={{ borderRadius: 22, padding: "20px 18px" }}>
-              <div className="app-kicker" style={{ marginBottom: 8, color: C.whiteDim }}>{stat.label}</div>
-              <div className="app-display-title" style={{ fontSize: 28, fontWeight: 700, color: stat.color }}>{stat.value}</div>
-            </div>
-          ))}
-        </div>
-
-        {isPlaceholderSeason && (
-          <div className="app-glass-panel" style={{ marginBottom: 28, padding: "18px 20px", borderRadius: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
-              {lang === "ko" ? "2026 시즌은 공식 기록 업로드 전까지 비워 둡니다." : "The 2026 season stays blank until official records are uploaded."}
-            </div>
-            <div style={{ fontSize: 12, color: C.whiteDim }}>
-              {lang === "ko"
-                ? "임시 테스트 데이터는 대시보드에서 표시하지 않도록 처리했습니다. 공식 파일 업로드가 시작되면 이 상태를 해제하면 됩니다."
-                : "Temporary test data is intentionally hidden from the dashboard. This can be lifted once official uploads begin."}
-            </div>
-          </div>
-        )}
-
-        {!isPlaceholderSeason && hasSeasonRoster && !hasStatData && (
-          <div className="app-glass-panel" style={{ marginBottom: 28, padding: "18px 20px", borderRadius: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
-              {lang === "ko" ? "시즌 선수단은 등록되었고, 경기 기록이 올라오면 지표가 자동 계산됩니다." : "The roster is ready, and metrics will populate automatically once game records are uploaded."}
-            </div>
-            <div style={{ fontSize: 12, color: C.whiteDim }}>
-              {lang === "ko"
-                ? "지금은 명단만 표시하고 있으며, 타율·OPS·ERA·WHIP 같은 수치는 경기/시즌 기록 업로드 후 바로 시즌 대시보드에 반영됩니다."
-                : "The dashboard is showing the roster first. AVG, OPS, ERA, WHIP, and other metrics will appear as soon as records are uploaded."}
-            </div>
-          </div>
-        )}
-
-        {!isPlaceholderSeason && hasSeasonRoster && (
-          <div style={{ marginBottom: 32 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Users size={18} />{lang === "ko" ? `${season} 선수단 명단 · ${seasonPlayers.length}명` : `${season} Roster · ${seasonPlayers.length}`}</span>
-            </h2>
-            <div className="app-glass-panel" style={{ borderRadius: 20, padding: "18px 18px 16px" }}>
+            {/* Team AVG card with mini bar chart */}
+            {hasStatData && (
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                  gap: 10,
+                  background: "var(--surface)",
+                  borderRadius: "var(--radius)",
+                  padding: "var(--pad-card)",
+                  boxShadow: "var(--shadow-md)",
                 }}
               >
-                {seasonPlayers.map((player: any) => (
-                  <div
-                    key={`${player.number}-${player.name}-${player.id}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "10px 12px",
-                      borderRadius: 14,
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.06)",
-                    }}
-                  >
+                <p
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.15em",
+                    color: "var(--text-faint)",
+                    textTransform: "uppercase",
+                    margin: "0 0 4px",
+                  }}
+                >
+                  {lang === "ko" ? "팀 타율" : "Team AVG"}
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "space-between",
+                    gap: 16,
+                  }}
+                >
+                  <div>
                     <div
                       style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 10,
-                        background: "linear-gradient(135deg, rgba(255,180,171,0.9), rgba(220,38,38,0.9))",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 12,
+                        fontSize: 56,
                         fontWeight: 800,
-                        color: "#fff",
-                        flexShrink: 0,
+                        letterSpacing: "-0.03em",
+                        lineHeight: 1,
+                        color: "var(--coral)",
+                        fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {player.number}
+                      {teamAvg}
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: C.white, lineHeight: 1.2 }}>
-                        {getPlayerDisplayName(player.name, lang)}
-                      </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                      OBP {teamOBP} · SLG {teamSLG}
                     </div>
                   </div>
-                ))}
+                  {perGameAvgList.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-end",
+                        gap: 6,
+                      }}
+                    >
+                      <MiniBarChart values={perGameAvgList} accentColor="var(--coral)" />
+                      <span style={{ fontSize: 10, color: "var(--text-faint)" }}>
+                        {lang === "ko" ? "최근 경기 타율" : "Recent game AVG"}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* ═══ 타격 테이블 ═══ */}
-        <div style={{ marginBottom: 40 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Team ERA card with mini bar chart */}
+            {hasStatData && (
+              <div
+                style={{
+                  background: "var(--surface)",
+                  borderRadius: "var(--radius)",
+                  padding: "var(--pad-card)",
+                  boxShadow: "var(--shadow-md)",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.15em",
+                    color: "var(--text-faint)",
+                    textTransform: "uppercase",
+                    margin: "0 0 4px",
+                  }}
+                >
+                  {lang === "ko" ? "팀 ERA" : "Team ERA"}
+                </p>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "space-between",
+                    gap: 16,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 56,
+                        fontWeight: 800,
+                        letterSpacing: "-0.03em",
+                        lineHeight: 1,
+                        color: "var(--blue)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {teamERA}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                      {lang === "ko"
+                        ? `${teamW}승 ${teamL}패 ${teamSV}세이브`
+                        : `${teamW}W ${teamL}L ${teamSV}SV`}
+                    </div>
+                  </div>
+                  {perGameEraList.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-end",
+                        gap: 6,
+                      }}
+                    >
+                      <MiniBarChart values={perGameEraList} accentColor="var(--blue)" />
+                      <span style={{ fontSize: 10, color: "var(--text-faint)" }}>
+                        {lang === "ko" ? "최근 경기 ERA" : "Recent game ERA"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Recent 3 games */}
+            {recentGames.length > 0 && (
+              <div
+                style={{
+                  background: "var(--surface)",
+                  borderRadius: "var(--radius)",
+                  padding: "var(--pad-card)",
+                  boxShadow: "var(--shadow-md)",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.15em",
+                    color: "var(--text-faint)",
+                    textTransform: "uppercase",
+                    margin: "0 0 16px",
+                  }}
+                >
+                  {lang === "ko" ? "최근 경기" : "Recent Games"}
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {recentGames.map(({ game, gameAvg, topPerformer }) => (
+                    <div
+                      key={game.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "12px 14px",
+                        borderRadius: "var(--radius-sm)",
+                        background: "var(--surface-raised)",
+                      }}
+                    >
+                      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                        {game.date ||
+                          new Date(game.created_at).toLocaleDateString(
+                            lang === "ko" ? "ko-KR" : "en-US",
+                            { month: "short", day: "numeric" }
+                          )}
+                        {game.opponent && (
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              fontWeight: 700,
+                              color: "var(--text)",
+                            }}
+                          >
+                            vs {game.opponent}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                        {topPerformer && (
+                          <span style={{ fontSize: 12, color: "var(--coral)" }}>
+                            {topPerformer.name}
+                          </span>
+                        )}
+                        <span
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 800,
+                            fontVariantNumeric: "tabular-nums",
+                            color: "var(--text-strong)",
+                          }}
+                        >
+                          {gameAvg}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Top 5 batters by OPS */}
+            {battingWithPlayers.length > 0 && (
+              <div
+                style={{
+                  background: "var(--surface)",
+                  borderRadius: "var(--radius)",
+                  overflow: "hidden",
+                  boxShadow: "var(--shadow-md)",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "24px var(--pad-card) 16px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.15em",
+                      color: "var(--text-faint)",
+                      textTransform: "uppercase",
+                      margin: 0,
+                    }}
+                  >
+                    {lang === "ko" ? "타자 기록 TOP 5 · OPS 순" : "Top 5 Batters by OPS"}
+                  </p>
+                  <Link
+                    href={`/?season=${season}#batting`}
+                    style={{
+                      fontSize: 12,
+                      color: "var(--coral)",
+                      textDecoration: "none",
+                    }}
+                  >
+                    {lang === "ko" ? "전체 →" : "All →"}
+                  </Link>
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      {["#", "이름", "타율", "안타", "타점", "출루율", "OPS"].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            padding: "8px 16px",
+                            textAlign: "left",
+                            fontSize: 10,
+                            color: "var(--text-faint)",
+                            fontWeight: 700,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            borderBottom: "1px solid rgba(148,163,184,0.06)",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {battingWithPlayers.slice(0, 5).map((b: any, i: number) => (
+                      <tr key={i} style={{ boxShadow: "inset 0 1px 0 rgba(148,163,184,0.06)" }}>
+                        <td
+                          style={{
+                            padding: "14px 16px",
+                            color: "var(--text-muted)",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {b.player.number}
+                        </td>
+                        <td style={{ padding: "14px 16px", fontWeight: 700 }}>
+                          <Link
+                            href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`}
+                            style={{ color: "var(--text-strong)", textDecoration: "none" }}
+                          >
+                            {getPlayerDisplayName(b.player.name, lang)}
+                          </Link>
+                        </td>
+                        <td
+                          style={{
+                            padding: "14px 16px",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {b.avg}
+                        </td>
+                        <td
+                          style={{
+                            padding: "14px 16px",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {b.hits}
+                        </td>
+                        <td
+                          style={{
+                            padding: "14px 16px",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {b.rbi}
+                        </td>
+                        <td
+                          style={{
+                            padding: "14px 16px",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {b.obp}
+                        </td>
+                        <td
+                          style={{
+                            padding: "14px 16px",
+                            fontVariantNumeric: "tabular-nums",
+                            fontWeight: 800,
+                            color: "var(--coral)",
+                          }}
+                        >
+                          {b.ops}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* ════ RIGHT COLUMN ════ */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {/* AI Insights panel */}
+            <div
+              style={{
+                background: "var(--surface)",
+                borderRadius: "var(--radius)",
+                padding: "var(--pad-card)",
+                boxShadow: "var(--shadow-md)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 16,
+                }}
+              >
+                <BrainCircuit
+                  size={18}
+                  strokeWidth={1.8}
+                  style={{ color: "var(--coral)" }}
+                />
+                <p
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.15em",
+                    color: "var(--text-faint)",
+                    textTransform: "uppercase",
+                    margin: 0,
+                  }}
+                >
+                  AI INSIGHTS
+                </p>
+                {aiReport?.generated_at && (
+                  <span
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 10,
+                      color: "var(--text-faint)",
+                      background: "var(--surface-raised)",
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                    }}
+                  >
+                    LIVE
+                  </span>
+                )}
+              </div>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  lineHeight: 1.65,
+                  marginBottom: 16,
+                }}
+              >
+                {aiSummary}
+              </p>
+              {aiStrengths.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.12em",
+                      color: "var(--green)",
+                      textTransform: "uppercase",
+                      margin: 0,
+                    }}
+                  >
+                    {lang === "ko" ? "핵심 강점" : "Key Strengths"}
+                  </p>
+                  {aiStrengths.map((s, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "var(--radius-sm)",
+                        background: "var(--surface-raised)",
+                        fontSize: 13,
+                        color: "var(--text)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {s}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {aiImprovement && (
+                <div>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.12em",
+                      color: "var(--coral)",
+                      textTransform: "uppercase",
+                      margin: "0 0 8px",
+                    }}
+                  >
+                    {lang === "ko" ? "개선 포인트" : "Improvement"}
+                  </p>
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: "var(--radius-sm)",
+                      background: "var(--coral-dim)",
+                      fontSize: 13,
+                      color: "var(--text)",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {aiImprovement}
+                  </div>
+                </div>
+              )}
+              {!aiReport && (
+                <Link
+                  href={`/team-analysis?season=${season}`}
+                  style={{
+                    display: "block",
+                    marginTop: 16,
+                    padding: "10px 16px",
+                    borderRadius: "var(--radius-sm)",
+                    background: "var(--coral-dim)",
+                    color: "var(--coral)",
+                    textDecoration: "none",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textAlign: "center",
+                  }}
+                >
+                  {lang === "ko" ? "AI 분석 생성 →" : "Generate AI Analysis →"}
+                </Link>
+              )}
+            </div>
+
+            {/* K% Donut card */}
+            {uniquePitching.length > 0 &&
+              (() => {
+                const totalOuts = uniquePitching.reduce(
+                  (a, p: any) => a + (p.ip || 0) * 3,
+                  0
+                );
+                const totalKs = uniquePitching.reduce(
+                  (a, p: any) => a + (p.so || 0),
+                  0
+                );
+                const kPct = totalOuts > 0 ? (totalKs / totalOuts) * 100 : 0;
+                return (
+                  <div
+                    style={{
+                      background: "var(--surface)",
+                      borderRadius: "var(--radius)",
+                      padding: "var(--pad-card)",
+                      boxShadow: "var(--shadow-md)",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <p
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.15em",
+                        color: "var(--text-faint)",
+                        textTransform: "uppercase",
+                        margin: 0,
+                      }}
+                    >
+                      {lang === "ko" ? "투수진 K%" : "Pitching K%"}
+                    </p>
+                    <DonutChart percent={kPct} color="var(--blue)" size={96} />
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                      {lang === "ko"
+                        ? `탈삼진 ${totalKs}개 / 총 아웃카운트 ${Math.round(totalOuts)}개`
+                        : `${totalKs} Ks / ${Math.round(totalOuts)} outs`}
+                    </p>
+                  </div>
+                );
+              })()}
+
+            {/* OPS Leaders (top 3) */}
+            {battingWithPlayers.length > 0 && (
+              <div
+                style={{
+                  background: "var(--surface)",
+                  borderRadius: "var(--radius)",
+                  padding: "var(--pad-card)",
+                  boxShadow: "var(--shadow-md)",
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.15em",
+                    color: "var(--text-faint)",
+                    textTransform: "uppercase",
+                    margin: "0 0 16px",
+                  }}
+                >
+                  {lang === "ko" ? "OPS 리더" : "OPS Leaders"}
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {battingWithPlayers.slice(0, 3).map((b: any, i: number) => (
+                    <Link
+                      key={i}
+                      href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "10px 12px",
+                        borderRadius: "var(--radius-sm)",
+                        background: i === 0 ? "var(--coral-dim)" : "var(--surface-raised)",
+                        textDecoration: "none",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 8,
+                          background:
+                            i === 0 ? "var(--coral)" : "var(--surface-raised)",
+                          color: i === 0 ? "#fff" : "var(--text-faint)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 11,
+                          fontWeight: 800,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {i + 1}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: i === 0 ? "var(--coral)" : "var(--text)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {getPlayerDisplayName(b.player.name, lang)}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          #{b.player.number}
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 18,
+                          fontWeight: 800,
+                          color: i === 0 ? "var(--coral)" : "var(--text-strong)",
+                          fontVariantNumeric: "tabular-nums",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {b.ops}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        {/* end .dash-grid */}
+
+        {/* ════ FULL BATTING TABLE (below grid) ════ */}
+        <div id="batting" style={{ marginTop: 40 }}>
+          <h2
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
             {t("batting.title", lang)}
-            <span style={{ fontSize: 12, color: C.whiteDim }}>{t("batting.sortOps", lang)} · {battingWithPlayers?.length || 0}{lang === "ko" ? "명" : ""}</span>
+            <span style={{ fontSize: 12, color: C.whiteDim }}>
+              {t("batting.sortOps", lang)} · {battingWithPlayers?.length || 0}
+              {lang === "ko" ? "명" : ""}
+            </span>
           </h2>
-          <div className="app-table-shell" style={{ borderRadius: 20, overflow: "hidden" }}>
+          <div
+            className="app-table-shell"
+            style={{ borderRadius: 20, overflow: "hidden" }}
+          >
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
                   {batHeaders.map((h) => (
-                    <th key={h} style={{ padding: "14px 12px", textAlign: "left", fontSize: 10, color: C.whiteDim, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: 1.2 }}>{h}</th>
+                    <th
+                      key={h}
+                      style={{
+                        padding: "14px 12px",
+                        textAlign: "left",
+                        fontSize: 10,
+                        color: C.whiteDim,
+                        fontWeight: 700,
+                        textTransform: "uppercase" as const,
+                        letterSpacing: 1.2,
+                      }}
+                    >
+                      {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {battingWithPlayers?.map((b: any, i: number) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
-                    <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>{b.player.number}</td>
-                    <td style={{ padding: "12px", fontWeight: 700 }}><Link href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`} style={{ color: C.white, textDecoration: "none" }}>{getPlayerDisplayName(b.player.name, lang)}</Link></td>
+                    <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>
+                      {b.player.number}
+                    </td>
+                    <td style={{ padding: "12px", fontWeight: 700 }}>
+                      <Link
+                        href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`}
+                        style={{ color: C.white, textDecoration: "none" }}
+                      >
+                        {getPlayerDisplayName(b.player.name, lang)}
+                      </Link>
+                    </td>
                     <td style={{ padding: "12px" }}>{b.pa}</td>
                     <td style={{ padding: "12px" }}>{b.ab}</td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: b.hits >= 5 ? "#22c55e" : C.white }}>{b.hits}</td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        fontWeight: 700,
+                        color: b.hits >= 5 ? "#22c55e" : C.white,
+                      }}
+                    >
+                      {b.hits}
+                    </td>
                     <td style={{ padding: "12px" }}>{b.doubles}</td>
                     <td style={{ padding: "12px" }}>{b.triples}</td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: b.hr > 0 ? "#eab308" : C.white }}>{b.hr}</td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        fontWeight: 700,
+                        color: b.hr > 0 ? "#eab308" : C.white,
+                      }}
+                    >
+                      {b.hr}
+                    </td>
                     <td style={{ padding: "12px" }}>{b.rbi}</td>
                     <td style={{ padding: "12px" }}>{b.bb}</td>
-                    <td style={{ padding: "12px", color: b.so >= 8 ? C.red : C.white }}>{b.so}</td>
-                    <td style={{ padding: "12px" }}>
-                      <SbEditCell playerId={b.player_id} season={season} initialSb={b.sb ?? 0} />
+                    <td
+                      style={{
+                        padding: "12px",
+                        color: b.so >= 8 ? C.red : C.white,
+                      }}
+                    >
+                      {b.so}
                     </td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: parseFloat(b.avg) >= 0.3 ? "#22c55e" : parseFloat(b.avg) >= 0.2 ? "#eab308" : C.red }}>{b.avg}</td>
+                    <td style={{ padding: "12px" }}>
+                      <SbEditCell
+                        playerId={b.player_id}
+                        season={season}
+                        initialSb={b.sb ?? 0}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        fontWeight: 700,
+                        color:
+                          parseFloat(b.avg) >= 0.3
+                            ? "#22c55e"
+                            : parseFloat(b.avg) >= 0.2
+                            ? "#eab308"
+                            : C.red,
+                      }}
+                    >
+                      {b.avg}
+                    </td>
                     <td style={{ padding: "12px" }}>{b.obp}</td>
                     <td style={{ padding: "12px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ width: 80, height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden" }}>
-                          <div style={{ width: `${Math.min((b.opsNum / 2.2) * 100, 100)}%`, height: "100%", background: b.opsNum >= 1.0 ? "#22c55e" : b.opsNum >= 0.7 ? "#eab308" : C.red, borderRadius: 3 }} />
+                        <div
+                          style={{
+                            width: 80,
+                            height: 6,
+                            background: "rgba(255,255,255,0.06)",
+                            borderRadius: 999,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${Math.min((b.opsNum / 2.2) * 100, 100)}%`,
+                              height: "100%",
+                              background:
+                                b.opsNum >= 1.0
+                                  ? "#22c55e"
+                                  : b.opsNum >= 0.7
+                                  ? "#eab308"
+                                  : C.red,
+                              borderRadius: 3,
+                            }}
+                          />
                         </div>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: b.opsNum >= 1.0 ? "#22c55e" : b.opsNum >= 0.7 ? "#eab308" : C.red, minWidth: 45 }}>{b.ops}</span>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color:
+                              b.opsNum >= 1.0
+                                ? "#22c55e"
+                                : b.opsNum >= 0.7
+                                ? "#eab308"
+                                : C.red,
+                            minWidth: 45,
+                          }}
+                        >
+                          {b.ops}
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -578,32 +1566,113 @@ export default async function Dashboard({
           </div>
         </div>
 
-        {/* ═══ 투구 테이블 ═══ */}
-        <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>{t("pitching.title", lang)} <span style={{ fontSize: 12, color: C.whiteDim }}>{t("pitching.sortEra", lang)} · {pitchingWithPlayers?.length || 0}{lang === "ko" ? "명" : ""}</span></h2>
-          <div className="app-table-shell" style={{ borderRadius: 20, overflow: "hidden" }}>
+        {/* ════ FULL PITCHING TABLE (below grid) ════ */}
+        <div id="pitching" style={{ marginTop: 32 }}>
+          <h2
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            {t("pitching.title", lang)}{" "}
+            <span style={{ fontSize: 12, color: C.whiteDim }}>
+              {t("pitching.sortEra", lang)} · {pitchingWithPlayers?.length || 0}
+              {lang === "ko" ? "명" : ""}
+            </span>
+          </h2>
+          <div
+            className="app-table-shell"
+            style={{ borderRadius: 20, overflow: "hidden" }}
+          >
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
                   {pitHeaders.map((h) => (
-                    <th key={h} style={{ padding: "14px 12px", textAlign: "left", fontSize: 10, color: C.whiteDim, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: 1.2 }}>{h}</th>
+                    <th
+                      key={h}
+                      style={{
+                        padding: "14px 12px",
+                        textAlign: "left",
+                        fontSize: 10,
+                        color: C.whiteDim,
+                        fontWeight: 700,
+                        textTransform: "uppercase" as const,
+                        letterSpacing: 1.2,
+                      }}
+                    >
+                      {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {pitchingWithPlayers?.map((p: any, i: number) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
-                    <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>{p.player.number}</td>
-                    <td style={{ padding: "12px", fontWeight: 700 }}>{getPlayerDisplayName(p.player.name, lang)}</td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: p.w > 0 ? "#22c55e" : C.white }}>{p.w}</td>
-                    <td style={{ padding: "12px", color: p.l > 0 ? C.red : C.white }}>{p.l}</td>
-                    <td style={{ padding: "12px", color: p.sv > 0 ? "#eab308" : C.white }}>{p.sv}</td>
+                    <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>
+                      {p.player.number}
+                    </td>
+                    <td style={{ padding: "12px", fontWeight: 700 }}>
+                      {getPlayerDisplayName(p.player.name, lang)}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        fontWeight: 700,
+                        color: p.w > 0 ? "#22c55e" : C.white,
+                      }}
+                    >
+                      {p.w}
+                    </td>
+                    <td style={{ padding: "12px", color: p.l > 0 ? C.red : C.white }}>
+                      {p.l}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        color: p.sv > 0 ? "#eab308" : C.white,
+                      }}
+                    >
+                      {p.sv}
+                    </td>
                     <td style={{ padding: "12px" }}>{formatIP(p.ip)}</td>
                     <td style={{ padding: "12px" }}>{p.ha}</td>
                     <td style={{ padding: "12px" }}>{p.er}</td>
-                    <td style={{ padding: "12px", color: p.bb >= 10 ? C.red : C.white }}>{p.bb}</td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: p.so >= 10 ? "#22c55e" : C.white }}>{p.so}</td>
-                    <td style={{ padding: "12px" }}><span style={{ fontWeight: 700, color: p.eraNum <= 3.0 ? "#22c55e" : p.eraNum <= 5.0 ? "#eab308" : C.red }}>{p.era}</span></td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        color: p.bb >= 10 ? C.red : C.white,
+                      }}
+                    >
+                      {p.bb}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px",
+                        fontWeight: 700,
+                        color: p.so >= 10 ? "#22c55e" : C.white,
+                      }}
+                    >
+                      {p.so}
+                    </td>
+                    <td style={{ padding: "12px" }}>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color:
+                            p.eraNum <= 3.0
+                              ? "#22c55e"
+                              : p.eraNum <= 5.0
+                              ? "#eab308"
+                              : C.red,
+                        }}
+                      >
+                        {p.era}
+                      </span>
+                    </td>
                     <td style={{ padding: "12px" }}>{p.whip}</td>
                   </tr>
                 ))}

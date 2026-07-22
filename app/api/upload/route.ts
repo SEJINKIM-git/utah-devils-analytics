@@ -1213,6 +1213,7 @@ export async function POST(request: NextRequest) {
         success: true,
         message: `완료! 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 정보 업데이트` : ""}${skipped}${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 대시보드 활성화` : ""}`,
         details: { ...initialized, seasons: rosterSeasons },
+        validation: { processedRows: initialized.batting + initialized.pitching, matchedPlayers: initialized.updated, unmatchedNames: initialized.players },
       }), activeSeason);
     }
 
@@ -1247,6 +1248,7 @@ export async function POST(request: NextRequest) {
         success: true,
         message: `업로드 완료! 경기 Word 기록을 반영했습니다. 선수 ${results.players}명 추가, 경기 ${results.games}개, 타자 ${results.batting}건, 투수 ${results.pitching}건 반영${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 잠금 해제` : ""}`,
         details: results,
+        validation: { processedRows: results.batting + results.pitching, matchedPlayers: results.updated, unmatchedNames: results.players },
       }), activeSeason);
     }
 
@@ -1306,6 +1308,7 @@ export async function POST(request: NextRequest) {
         success: true,
         message: `로스터 반영 완료! 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 업데이트` : ""}${skipped}${skippedCount}${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 대시보드 활성화` : ""}`,
         details: { ...initialized, seasons: rosterSeasons },
+        validation: { processedRows: initialized.batting + initialized.pitching, matchedPlayers: initialized.updated, unmatchedNames: initialized.players },
       }), activeSeason);
     }
 
@@ -1366,6 +1369,7 @@ export async function POST(request: NextRequest) {
       success: true,
       message: `업로드 완료! ${replacedScope}. 선수 ${results.players}명 추가, 경기 ${results.games}개, 타자 ${results.batting}건, 투수 ${results.pitching}건 반영${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 잠금 해제` : ""}`,
       details: results,
+      validation: { processedRows: results.batting + results.pitching, matchedPlayers: results.updated, unmatchedNames: results.players },
     }), activeSeason);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "알 수 없는 에러";
