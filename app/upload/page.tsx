@@ -2,6 +2,11 @@
 import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Upload, Users, FileSpreadsheet, BookOpen, CheckCircle, XCircle,
+  AlertTriangle, Calendar, ArrowLeftRight, BarChart3, Loader2, ArrowLeft,
+  TrendingUp, Info, FileUp,
+} from "lucide-react";
 
 type ConflictPlayer = {
   existingId: string; existingName: string; existingNumber: number;
@@ -15,13 +20,15 @@ type UploadResult = {
 
 const FORMATS = [
   {
-    emoji: "👥", title: "로스터 파일 (선수 등록/수정)",
+    icon: "users",
+    title: "로스터 파일 (선수 등록/수정)",
     color: "#4ade80", bg: "rgba(34,197,94,0.08)", border: "rgba(34,197,94,0.2)",
     desc: "새 선수 추가 또는 기존 선수 정보 수정. 기존 성적은 유지됩니다.",
     sheets: [{ name: "시트 컬럼", cols: "배번 | 이름" }],
   },
   {
-    emoji: "⚾", title: "경기 기록 파일 (성적 업데이트)",
+    icon: "spreadsheet",
+    title: "경기 기록 파일 (성적 업데이트)",
     color: "#60a5fa", bg: "rgba(59,130,246,0.08)", border: "rgba(59,130,246,0.2)",
     desc: "경기 후 기록 업로드. 시즌 누적 파일은 시즌 전체를 교체하고, 현장 경기 Excel/Word 파일은 해당 경기만 최신 파일 기준으로 교체됩니다.",
     sheets: [
@@ -33,7 +40,8 @@ const FORMATS = [
     ],
   },
   {
-    emoji: "📚", title: "공식 시즌/통산 파일",
+    icon: "book",
+    title: "공식 시즌/통산 파일",
     color: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)",
     desc: "2022~2025 시즌 누적 통계 파일과 Career Totals 공식 통산 파일을 그대로 업로드할 수 있습니다.",
     sheets: [
@@ -51,6 +59,12 @@ const TIPS = [
   "기록은 업로드된 최신 파일을 기준으로 시즌별 대시보드에 합산 표시됩니다.",
   "파일명에 연도가 없으면 현재 보고 있는 시즌(예: 2025, 2026)으로 업로드됩니다.",
 ];
+
+function FormatIcon({ icon, color, size = 20 }: { icon: string; color: string; size?: number }) {
+  if (icon === "users") return <Users size={size} color={color} />;
+  if (icon === "spreadsheet") return <FileSpreadsheet size={size} color={color} />;
+  return <BookOpen size={size} color={color} />;
+}
 
 export default function UploadPage() {
   const router = useRouter();
@@ -125,48 +139,51 @@ export default function UploadPage() {
   const primarySeason = getPrimarySeason(result);
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px" }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-body)" }}>
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px 60px" }}>
 
-        {/* 헤더 */}
-        <Link href={currentSeason ? `/?season=${currentSeason}` : "/"} style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20 }}>
-          ← 대시보드로 돌아가기
+        {/* Header */}
+        <Link href={currentSeason ? `/?season=${currentSeason}` : "/"} style={{ fontSize: 13, color: "var(--text-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 24 }}>
+          <ArrowLeft size={14} />
+          대시보드로 돌아가기
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 36 }}>
-          <div style={{ width: 54, height: 54, borderRadius: 16, background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>📤</div>
+          <div style={{ width: 54, height: 54, borderRadius: 16, background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <FileUp size={26} color="#60a5fa" />
+          </div>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>선수 등록 / 기록 업로드</h1>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "4px 0 0" }}>파일을 다시 올리면 해당 시즌 대시보드는 항상 최신 업로드 기준으로 바뀝니다</p>
+            <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, letterSpacing: "-0.03em" }}>선수 등록 / 기록 업로드</h1>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 0" }}>파일을 다시 올리면 해당 시즌 대시보드는 항상 최신 업로드 기준으로 바뀝니다</p>
           </div>
         </div>
 
-        {/* 형식 안내 카드 */}
+        {/* Format Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16, marginBottom: 32 }}>
           {FORMATS.map((g, i) => (
             <div key={i} style={{ background: g.bg, border: `1px solid ${g.border}`, borderRadius: 16, padding: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                <span style={{ fontSize: 22 }}>{g.emoji}</span>
+                <FormatIcon icon={g.icon} color={g.color} />
                 <span style={{ fontSize: 14, fontWeight: 700, color: g.color }}>{g.title}</span>
               </div>
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: "0 0 14px", lineHeight: 1.65 }}>{g.desc}</p>
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.65 }}>{g.desc}</p>
               {g.sheets.map((s, j) => (
-                <div key={j} style={{ background: "rgba(0,0,0,0.3)", borderRadius: 10, padding: "10px 12px", marginBottom: j < g.sheets.length - 1 ? 8 : 0 }}>
+                <div key={j} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "10px 12px", marginBottom: j < g.sheets.length - 1 ? 8 : 0 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: g.color, marginBottom: 4 }}>{s.name}</div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", lineHeight: 1.7, wordBreak: "break-all" as const }}>{s.cols}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.7, wordBreak: "break-all" as const, opacity: 0.7 }}>{s.cols}</div>
                 </div>
               ))}
             </div>
           ))}
         </div>
 
-        {/* 드래그 업로드 */}
+        {/* Drop Zone */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
           onClick={() => fileRef.current?.click()}
           style={{
-            border: `2px dashed ${dragging ? "#60a5fa" : file ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.1)"}`,
+            border: `2px dashed ${dragging ? "rgba(96,165,250,0.7)" : file ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.12)"}`,
             borderRadius: 20, padding: "52px 24px", textAlign: "center" as const, cursor: "pointer",
             background: dragging ? "rgba(59,130,246,0.07)" : file ? "rgba(34,197,94,0.04)" : "rgba(255,255,255,0.02)",
             transition: "all 0.2s", marginBottom: 16,
@@ -174,21 +191,23 @@ export default function UploadPage() {
         >
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.docx" style={{ display: "none" }}
             onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
-          <div style={{ fontSize: 44, marginBottom: 14 }}>{file ? "✅" : "📁"}</div>
+          <div style={{ width: 56, height: 56, borderRadius: 16, background: file ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            {file ? <CheckCircle size={28} color="#4ade80" /> : <Upload size={24} color="var(--text-muted)" />}
+          </div>
           {file ? (
             <>
               <div style={{ fontSize: 17, fontWeight: 700, color: "#4ade80", marginBottom: 6 }}>{file.name}</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>{(file.size / 1024).toFixed(1)} KB · 클릭하면 다른 파일 선택</div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{(file.size / 1024).toFixed(1)} KB · 클릭하면 다른 파일 선택</div>
             </>
           ) : (
             <>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>엑셀 또는 워드 파일을 드래그하거나 클릭하여 선택</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>.xlsx · .xls · .csv · .docx</div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)", opacity: 0.6 }}>.xlsx · .xls · .csv · .docx</div>
             </>
           )}
         </div>
 
-        {/* 업로드 버튼 */}
+        {/* Upload Button */}
         <button
           onClick={() => doUpload()}
           disabled={!file || loading}
@@ -197,26 +216,34 @@ export default function UploadPage() {
             background: file && !loading ? "linear-gradient(135deg,#1D4ED8,#2563EB)" : "rgba(255,255,255,0.06)",
             color: file && !loading ? "#fff" : "rgba(255,255,255,0.2)",
             fontSize: 16, fontWeight: 700, cursor: file && !loading ? "pointer" : "not-allowed", transition: "all 0.2s",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            boxShadow: file && !loading ? "0 12px 32px rgba(37,99,235,0.3)" : "none",
           }}
         >
-          {loading ? "⏳ 업로드 중..." : "📤 업로드 시작"}
+          {loading
+            ? <><Loader2 size={18} style={{ animation: "spin 0.8s linear infinite" }} />업로드 중...</>
+            : <><Upload size={18} />업로드 시작</>
+          }
         </button>
 
-        {/* 중복 충돌 */}
+        {/* Conflicts */}
         {conflicts.length > 0 && (
           <div style={{ background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.3)", borderRadius: 16, padding: 24, marginBottom: 24 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: "#fef08a", marginBottom: 6 }}>⚠️ 중복 선수 발견</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginBottom: 16 }}>아래 {conflicts.length}명이 이미 DB에 등록되어 있습니다</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <AlertTriangle size={18} color="#facc15" />
+              <span style={{ fontSize: 17, fontWeight: 800, color: "#fef08a" }}>중복 선수 발견</span>
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>아래 {conflicts.length}명이 이미 DB에 등록되어 있습니다</div>
             <div style={{ display: "flex", flexDirection: "column" as const, gap: 8, marginBottom: 20 }}>
               {conflicts.map((c, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(0,0,0,0.3)", borderRadius: 10, padding: "10px 14px" }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>기존</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>기존</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8" }}>#{c.existingNumber} {c.existingName}</div>
                   </div>
                   <div style={{ color: "rgba(255,255,255,0.2)" }}>→</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginBottom: 2 }}>신규</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>신규</div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}>#{c.number || "?"} {c.name}</div>
                   </div>
                 </div>
@@ -235,15 +262,18 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* 결과 */}
+        {/* Result */}
         {result && (
           <div style={{
             borderRadius: 16, padding: "20px 24px", marginBottom: 24,
             background: result.success ? "rgba(34,197,94,0.08)" : "rgba(220,38,38,0.08)",
             border: `1px solid ${result.success ? "rgba(34,197,94,0.3)" : "rgba(220,38,38,0.3)"}`,
           }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: result.success ? "#4ade80" : "#f87171", marginBottom: result.success && result.details ? 16 : 0 }}>
-              {result.success ? "✅ " : "❌ "}{result.message || result.error}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: result.success && result.details ? 16 : 0 }}>
+              {result.success ? <CheckCircle size={18} color="#4ade80" /> : <XCircle size={18} color="#f87171" />}
+              <span style={{ fontSize: 16, fontWeight: 700, color: result.success ? "#4ade80" : "#f87171" }}>
+                {result.message || result.error}
+              </span>
             </div>
             {result.success && result.details && (
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" as const, marginBottom: 20 }}>
@@ -256,8 +286,8 @@ export default function UploadPage() {
                   const val = (result.details as any)[key];
                   return val !== undefined ? (
                     <div key={key} style={{ background: "rgba(0,0,0,0.25)", borderRadius: 12, padding: "10px 24px", textAlign: "center" as const }}>
-                      <div style={{ fontSize: 28, fontWeight: 800, color }}>{val}</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{label}</div>
+                      <div style={{ fontSize: 28, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{val}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{label}</div>
                     </div>
                   ) : null;
                 })}
@@ -265,20 +295,20 @@ export default function UploadPage() {
             )}
             {result.success && (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
-                <Link href={`/?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
-                  📊 대시보드에서 확인
+                <Link href={`/?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80", textDecoration: "none", fontSize: 13, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <BarChart3 size={14} />대시보드에서 확인
                 </Link>
-                <Link href={`/lineup?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.28)", color: "#facc15", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
-                  ⚾ 라인업 반영 보기
+                <Link href={`/lineup?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.28)", color: "#facc15", textDecoration: "none", fontSize: 13, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Users size={14} />라인업 반영 보기
                 </Link>
-                <Link href={`/schedule?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.28)", color: "#60a5fa", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
-                  📅 일정 반영 보기
+                <Link href={`/schedule?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.28)", color: "#60a5fa", textDecoration: "none", fontSize: 13, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Calendar size={14} />일정 반영 보기
                 </Link>
-                <Link href={`/compare?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.28)", color: "#f87171", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
-                  ⚔️ 선수 비교 보기
+                <Link href={`/compare?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(220,38,38,0.12)", border: "1px solid rgba(220,38,38,0.28)", color: "#f87171", textDecoration: "none", fontSize: 13, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <ArrowLeftRight size={14} />선수 비교 보기
                 </Link>
-                <Link href={`/team-analysis?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.28)", color: "#c4b5fd", textDecoration: "none", fontSize: 13, fontWeight: 700 }}>
-                  🤖 팀 분석 보기
+                <Link href={`/team-analysis?season=${primarySeason}`} style={{ padding: "10px 20px", borderRadius: 10, background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.28)", color: "#c4b5fd", textDecoration: "none", fontSize: 13, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <TrendingUp size={14} />팀 분석 보기
                 </Link>
                 <button
                   onClick={() => { setFile(null); setResult(null); if (fileRef.current) fileRef.current.value = ""; }}
@@ -290,17 +320,21 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* 유의사항 */}
+        {/* Tips */}
         <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "18px 20px" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.5)", marginBottom: 12 }}>📌 유의사항</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "var(--text-muted)", marginBottom: 12 }}>
+            <Info size={14} />
+            유의사항
+          </div>
           {TIPS.map((tip, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, color: "rgba(255,255,255,0.38)", lineHeight: 1.75 }}>
+            <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.75, opacity: 0.75 }}>
               <span style={{ color: "#60a5fa", fontWeight: 700, flexShrink: 0 }}>·</span>
               <span>{tip}</span>
             </div>
           ))}
         </div>
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

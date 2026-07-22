@@ -191,10 +191,10 @@ export default async function PlayerDetail({
   const currentSeason = selectedSeason || fallbackSeason || preferredSeason || "2025";
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0e17", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <div style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b3a 100%)", padding: "28px 40px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-body)" }}>
+      <div style={{ background: "var(--surface)", padding: "28px 40px", borderBottom: "1px solid var(--border)" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <Link href={`/?season=${encodeURIComponent(currentSeason)}`} style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{t("nav.back", lang)}</Link>
+          <Link href={`/?season=${encodeURIComponent(currentSeason)}`} style={{ color: "var(--text-muted)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{t("nav.back", lang)}</Link>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <div style={{ width: 72, height: 72, borderRadius: 20, background: "linear-gradient(135deg, #dc2626, #991b1b)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 900, color: "#fff" }}>{player.number}</div>
             <div>

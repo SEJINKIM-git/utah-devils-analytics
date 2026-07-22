@@ -5,6 +5,7 @@ import SeasonNavLinks from '@/app/components/SeasonNavLinks';
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { Crosshair } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -94,7 +95,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                       boxShadow: "0 10px 24px rgba(220,38,38,0.22)",
                     }}
                   >
-                    ⚾
+                    <Crosshair size={20} strokeWidth={2.5} color="#fff" />
                   </span>
                   Devils Insight AI
                 </Link>
