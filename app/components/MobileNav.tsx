@@ -2,15 +2,23 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import {
+  LayoutDashboard,
+  Users,
+  CalendarDays,
+  ArrowLeftRight,
+  Zap,
+  Upload,
+} from "lucide-react";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 
 const NAV_ITEMS = [
-  { href: "/", icon: "📊", labelKo: "대시보드", labelEn: "Dashboard" },
-  { href: "/lineup", icon: "⚾", labelKo: "라인업", labelEn: "Lineup" },
-  { href: "/schedule", icon: "📅", labelKo: "일정", labelEn: "Schedule" },
-  { href: "/compare", icon: "⚔️", labelKo: "선수 비교", labelEn: "Compare" },
-  { href: "/situations/hub", icon: "⚡", labelKo: "상황", labelEn: "Situations" },
-  { href: "/upload", icon: "📤", labelKo: "업로드", labelEn: "Upload" },
+  { href: "/",               icon: LayoutDashboard, labelKo: "대시보드",  labelEn: "Dashboard"  },
+  { href: "/lineup",         icon: Users,           labelKo: "선수단",    labelEn: "Roster"     },
+  { href: "/schedule",       icon: CalendarDays,    labelKo: "일정",      labelEn: "Schedule"   },
+  { href: "/compare",        icon: ArrowLeftRight,  labelKo: "선수 비교", labelEn: "Compare"    },
+  { href: "/situations/hub", icon: Zap,             labelKo: "상황",      labelEn: "Situations" },
+  { href: "/upload",         icon: Upload,          labelKo: "업로드",    labelEn: "Upload"     },
 ];
 
 export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
@@ -32,7 +40,6 @@ export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
 
   return (
     <>
-      {/* 모바일 하단 내비게이션 */}
       <nav
         style={{
           position: "fixed",
@@ -59,6 +66,7 @@ export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
         >
           {NAV_ITEMS.map((item) => {
             const active = pathname === item.href;
+            const Icon = item.icon;
             return (
               <Link
                 key={item.href}
@@ -77,7 +85,7 @@ export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
                   minWidth: 54,
                 }}
               >
-                <span style={{ fontSize: 20, lineHeight: 1 }}>{item.icon}</span>
+                <Icon size={20} strokeWidth={1.8} />
                 <span
                   style={{
                     fontSize: 10,
@@ -104,14 +112,13 @@ export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
         </div>
       </nav>
 
-      {/* 하단 네비 높이만큼 패딩 추가 */}
       <div className="mobile-nav-spacer" style={{ height: 0 }} />
 
       <style>{`
         .mobile-nav {
           display: none !important;
         }
-        @media (max-width: 768px) {
+        @media (max-width: 880px) {
           .mobile-nav {
             display: block !important;
           }

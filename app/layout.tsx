@@ -1,11 +1,9 @@
 import { ThemeProvider } from '@/app/components/ThemeProvider';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import MobileNav from '@/app/components/MobileNav';
-import SeasonNavLinks from '@/app/components/SeasonNavLinks';
+import Sidebar from '@/app/components/Sidebar';
+import Topbar from '@/app/components/Topbar';
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
-import Link from "next/link";
-import { Crosshair } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -47,83 +45,29 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script dangerouslySetInnerHTML={{ __html:
           `(function(){var t=localStorage.getItem('ud-theme')==='light'?'light':'dark';var root=document.documentElement;root.setAttribute('data-theme',t);root.style.colorScheme=t;var meta=document.querySelector('meta[name="theme-color"]');if(meta){meta.setAttribute('content',t==='light'?'#eef3fb':'#0c1226');}})();`
         }} />
+        {/* Google Fonts: Inter + Noto Sans KR */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body className="app-body">
         <ThemeProvider>
-          {/* 상단 네비게이션 — ThemeToggle을 오른쪽에 배치 */}
-          <nav className="app-top-nav">
-            <div
-              className="app-top-nav-frame"
-              style={{
-                maxWidth: 1320,
-                margin: "0 auto",
-                minHeight: 64,
-                borderRadius: 22,
-                padding: "0 18px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 20,
-              }}
-            >
-              {/* 왼쪽: 로고 + 메뉴 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 26, minWidth: 0 }}>
-                <Link
-                  href="/"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    fontFamily: "var(--font-display)",
-                    fontWeight: 700,
-                    fontSize: 18,
-                    color: "var(--brand-coral)",
-                    textDecoration: "none",
-                    letterSpacing: "-0.04em",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 36,
-                      height: 36,
-                      borderRadius: 12,
-                      background: "linear-gradient(135deg, rgba(255,180,171,0.26), rgba(220,38,38,0.9))",
-                      boxShadow: "0 10px 24px rgba(220,38,38,0.22)",
-                    }}
-                  >
-                    <Crosshair size={20} strokeWidth={2.5} color="#fff" />
-                  </span>
-                  Devils Insight AI
-                </Link>
-                <div style={{ minWidth: 0 }}>
-                  <SeasonNavLinks lang={lang} />
-                </div>
-              </div>
-
-              {/* 오른쪽: 다크/라이트 모드 토글 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                <ThemeToggle lang={lang} />
-              </div>
-            </div>
-          </nav>
-
           <div
             aria-hidden="true"
             className="app-ambient-glow"
-            style={{
-              position: "fixed",
-              inset: 0,
-              pointerEvents: "none",
-              zIndex: 0,
-            }}
+            style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }}
           />
-
-          {/* 페이지 콘텐츠 */}
-          <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
+          <div className="layout-shell">
+            <Sidebar lang={lang} />
+            <div className="layout-content">
+              <Topbar lang={lang} />
+              <main className="layout-main">{children}</main>
+            </div>
+          </div>
           <MobileNav lang={lang} />
         </ThemeProvider>
       </body>

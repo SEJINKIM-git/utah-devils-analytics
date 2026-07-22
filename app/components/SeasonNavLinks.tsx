@@ -52,7 +52,7 @@ export default function SeasonNavLinks({ lang }: { lang: Lang }) {
         href={buildHref("/upload", season)}
         className="app-nav-upload"
       >
-        {isKo ? "📤 업로드" : "📤 Upload"}
+        {isKo ? "업로드" : "Upload"}
       </Link>
     </div>
   );

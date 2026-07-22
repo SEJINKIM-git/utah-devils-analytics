@@ -1,5 +1,6 @@
 'use client';
 
+import { Sun, Moon } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import type { Lang } from '@/lib/translations';
 
@@ -35,7 +36,7 @@ export function ThemeToggle({ lang }: { lang: Lang }) {
         boxShadow: 'var(--icon-button-shadow)',
       }}
     >
-      <span style={{ fontSize: 15, lineHeight: 1 }}>{isDark ? '☀️' : '🌙'}</span>
+      {isDark ? <Sun size={15} strokeWidth={1.8} /> : <Moon size={15} strokeWidth={1.8} />}
       <span>{label}</span>
     </button>
   );
