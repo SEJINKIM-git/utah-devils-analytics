@@ -4,7 +4,6 @@ import Link from "next/link";
 import Image from "next/image";
 import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
-import LangToggle from "@/app/components/LangToggle";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
 import { buildPlayerIdentityKey, dedupePlayersByIdentity, normalizePlayerName } from "@/lib/playerIdentity";
@@ -14,7 +13,7 @@ import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
 import SbEditCell from "@/app/components/SbEditCell";
-import { ArrowLeftRight, BarChart3, FileText, Users, Calendar, Upload as UploadIcon } from "lucide-react";
+import { Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -309,8 +308,7 @@ export default async function Dashboard({
   return (
     <div style={{ minHeight: "100vh", background: "transparent", color: C.white, fontFamily: "var(--font-body)" }}>
       {/* ═══ 헤더 ═══ */}
-      <div style={{ padding: "34px 24px 10px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ padding: "28px 32px 10px" }}>
           <div
             className="app-surface-panel"
             style={{
@@ -417,17 +415,6 @@ export default async function Dashboard({
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <Link href={`/compare?season=${season}`} className="app-toolbar-link" style={{ color: C.redLight, background: "rgba(255,180,171,0.08)" }}><ArrowLeftRight size={13} />{lang === "ko" ? "선수 비교" : "Player Comparison"}</Link>
-                <Link href={`/team-analysis?season=${season}`} className="app-toolbar-link" style={{ color: "#7ee2a8", background: "rgba(34,197,94,0.08)" }}><BarChart3 size={13} />{lang === "ko" ? "팀 분석" : "AI Analysis"}</Link>
-                <Link href={`/game-review?season=${season}`} className="app-toolbar-link" style={{ color: "#ffb36d", background: "rgba(249,115,22,0.08)" }}><FileText size={13} />{lang === "ko" ? "경기 리뷰" : "Game Review"}</Link>
-                <Link href={`/lineup?season=${season}`} className="app-toolbar-link" style={{ color: "#f7d56d", background: "rgba(234,179,8,0.08)" }}><Users size={13} />{lang === "ko" ? "라인업" : "Lineup"}</Link>
-                <Link href={`/schedule?season=${season}`} className="app-toolbar-link" style={{ color: "#cf9aff", background: "rgba(168,85,247,0.08)" }}><Calendar size={13} />{lang === "ko" ? "일정" : "Schedule"}</Link>
-                <Link href={`/upload?season=${season}`} className="app-toolbar-link" style={{ color: "var(--brand-blue)", background: "rgba(164,201,255,0.08)" }}><UploadIcon size={13} />{lang === "ko" ? "업로드" : "Upload"}</Link>
-                <a href="https://www.instagram.com/uac.baseball" target="_blank" rel="noopener noreferrer" style={{ width: 42, height: 42, borderRadius: 14, background: "linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none", boxShadow: "0 18px 32px rgba(220,38,38,0.16)" }} title="@uac.baseball"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg></a>
-                <LangToggle lang={lang} />
-              </div>
-
               <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 14 }}>
                 <div style={{ flex: 1 }}>
                   <SearchBar players={seasonPlayers} batting={uniqueBatting} pitching={uniquePitching} season={season} lang={lang} />
@@ -436,11 +423,10 @@ export default async function Dashboard({
               </div>
             </div>
           </div>
-        </div>
       </div>
 
       {/* ═══ 본문 ═══ */}
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 24px 40px" }}>
+      <div style={{ padding: "24px 32px 48px" }}>
         {/* 팀 통계 카드 — 5×2 */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 36 }}>
           {[

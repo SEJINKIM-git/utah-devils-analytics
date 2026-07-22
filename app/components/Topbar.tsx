@@ -2,6 +2,7 @@
 
 import { Search } from "lucide-react";
 import { ThemeToggle } from "@/app/components/ThemeToggle";
+import LangToggle from "@/app/components/LangToggle";
 import type { Lang } from "@/lib/translations";
 import { useSearchParams } from "next/navigation";
 
@@ -25,6 +26,7 @@ export default function Topbar({ lang }: { lang: Lang }) {
         {season && (
           <span className="topbar-season-badge">{season}</span>
         )}
+        <LangToggle lang={lang} />
         <ThemeToggle lang={lang} />
       </div>
     </header>
