@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
@@ -212,18 +211,15 @@ export default function GameReviewPage() {
 
   return (
     <div className="app-page-shell" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <div className="app-page-header" style={{ padding: "28px 40px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <Link href={`/?season=${season}`} style={{ color: "rgba(255,255,255,0.4)", textDecoration: "none", fontSize: 13, marginBottom: 16, display: "block" }}>{lang === "ko" ? "← 대시보드로 돌아가기" : "← Back to Dashboard"}</Link>
-          <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>📋 {lang === "ko" ? "경기 기록 AI 리뷰" : "Game Record AI Review"}</h1>
+      <div className="app-page-header" style={{ padding: "24px 32px" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>{lang === "ko" ? "경기 기록 AI 리뷰" : "Game Record AI Review"}</h1>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "6px 0 0 0" }}>{lang === "ko" ? "경기 기록 엑셀 또는 현장 메모 docx를 업로드하면 AI가 수치와 흐름을 함께 분석합니다" : "Upload a game record Excel or field-notes docx for AI-powered statistical and flow analysis"}</p>
           <div style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 999, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.22)", fontSize: 12, color: "#93c5fd", fontWeight: 700 }}>
             🔗 {lang === "ko" ? "현재 연결 시즌" : "Connected season"}: {season}
           </div>
-        </div>
       </div>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 40px" }}>
+      <div style={{ padding: "24px 32px" }}>
         {/* 업로드 영역 */}
         {!review && !loading && !loadingReview && (
           <div>

@@ -685,7 +685,7 @@ tbody tr:hover {
 
 /* ── 사이드바 ── */
 .sidebar {
-  width: 260px;
+  width: 300px;
   min-height: 100vh;
   position: fixed;
   left: 0;
@@ -836,7 +836,7 @@ tbody tr:hover {
 /* ── 콘텐츠 영역 ── */
 .layout-content {
   flex: 1;
-  margin-left: 260px;
+  margin-left: 300px;
   display: flex;
   flex-direction: column;
   min-height: 100vh;

@@ -14,10 +14,8 @@
  *  6. map/filter 콜백 파라미터 타입 명시
  */
 
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
-import LangToggle from '@/app/components/LangToggle';
 import { getPlayerDisplayName, getPlayerNameVariants } from '@/lib/playerDisplay';
 import { inferRosterSnapshotSeasons, parseRosterSnapshot, type RosterSnapshotPlayer } from '@/lib/rosterSnapshot';
 import type { Lang } from '@/lib/translations';
@@ -743,32 +741,19 @@ export default function ComparePage() {
   );
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 16px' }}>
-      <div style={{ maxWidth: 920, margin: '0 auto' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '24px 32px' }}>
 
         {/* 헤더 */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {/* ← 대시보드 버튼 */}
-            <Link href={season ? `/?season=${season}` : '/'} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 10,
-              background: 'var(--card-bg)', border: '1px solid var(--border)',
-              color: 'var(--text-muted)', fontSize: 13, fontWeight: 500,
-              textDecoration: 'none',
-            }}>
-              {isKo ? '← 대시보드' : '← Dashboard'}
-            </Link>
-            <div>
-              <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', margin: 0 }}>
-                {isKo ? '⚖️ 선수 비교' : '⚖️ Player Comparison'}
-              </h1>
-              <p style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 13 }}>
-                {isKo
-                  ? '이름 · 등번호 · 포지션으로 검색하거나 버튼으로 빠르게 선택하세요.'
-                  : 'Search by name, jersey number, or position, or use the roster chips below.'}
-              </p>
-            </div>
+          <div>
+            <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text)', margin: 0 }}>
+              {isKo ? '선수 비교' : 'Player Comparison'}
+            </h1>
+            <p style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 13 }}>
+              {isKo
+                ? '이름 · 등번호 · 포지션으로 검색하거나 버튼으로 빠르게 선택하세요.'
+                : 'Search by name, jersey number, or position, or use the roster chips below.'}
+            </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <select
@@ -786,7 +771,6 @@ export default function ComparePage() {
                 </option>
               ))}
             </select>
-            <LangToggle lang={lang} />
           </div>
         </div>
 
@@ -935,7 +919,6 @@ export default function ComparePage() {
             </p>
           </div>
         )}
-      </div>
     </div>
   );
 }

@@ -2,7 +2,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function getCookie(name: string) {
@@ -121,58 +120,43 @@ export default function TeamAnalysisPage() {
       <div
         className="app-page-header"
         style={{
-          padding: "28px 40px",
+          padding: "24px 32px",
         }}
       >
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <Link
-            href={`/?season=${season}`}
-            style={{
-              color: "rgba(255,255,255,0.4)",
-              textDecoration: "none",
-              fontSize: 13,
-              marginBottom: 16,
-              display: "block",
-            }}
-          >
-            {lang === "ko" ? "← 대시보드로 돌아가기" : "← Back to Dashboard"}
-          </Link>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>
+              {lang === "ko" ? "팀 전체 AI 분석" : "Team AI Analysis"}
+            </h1>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "6px 0 0 0" }}>
+              {lang === "ko" ? "AI가 팀 전체 성적을 종합적으로 분석합니다" : "AI analyzes the entire team performance"}
+            </p>
+          </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>
-                🏟️ {lang === "ko" ? "팀 전체 AI 분석" : "Team AI Analysis"}
-              </h1>
-              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "6px 0 0 0" }}>
-                {lang === "ko" ? "AI가 팀 전체 성적을 종합적으로 분석합니다" : "AI analyzes the entire team performance"}
-              </p>
-            </div>
-
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {seasons.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => changeSeason(s)}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 8,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    border: "none",
-                    background: season === s ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
-                    color: season === s ? "#60a5fa" : lockedSeasons.includes(s) ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.4)",
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {seasons.map((s) => (
+              <button
+                key={s}
+                onClick={() => changeSeason(s)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: "none",
+                  background: season === s ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
+                  color: season === s ? "#60a5fa" : lockedSeasons.includes(s) ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.4)",
+                }}
+              >
+                {s}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 40px" }}>
+      <div style={{ padding: "24px 32px" }}>
         {lockedSeasons.includes(season) && (
           <div style={{ marginBottom: 20, padding: "18px 20px", borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 1.7 }}>
             {lang === "ko"

@@ -1,8 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import Link from "next/link";
-import Image from "next/image";
-import LangToggle from "@/app/components/LangToggle";
 import LineupSimulator from "@/app/components/LineupSimulator";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
@@ -277,36 +274,15 @@ export default async function LineupPage({
 
   return (
     <div className="app-page-shell">
-      <div className="app-page-header" style={{ padding: "24px 20px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Link href={`/?season=${selectedSeason}`} style={{ textDecoration: "none" }}>
-                <Image src="/logos/cap-logo.png" alt="Utah Devils" width={42} height={42} style={{ borderRadius: 12 }} />
-              </Link>
-              <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
-                {lang === "ko" ? `라인업 시뮬레이터 · ${selectedSeason}` : `Lineup Simulator · ${selectedSeason}`}
-              </h1>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <Link href={`/?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "var(--inline-muted-surface)", color: "var(--text-muted)", fontSize: 12, fontWeight: 600, textDecoration: "none", border: "1px solid var(--border)" }}>
-                {lang === "ko" ? "← 대시보드" : "← Dashboard"}
-              </Link>
-              <Link href={`/schedule?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(34,197,94,0.12)", color: "#4ade80", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
-                {lang === "ko" ? "📅 일정" : "📅 Schedule"}
-              </Link>
-              <Link href={`/team-analysis?season=${selectedSeason}`} style={{ padding: "7px 14px", borderRadius: 8, background: "rgba(59,130,246,0.12)", color: "#60a5fa", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
-                {lang === "ko" ? "🤖 팀 분석" : "🤖 AI Analysis"}
-              </Link>
-              <LangToggle lang={lang} />
-            </div>
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <SeasonFilter seasons={seasons} basePath="/lineup" lang={lang} />
-          </div>
+      <div className="app-page-header" style={{ padding: "24px 32px" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
+          {lang === "ko" ? `라인업 시뮬레이터 · ${selectedSeason}` : `Lineup Simulator · ${selectedSeason}`}
+        </h1>
+        <div style={{ marginTop: 14 }}>
+          <SeasonFilter seasons={seasons} basePath="/lineup" lang={lang} />
         </div>
       </div>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
+      <div style={{ padding: "24px 32px" }}>
         {isPlaceholderSeason && (
           <div className="app-page-note" style={{ marginBottom: 18, padding: "16px 18px", borderRadius: 14, fontSize: 13, lineHeight: 1.7 }}>
             {lang === "ko"
