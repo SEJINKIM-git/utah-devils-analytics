@@ -9,11 +9,13 @@ import {
   ArrowLeftRight,
   Zap,
   Upload,
+  BarChart2,
 } from "lucide-react";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 
 const NAV_ITEMS = [
   { href: "/",               icon: LayoutDashboard, labelKo: "대시보드",  labelEn: "Dashboard"  },
+  { href: "/records",        icon: BarChart2,        labelKo: "기록",      labelEn: "Records"    },
   { href: "/lineup",         icon: Users,           labelKo: "선수단",    labelEn: "Roster"     },
   { href: "/schedule",       icon: CalendarDays,    labelKo: "일정",      labelEn: "Schedule"   },
   { href: "/compare",        icon: ArrowLeftRight,  labelKo: "선수 비교", labelEn: "Compare"    },

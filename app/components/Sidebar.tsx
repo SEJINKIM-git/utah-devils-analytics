@@ -12,11 +12,13 @@ import {
   Upload,
   CalendarDays,
   Sparkles,
+  BarChart2,
 } from "lucide-react";
 import type { Lang } from "@/lib/translations";
 
 const NAV_ITEMS = [
   { href: "/",               icon: LayoutDashboard, labelKo: "대시보드",  labelEn: "Dashboard"  },
+  { href: "/records",        icon: BarChart2,        labelKo: "기록",      labelEn: "Records"    },
   { href: "/lineup",         icon: Users,           labelKo: "선수단",    labelEn: "Roster"     },
   { href: "/compare",        icon: ArrowLeftRight,  labelKo: "선수 비교", labelEn: "Compare"    },
   { href: "/team-analysis",  icon: Brain,           labelKo: "AI 분석",   labelEn: "AI Analysis"},

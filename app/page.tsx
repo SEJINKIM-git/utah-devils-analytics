@@ -12,7 +12,6 @@ import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
-import SbEditCell from "@/app/components/SbEditCell";
 import { Users, Trophy, TrendingUp, TrendingDown, BrainCircuit } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -223,8 +222,20 @@ export default async function Dashboard({
     const cur = perGameEraMap.get(p.game_id) || { er: 0, ip: 0 };
     perGameEraMap.set(p.game_id, { er: cur.er + (p.er || 0), ip: cur.ip + parseIP(p.ip) });
   }
-  const gamesSorted = (allGames || [])
+  // Deduplicate games by date+opponent: keep the one with more batting data
+  const gamesSortedRaw = (allGames || [])
     .filter((g) => g.season === season && validGameIds.has(g.id))
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const gamesByKey = new Map<string, typeof gamesSortedRaw[0]>();
+  for (const g of gamesSortedRaw) {
+    const key = `${g.date ?? ""}|${g.opponent ?? ""}`;
+    const prev = gamesByKey.get(key);
+    if (!prev) { gamesByKey.set(key, g); continue; }
+    const ab = (perGameBatMap.get(g.id) || { ab: 0 }).ab;
+    const prevAb = (perGameBatMap.get(prev.id) || { ab: 0 }).ab;
+    if (ab > prevAb) gamesByKey.set(key, g);
+  }
+  const gamesSorted = Array.from(gamesByKey.values())
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const perGameAvgList = gamesSorted
     .map((g) => {
@@ -376,38 +387,6 @@ export default async function Dashboard({
 
   const seasonLabel =
     season === "Career" ? t("site.career", lang) : `${season} ${t("site.season", lang)}`;
-
-  const batHeaders = [
-    "#",
-    t("batting.name", lang),
-    t("batting.pa", lang),
-    t("batting.ab", lang),
-    t("batting.h", lang),
-    t("batting.doubles", lang),
-    t("batting.triples", lang),
-    t("batting.hr", lang),
-    t("batting.rbi", lang),
-    t("batting.bb", lang),
-    t("batting.so", lang),
-    t("batting.sb", lang),
-    t("batting.avg", lang),
-    t("batting.obp", lang),
-    "OPS",
-  ];
-  const pitHeaders = [
-    "#",
-    t("batting.name", lang),
-    t("pitching.w", lang),
-    t("pitching.l", lang),
-    t("pitching.sv", lang),
-    t("pitching.ip", lang),
-    t("pitching.ha", lang),
-    t("pitching.er", lang),
-    t("pitching.bb", lang),
-    t("pitching.so", lang),
-    "ERA",
-    "WHIP",
-  ];
 
   // ── AI insights from supabase ──
   const { data: aiReport } = await supabase
@@ -1406,280 +1385,6 @@ export default async function Dashboard({
         </div>
         {/* end .dash-grid */}
 
-        {/* ════ FULL BATTING TABLE (below grid) ════ */}
-        <div id="batting" style={{ marginTop: 40 }}>
-          <h2
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              marginBottom: 16,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            {t("batting.title", lang)}
-            <span style={{ fontSize: 12, color: C.whiteDim }}>
-              {t("batting.sortOps", lang)} · {battingWithPlayers?.length || 0}
-              {lang === "ko" ? "명" : ""}
-            </span>
-          </h2>
-          <div
-            className="app-table-shell"
-            style={{ borderRadius: 20, overflow: "hidden" }}
-          >
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
-                  {batHeaders.map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        padding: "14px 12px",
-                        textAlign: "left",
-                        fontSize: 10,
-                        color: C.whiteDim,
-                        fontWeight: 700,
-                        textTransform: "uppercase" as const,
-                        letterSpacing: 1.2,
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {battingWithPlayers?.map((b: any, i: number) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
-                    <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>
-                      {b.player.number}
-                    </td>
-                    <td style={{ padding: "12px", fontWeight: 700 }}>
-                      <Link
-                        href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`}
-                        style={{ color: C.white, textDecoration: "none" }}
-                      >
-                        {getPlayerDisplayName(b.player.name, lang)}
-                      </Link>
-                    </td>
-                    <td style={{ padding: "12px" }}>{b.pa}</td>
-                    <td style={{ padding: "12px" }}>{b.ab}</td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        fontWeight: 700,
-                        color: b.hits >= 5 ? "#22c55e" : C.white,
-                      }}
-                    >
-                      {b.hits}
-                    </td>
-                    <td style={{ padding: "12px" }}>{b.doubles}</td>
-                    <td style={{ padding: "12px" }}>{b.triples}</td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        fontWeight: 700,
-                        color: b.hr > 0 ? "#eab308" : C.white,
-                      }}
-                    >
-                      {b.hr}
-                    </td>
-                    <td style={{ padding: "12px" }}>{b.rbi}</td>
-                    <td style={{ padding: "12px" }}>{b.bb}</td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        color: b.so >= 8 ? C.red : C.white,
-                      }}
-                    >
-                      {b.so}
-                    </td>
-                    <td style={{ padding: "12px" }}>
-                      <SbEditCell
-                        playerId={b.player_id}
-                        season={season}
-                        initialSb={b.sb ?? 0}
-                      />
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        fontWeight: 700,
-                        color:
-                          parseFloat(b.avg) >= 0.3
-                            ? "#22c55e"
-                            : parseFloat(b.avg) >= 0.2
-                            ? "#eab308"
-                            : C.red,
-                      }}
-                    >
-                      {b.avg}
-                    </td>
-                    <td style={{ padding: "12px" }}>{b.obp}</td>
-                    <td style={{ padding: "12px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div
-                          style={{
-                            width: 80,
-                            height: 6,
-                            background: "rgba(255,255,255,0.06)",
-                            borderRadius: 999,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${Math.min((b.opsNum / 2.2) * 100, 100)}%`,
-                              height: "100%",
-                              background:
-                                b.opsNum >= 1.0
-                                  ? "#22c55e"
-                                  : b.opsNum >= 0.7
-                                  ? "#eab308"
-                                  : C.red,
-                              borderRadius: 3,
-                            }}
-                          />
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color:
-                              b.opsNum >= 1.0
-                                ? "#22c55e"
-                                : b.opsNum >= 0.7
-                                ? "#eab308"
-                                : C.red,
-                            minWidth: 45,
-                          }}
-                        >
-                          {b.ops}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* ════ FULL PITCHING TABLE (below grid) ════ */}
-        <div id="pitching" style={{ marginTop: 32 }}>
-          <h2
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              marginBottom: 16,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            {t("pitching.title", lang)}{" "}
-            <span style={{ fontSize: 12, color: C.whiteDim }}>
-              {t("pitching.sortEra", lang)} · {pitchingWithPlayers?.length || 0}
-              {lang === "ko" ? "명" : ""}
-            </span>
-          </h2>
-          <div
-            className="app-table-shell"
-            style={{ borderRadius: 20, overflow: "hidden" }}
-          >
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
-                  {pitHeaders.map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        padding: "14px 12px",
-                        textAlign: "left",
-                        fontSize: 10,
-                        color: C.whiteDim,
-                        fontWeight: 700,
-                        textTransform: "uppercase" as const,
-                        letterSpacing: 1.2,
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pitchingWithPlayers?.map((p: any, i: number) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
-                    <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>
-                      {p.player.number}
-                    </td>
-                    <td style={{ padding: "12px", fontWeight: 700 }}>
-                      {getPlayerDisplayName(p.player.name, lang)}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        fontWeight: 700,
-                        color: p.w > 0 ? "#22c55e" : C.white,
-                      }}
-                    >
-                      {p.w}
-                    </td>
-                    <td style={{ padding: "12px", color: p.l > 0 ? C.red : C.white }}>
-                      {p.l}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        color: p.sv > 0 ? "#eab308" : C.white,
-                      }}
-                    >
-                      {p.sv}
-                    </td>
-                    <td style={{ padding: "12px" }}>{formatIP(p.ip)}</td>
-                    <td style={{ padding: "12px" }}>{p.ha}</td>
-                    <td style={{ padding: "12px" }}>{p.er}</td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        color: p.bb >= 10 ? C.red : C.white,
-                      }}
-                    >
-                      {p.bb}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px",
-                        fontWeight: 700,
-                        color: p.so >= 10 ? "#22c55e" : C.white,
-                      }}
-                    >
-                      {p.so}
-                    </td>
-                    <td style={{ padding: "12px" }}>
-                      <span
-                        style={{
-                          fontWeight: 700,
-                          color:
-                            p.eraNum <= 3.0
-                              ? "#22c55e"
-                              : p.eraNum <= 5.0
-                              ? "#eab308"
-                              : C.red,
-                        }}
-                      >
-                        {p.era}
-                      </span>
-                    </td>
-                    <td style={{ padding: "12px" }}>{p.whip}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
     </div>
   );
