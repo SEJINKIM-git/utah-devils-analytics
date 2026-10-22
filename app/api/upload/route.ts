@@ -14,6 +14,7 @@ import {
 } from "@/lib/officialGameWorkbook";
 import { parseGameLines } from "@/lib/parseDocxGameRecord";
 import { inferRosterSnapshotSeasons } from "@/lib/rosterSnapshot";
+import { extractRosterPlayersFromWorkbook, readUploadedWorkbook } from "@/lib/rosterWorkbook";
 import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason } from "@/lib/season";
 import { ensureSeasonActivated } from "@/lib/seasonVisibility";
@@ -25,7 +26,6 @@ import {
   extractSeasonFromSheetName,
   findColumnIndex,
   findHeaderRowIndex,
-  findSheetNameByAliases,
   getStructuredSheetNames,
   hasColumn,
   matchesAlias,
@@ -40,7 +40,6 @@ const supabase = createClient(
 );
 
 const TARGET_SEASON = "2026";
-const ACTIVE_PLAYER_COLOR = "EA9999";
 
 type Row = SpreadsheetRow;
 
@@ -145,54 +144,6 @@ function describeDetailedBlockSheet(sheet: XLSX.WorkSheet) {
 
 function isDetailedBlockSheet(sheet: XLSX.WorkSheet): boolean {
   return describeDetailedBlockSheet(sheet).isMatch;
-}
-
-function extractRosterPlayers(workbook: XLSX.WorkBook): RosterPlayer[] {
-  const sheetName =
-    findSheetNameByAliases(workbook.SheetNames, SHEET_ALIASES.roster) || workbook.SheetNames[0];
-  if (!sheetName) return [];
-
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
-  if (rows.length === 0) return [];
-
-  const headerRowIndex = findHeaderRowIndex(rows, [COLUMN_ALIASES.number, COLUMN_ALIASES.name], 10);
-  const roster = new Map<string, RosterPlayer>();
-
-  if (headerRowIndex >= 0) {
-    const headerRow = rows[headerRowIndex];
-    const numCol = findColumnIndex(headerRow, COLUMN_ALIASES.number);
-    const nameCol = findColumnIndex(headerRow, COLUMN_ALIASES.name);
-
-    for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
-      const row = rows[rowIndex];
-      const number = Number(row[numCol]);
-      const name = sanitizeImportedPlayerName(row[nameCol]);
-      if (!number || !name) continue;
-      roster.set(`${number}:${name}`, { number, name });
-    }
-
-    return Array.from(roster.values()).sort((a, b) => a.number - b.number);
-  }
-
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const row = rows[rowIndex];
-    for (const base of [0, 2, 4, 6]) {
-      const number = Number(row?.[base]);
-      const name = sanitizeImportedPlayerName(row?.[base + 1]);
-      if (!number || !name) continue;
-
-      const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: base + 1 });
-      const cell = sheet[cellRef];
-      const color = cell?.s?.fgColor?.rgb || cell?.s?.bgColor?.rgb || "";
-
-      if (color === ACTIVE_PLAYER_COLOR) {
-        roster.set(`${number}:${name}`, { number, name });
-      }
-    }
-  }
-
-  return Array.from(roster.values()).sort((a, b) => a.number - b.number);
 }
 
 function collectStructuredStatSeasons(workbook: XLSX.WorkBook): string[] {
@@ -1253,7 +1204,7 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array", cellStyles: true });
+    const workbook = readUploadedWorkbook(file.name, buffer);
     const structuredSheets = getStructuredSheetNames(workbook);
 
     const hasStructuredStatSheet =
@@ -1264,7 +1215,7 @@ export async function POST(request: NextRequest) {
 
     const seasonTotalTargets = getSeasonTotalTargets(workbook, file.name, requestedSeason);
     const detailedBlockTargets = getDetailedBlockTargets(workbook, file.name, requestedSeason);
-    const rosterPlayers = extractRosterPlayers(workbook);
+    const rosterPlayers: RosterPlayer[] = extractRosterPlayersFromWorkbook(workbook);
 
     const isStatsUpload =
       hasStructuredStatSheet || hasLiveGameStatSheet || seasonTotalTargets.length > 0 || detailedBlockTargets.length > 0;
