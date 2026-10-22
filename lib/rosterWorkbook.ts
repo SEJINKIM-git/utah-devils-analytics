@@ -3,9 +3,9 @@ import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import {
   COLUMN_ALIASES,
   type SpreadsheetRow,
-  findColumnIndex,
   findHeaderRowIndex,
   findSheetNameByAliases,
+  matchesAlias,
   SHEET_ALIASES,
 } from "@/lib/spreadsheetImport";
 
@@ -62,12 +62,25 @@ function extractFromHeaderRow(rows: SpreadsheetRow[]): ParsedRosterPlayer[] {
   if (headerRowIndex < 0) return [];
 
   const headerRow = rows[headerRowIndex];
-  const numCol = findColumnIndex(headerRow, COLUMN_ALIASES.number);
-  const nameCol = findColumnIndex(headerRow, COLUMN_ALIASES.name);
+  const dataRows = rows.slice(headerRowIndex + 1);
+  // Aliases are substring matches ("번호" also hits "전화번호"), so pick the candidate
+  // column whose values actually parse.
+  const pickColumn = (aliases: readonly string[], isValid: (value: unknown) => boolean) => {
+    let best = { col: -1, hits: -1 };
+    headerRow.forEach((cell, col) => {
+      if (!matchesAlias(cell, aliases)) return;
+      const playerBonus = /선수|player/i.test(String(cell ?? "")) ? 0.5 : 0;
+      const hits = dataRows.filter((row) => isValid(row?.[col])).length + playerBonus;
+      if (hits > best.hits) best = { col, hits };
+    });
+    return best.col;
+  };
+  const numCol = pickColumn(COLUMN_ALIASES.number, (value) => parseJerseyNumber(value) !== null);
+  const nameCol = pickColumn(COLUMN_ALIASES.name, (value) => sanitizeImportedPlayerName(value) !== "");
   const roster = new Map<string, ParsedRosterPlayer>();
 
-  for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
-    const row = rows[rowIndex] ?? [];
+  for (const row of dataRows) {
+    if (!row) continue;
     const number = parseJerseyNumber(row[numCol]);
     const name = sanitizeImportedPlayerName(row[nameCol]);
     if (!number || !name) continue;
