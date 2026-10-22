@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { isTermStatRecord } from "@/lib/seasonTerms";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,7 +16,7 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const files = (data || []).filter(
-    (row) => !String(row.filename || "").startsWith("[season-activation]")
+    (row) => !String(row.filename || "").startsWith("[season-activation]") && !isTermStatRecord(row.filename)
   );
   return NextResponse.json({ files });
 }

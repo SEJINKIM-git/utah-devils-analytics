@@ -1,3 +1,6 @@
+import { buildPlayerIdentityKey } from "@/lib/playerIdentity";
+import { getRosterUploadTerm, isTermStatRecord } from "@/lib/seasonTerms";
+
 export type RosterSnapshotPlayer = {
   number: number;
   name: string;
@@ -131,9 +134,13 @@ export function getLatestRosterUploadForSeason(
   const targetSeason = String(season || "").trim();
   if (!targetSeason) return null;
 
+  const candidates: Array<{ upload: RosterUploadRecord; snapshot: ReturnType<typeof parseRosterSnapshot> }> = [];
   for (const upload of [...uploads].sort((a, b) =>
     String(b.uploaded_at || "").localeCompare(String(a.uploaded_at || ""))
   )) {
+    // 학기 기록 스냅샷은 시즌 로스터가 아님
+    if (isTermStatRecord(upload.filename)) continue;
+
     const snapshot = parseRosterSnapshot(
       upload.players_snapshot,
       inferRosterSnapshotSeasons(upload.filename, upload.source)
@@ -142,8 +149,37 @@ export function getLatestRosterUploadForSeason(
     if (snapshot.players.length === 0) continue;
     if (!snapshot.seasons.includes(targetSeason)) continue;
 
-    return { upload, snapshot };
+    candidates.push({ upload, snapshot });
   }
 
-  return null;
+  const latest = candidates[0];
+  if (!latest || !getRosterUploadTerm(latest.upload)) return latest || null;
+
+  // 학기별(Spring/Fall…) 로스터가 올라온 시즌: 학기마다 최신 명단을 합쳐 시즌 전체 명단으로 사용.
+  // 게이팅 기준 시각은 가장 이른 학기 로스터 업로드 시각 → 봄학기 경기가 가을 명단 업로드로 사라지지 않음
+  const latestByTerm = new Map<string, (typeof candidates)[number]>();
+  for (const candidate of candidates) {
+    const term = getRosterUploadTerm(candidate.upload);
+    if (!term) break; // 학기 미지정 전체 명단보다 오래된 업로드는 사용하지 않음
+    if (!latestByTerm.has(term)) latestByTerm.set(term, candidate);
+  }
+
+  const merged = Array.from(latestByTerm.values());
+  if (merged.length === 1) return merged[0];
+
+  const players = new Map<string, RosterSnapshotPlayer>();
+  for (const { snapshot } of merged) {
+    for (const player of snapshot.players) {
+      const key = buildPlayerIdentityKey(player.name, player.number);
+      if (!players.has(key)) players.set(key, player);
+    }
+  }
+  const earliest = merged.reduce((min, entry) =>
+    String(entry.upload.uploaded_at || "") < String(min.upload.uploaded_at || "") ? entry : min
+  );
+
+  return {
+    upload: earliest.upload,
+    snapshot: { players: Array.from(players.values()), seasons: [targetSeason] },
+  };
 }

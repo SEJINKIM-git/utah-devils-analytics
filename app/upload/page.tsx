@@ -98,6 +98,7 @@ export default function UploadPage() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [conflicts, setConflicts] = useState<ConflictPlayer[]>([]);
   const [recentFiles, setRecentFiles] = useState<FileEntry[]>([]);
+  const [term, setTerm] = useState<string>("auto");
   const fileRef = useRef<HTMLInputElement>(null);
   const currentSeason = searchParams.get("season");
 
@@ -127,6 +128,7 @@ export default function UploadPage() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("season", currentSeason || "2025");
+    if (term !== "auto") fd.append("term", term);
     Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
@@ -154,6 +156,7 @@ export default function UploadPage() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("season", currentSeason || "2025");
+    if (term !== "auto") fd.append("term", term);
     fd.append(mode === "overwrite" ? "overwrite" : "skipConflicts", "true");
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
@@ -236,6 +239,29 @@ export default function UploadPage() {
                   <div style={{ fontSize: 13, color: "var(--text-faint)", opacity: 0.7 }}>.xlsx · .xls · .csv · .docx · 최대 10MB</div>
                 </>
               )}
+            </div>
+
+            {/* Term selector (로스터 파일용) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" as const }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)" }}>학기 (로스터 파일)</span>
+              {[
+                { value: "auto", label: "자동 감지" },
+                { value: "Spring", label: "Spring" },
+                { value: "Summer", label: "Summer" },
+                { value: "Fall", label: "Fall" },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setTerm(option.value)}
+                  className={term === option.value ? "app-season-chip active" : "app-season-chip"}
+                >
+                  {option.label}
+                </button>
+              ))}
+              <span style={{ fontSize: 11, color: "var(--text-faint)", opacity: 0.75, width: "100%" }}>
+                학기마다 바뀌는 선수 명단을 올릴 때 선택하세요. 자동 감지는 파일명의 Spring/Fall/봄/가을/1학기/2학기로 판단하며, 공식 시즌 파일은 학기 시트(예: 25 Spring)를 자동으로 나눕니다.
+              </span>
             </div>
 
             {/* Upload button */}

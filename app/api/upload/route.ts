@@ -20,6 +20,15 @@ import { ACTIVE_SEASON_COOKIE, getLatestSeason } from "@/lib/season";
 import { ensureSeasonActivated } from "@/lib/seasonVisibility";
 import { extractGameMetaFromFilename, extractSeasonFromFilename } from "@/lib/gameFileMeta";
 import {
+  type SeasonTerm,
+  TERM_STAT_PREFIX,
+  buildTermStatFilename,
+  detectTermFromText,
+  normalizeTerm,
+  parseTermSheetName,
+} from "@/lib/seasonTerms";
+import { parseTermSummaryRows } from "@/lib/termSummarySheet";
+import {
   COLUMN_ALIASES,
   type SpreadsheetRow,
   detectPlayerStatKind,
@@ -216,9 +225,15 @@ function collectFlexibleStatSeasons(
 
 function getSeasonTotalTargets(workbook: XLSX.WorkBook, fileName: string, fallbackSeason: string) {
   const targets: { sheetName: string; season: string }[] = [];
+  // "2024 Fall" 같은 학기 시트는 연도 시트("2024")에 이미 합산돼 있으므로 시즌 합계 대상에서 제외
   const yearSheets = workbook.SheetNames.filter((sheetName) => {
     const sheet = workbook.Sheets[sheetName];
-    return Boolean(sheet && extractSeasonFromSheetName(sheetName) && isSeasonTotalSheet(sheet));
+    return Boolean(
+      sheet &&
+      extractSeasonFromSheetName(sheetName) &&
+      !parseTermSheetName(sheetName) &&
+      isSeasonTotalSheet(sheet)
+    );
   });
 
   if (yearSheets.length > 0) {
@@ -267,6 +282,50 @@ async function clearSeasonSnapshot(seasons: string[]) {
   await supabase.from("batting_stats").delete().in("season", seasons);
   await supabase.from("pitching_stats").delete().in("season", seasons);
   await supabase.from("games").delete().in("season", seasons);
+  for (const season of seasons) {
+    await supabase.from("roster_uploads").delete().like("filename", `${TERM_STAT_PREFIX} ${season} %`);
+  }
+}
+
+// 학기 요약 시트("25 Spring", "25 Fall" …)를 학기별 로스터 + 기록 스냅샷으로 저장 (같은 시즌·학기는 최신 파일로 교체)
+async function saveTermSnapshots(workbook: XLSX.WorkBook, fileName: string, fallbackSeason: string) {
+  const defaultSeason = extractSeasonFromFilename(fileName, fallbackSeason);
+  const saved: string[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const target = parseTermSheetName(sheetName, defaultSeason);
+    const sheet = workbook.Sheets[sheetName];
+    if (!target || !sheet) continue;
+
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as Row[];
+    const parsed = parseTermSummaryRows(rows);
+    if (parsed.players.length === 0) continue;
+
+    const filename = buildTermStatFilename(target.season, target.term, fileName);
+    await supabase
+      .from("roster_uploads")
+      .delete()
+      .like("filename", `${TERM_STAT_PREFIX} ${target.season} ${target.term} ::%`);
+    const { error } = await supabase.from("roster_uploads").insert({
+      filename,
+      player_count: parsed.players.length,
+      added_count: 0,
+      updated_count: 0,
+      source: "file",
+      players_snapshot: JSON.stringify({
+        kind: "season-term",
+        season: target.season,
+        seasons: [target.season],
+        term: target.term,
+        sourceFile: fileName,
+        ...parsed,
+      }),
+      uploaded_at: new Date().toISOString(),
+    });
+    if (!error) saved.push(`${target.season} ${target.term}`);
+  }
+
+  return saved;
 }
 
 function revalidateConnectedViews() {
@@ -313,7 +372,8 @@ async function saveUploadRecord(
   addedCount: number,
   updatedCount: number,
   source: "file" | "manual",
-  seasons: string[] = [TARGET_SEASON]
+  seasons: string[] = [TARGET_SEASON],
+  term: SeasonTerm | null = null
 ) {
   try {
     const snapshotSeasons = uniqueSeasons(seasons);
@@ -325,6 +385,7 @@ async function saveUploadRecord(
       source,
       players_snapshot: JSON.stringify({
         seasons: snapshotSeasons,
+        ...(term ? { term } : {}),
         players,
       }),
       uploaded_at: new Date().toISOString(),
@@ -1134,6 +1195,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const requestedSeason = normalizeSeason(formData.get("season")) || TARGET_SEASON;
+    const requestedTerm = normalizeTerm(formData.get("term"));
 
     const manualJson = formData.get("manual") as string | null;
     if (manualJson) {
@@ -1152,7 +1214,7 @@ export async function POST(request: NextRequest) {
       }
 
       const initialized = await initializeRosterSeasons(players, overwrite, rosterSeasons);
-      await saveUploadRecord("직접 입력", players, initialized.players, initialized.updated, "manual", rosterSeasons);
+      await saveUploadRecord("직접 입력", players, initialized.players, initialized.updated, "manual", rosterSeasons, requestedTerm);
       const activatedSeasons = await activateUploadedSeasons(rosterSeasons, "직접 입력");
       revalidateConnectedViews();
 
@@ -1245,7 +1307,8 @@ export async function POST(request: NextRequest) {
         : rosterPlayers;
 
       const initialized = await initializeRosterSeasons(playersToProcess, overwrite, rosterSeasons);
-      await saveUploadRecord(file.name, playersToProcess, initialized.players, initialized.updated, "file", rosterSeasons);
+      const rosterTerm = requestedTerm || detectTermFromText(file.name);
+      await saveUploadRecord(file.name, playersToProcess, initialized.players, initialized.updated, "file", rosterSeasons, rosterTerm);
       const activatedSeasons = await activateUploadedSeasons(rosterSeasons, file.name);
       revalidateConnectedViews();
 
@@ -1257,7 +1320,7 @@ export async function POST(request: NextRequest) {
 
       return withActiveSeasonCookie(NextResponse.json({
         success: true,
-        message: `로스터 반영 완료! 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 업데이트` : ""}${skipped}${skippedCount}${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 대시보드 활성화` : ""}`,
+        message: `로스터 반영 완료!${rosterTerm ? ` (${rosterSeasons.join(", ")} ${rosterTerm} 학기 명단)` : ""} 신규 ${initialized.players}명 추가${initialized.updated > 0 ? `, ${initialized.updated}명 업데이트` : ""}${skipped}${skippedCount}${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 대시보드 활성화` : ""}`,
         details: { ...initialized, seasons: rosterSeasons },
         validation: { processedRows: initialized.batting + initialized.pitching, matchedPlayers: initialized.updated, unmatchedNames: initialized.players },
       }), activeSeason);
@@ -1282,10 +1345,12 @@ export async function POST(request: NextRequest) {
       seasons: statSeasons,
     };
 
+    let savedTerms: string[] = [];
     if (hasLiveGameStatSheet) {
       await processLiveGameWorkbook(workbook, file.name, requestedSeason, results);
     } else {
       await clearSeasonSnapshot(statSeasons);
+      savedTerms = await saveTermSnapshots(workbook, file.name, requestedSeason);
     }
 
     if (hasStructuredStatSheet) {
@@ -1318,7 +1383,7 @@ export async function POST(request: NextRequest) {
 
     return withActiveSeasonCookie(NextResponse.json({
       success: true,
-      message: `업로드 완료! ${replacedScope}. 선수 ${results.players}명 추가, 경기 ${results.games}개, 타자 ${results.batting}건, 투수 ${results.pitching}건 반영${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 잠금 해제` : ""}`,
+      message: `업로드 완료! ${replacedScope}. 선수 ${results.players}명 추가, 경기 ${results.games}개, 타자 ${results.batting}건, 투수 ${results.pitching}건 반영${savedTerms.length > 0 ? ` · 학기별 명단/기록: ${savedTerms.join(", ")}` : ""}${activatedSeasons.length > 0 ? ` · ${activatedSeasons.join(", ")} 시즌 잠금 해제` : ""}`,
       details: results,
       validation: { processedRows: results.batting + results.pitching, matchedPlayers: results.updated, unmatchedNames: results.players },
     }), activeSeason);
