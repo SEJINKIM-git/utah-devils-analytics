@@ -1,4 +1,5 @@
 import { buildPlayerIdentityKey, normalizePlayerName } from "@/lib/playerIdentity";
+import { OFFICIAL_TERM_SNAPSHOTS } from "@/lib/officialTermSnapshots";
 import { parseIP } from "@/lib/statFormatting";
 
 /*
@@ -272,6 +273,10 @@ function getLatestTermStatSnapshots(uploads: TermUploadRow[], season: string) {
     const snapshot = parseTermStatSnapshot(upload);
     if (!snapshot || snapshot.season !== season || byTerm.has(snapshot.term)) continue;
     byTerm.set(snapshot.term, snapshot);
+  }
+  // 업로드된 학기 기록이 없는 학기는 코드에 포함된 공식 파일 데이터로 채움
+  for (const snapshot of OFFICIAL_TERM_SNAPSHOTS) {
+    if (snapshot.season === season && !byTerm.has(snapshot.term)) byTerm.set(snapshot.term, snapshot);
   }
   return byTerm;
 }
