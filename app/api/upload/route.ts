@@ -16,7 +16,7 @@ import { parseGameLines } from "@/lib/parseDocxGameRecord";
 import { inferRosterSnapshotSeasons } from "@/lib/rosterSnapshot";
 import { extractRosterPlayersFromWorkbook, readUploadedWorkbook } from "@/lib/rosterWorkbook";
 import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
-import { ACTIVE_SEASON_COOKIE, getLatestSeason } from "@/lib/season";
+import { ACTIVE_SEASON_COOKIE, getLatestSeason, isSeasonValue } from "@/lib/season";
 import { ensureSeasonActivated } from "@/lib/seasonVisibility";
 import { extractGameMetaFromFilename, extractSeasonFromFilename } from "@/lib/gameFileMeta";
 import {
@@ -1192,8 +1192,11 @@ async function processDetailedBlockSheet(
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const requestedSeason = normalizeSeason(formData.get("season")) || TARGET_SEASON;
-    const requestedTerm = normalizeTerm(formData.get("term"));
+    // 시즌은 연도만 허용 ("Spring" 같은 학기 이름이 시즌으로 들어오면 학기로 해석)
+    const rawSeason = normalizeSeason(formData.get("season"));
+    const hasExplicitSeason = isSeasonValue(rawSeason);
+    const requestedSeason = hasExplicitSeason && rawSeason ? rawSeason : TARGET_SEASON;
+    const requestedTerm = normalizeTerm(formData.get("term")) || normalizeTerm(rawSeason);
 
     const manualJson = formData.get("manual") as string | null;
     if (manualJson) {
@@ -1283,8 +1286,8 @@ export async function POST(request: NextRequest) {
     if (!isStatsUpload && rosterPlayers.length > 0) {
       const rosterSeasons = uniqueSeasons([
         ...inferRosterSnapshotSeasons(file.name, "file"),
-        requestedSeason,
-      ]);
+        ...(hasExplicitSeason ? [requestedSeason] : []),
+      ]).filter((season) => isSeasonValue(season));
       const conflicts = await detectConflicts(rosterPlayers);
 
       if (checkOnly) {

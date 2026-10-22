@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 export default function Topbar({ lang }: { lang: Lang }) {
   const searchParams = useSearchParams();
   const season = searchParams.get("season");
+  const term = searchParams.get("term");
 
   return (
     <header className="layout-topbar">
@@ -24,7 +25,7 @@ export default function Topbar({ lang }: { lang: Lang }) {
       </div>
       <div className="topbar-right">
         {season && (
-          <span className="topbar-season-badge">{season}</span>
+          <span className="topbar-season-badge">{term ? `${season} · ${term}` : season}</span>
         )}
         <LangToggle lang={lang} />
         <ThemeToggle lang={lang} />

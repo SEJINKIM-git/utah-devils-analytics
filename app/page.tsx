@@ -4,7 +4,6 @@ import Link from "next/link";
 import Image from "next/image";
 import SearchBar from "@/app/components/SearchBar";
 import SeasonFilter from "@/app/components/SeasonFilter";
-import TermFilter from "@/app/components/TermFilter";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
 import { buildPlayerIdentityKey, dedupePlayersByIdentity, normalizePlayerName } from "@/lib/playerIdentity";
@@ -138,17 +137,26 @@ export default async function Dashboard({
   const isPlaceholderSeason = isLockedSeason(season, visibility.activatedSeasons);
 
   // ── 학기(Spring/Fall) 분리: 학기를 고르면 명단·기록·경기 목록을 그 학기 기준으로 교체 ──
-  const termViews =
-    isPlaceholderSeason || season === "Career"
-      ? []
-      : buildSeasonTermViews({
-          season,
+  // 연도 버튼을 누르면 고를 수 있는 학기 목록 (연도별)
+  const termViewsBySeason = new Map(
+    seasons
+      .filter((value) => value !== "Career" && !isLockedSeason(value, visibility.activatedSeasons))
+      .map((value) => [
+        value,
+        buildSeasonTermViews({
+          season: value,
           uploads: rosterUploads || [],
           players,
           batting: allBatting || [],
           pitching: allPitching || [],
           games: allGames || [],
-        });
+        }),
+      ])
+  );
+  const termsBySeason = Object.fromEntries(
+    Array.from(termViewsBySeason.entries()).map(([value, views]) => [value, views.map((view) => view.term)])
+  );
+  const termViews = isPlaceholderSeason ? [] : termViewsBySeason.get(season) || [];
   const requestedTerm = normalizeTerm(params.term);
   const termView = termViews.find((view) => view.term === requestedTerm) || null;
   const selectedTerm = termView?.term || null;
@@ -569,12 +577,12 @@ export default async function Dashboard({
             season={season}
             lang={lang}
           />
-          <SeasonFilter seasons={seasons} basePath="/" lang={lang} />
-          <TermFilter
-            terms={termViews.map((view) => view.term)}
-            current={selectedTerm}
+          <SeasonFilter
+            seasons={seasons}
             basePath="/"
             lang={lang}
+            termsBySeason={termsBySeason}
+            currentTerm={selectedTerm}
           />
         </div>
 
