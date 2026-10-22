@@ -54,6 +54,12 @@ const NON_PLAYER_KEYWORDS = [
   "타자일순",
 ];
 
+// 로스터 표의 학기·역할 값("21 Spring", "Captain")이 이름으로 잡히지 않도록 제외
+const NON_PLAYER_WORDS = new Set([
+  "spring", "summer", "fall", "autumn", "winter",
+  "player", "captain", "vicecaptain", "manager", "coach", "role", "name", "male", "female",
+]);
+
 function normalizeCandidate(value: unknown) {
   return String(value ?? "")
     .trim()
@@ -71,6 +77,7 @@ export function isLikelyPlayerName(value: unknown) {
   if (compact.length < 2 || compact.length > 6) return false;
   if (/[0-9/:]/.test(compact)) return false;
   if (!/^[가-힣A-Za-z]+$/u.test(compact)) return false;
+  if (NON_PLAYER_WORDS.has(compact.toLowerCase())) return false;
 
   return !NON_PLAYER_KEYWORDS.some((keyword) => compact.includes(keyword));
 }

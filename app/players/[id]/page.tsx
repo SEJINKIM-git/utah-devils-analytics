@@ -9,6 +9,15 @@ import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility } from "@/lib/seasonVisibility";
+import {
+  buildSeasonTermViews,
+  getTermLabel,
+  hasBattingLineActivity,
+  hasPitchingLineActivity,
+  normalizeTerm,
+  parseTermStatSnapshot,
+  type SeasonTerm,
+} from "@/lib/seasonTerms";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
 
@@ -25,7 +34,7 @@ export default async function PlayerDetail({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ season?: string }>;
+  searchParams: Promise<{ season?: string; term?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -49,12 +58,13 @@ export default async function PlayerDetail({
   );
   const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
 
-  const [{ data: allBatting }, { data: allPitching }, { data: reports }, { data: allGames }, { data: rosterUploads }] = await Promise.all([
+  const [{ data: allBatting }, { data: allPitching }, { data: reports }, { data: allGames }, { data: rosterUploads }, { data: allPlayers }] = await Promise.all([
     supabase.from("batting_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
     supabase.from("pitching_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
     supabase.from("ai_reports").select("*").in("player_id", relatedPlayerIds).order("generated_at", { ascending: false }).limit(1),
-    supabase.from("games").select("id, season, created_at"),
+    supabase.from("games").select("id, season, created_at, date"),
     supabase.from("roster_uploads").select("filename, players_snapshot, source, uploaded_at").order("uploaded_at", { ascending: false }),
+    supabase.from("players").select("id, name, number"),
   ]);
 
   const seasonValues = Array.from(new Set([
@@ -274,6 +284,55 @@ export default async function PlayerDetail({
   const showCareerBat = careerRows.some((r) => r.ab !== undefined);
   const showCareerPit = careerRows.some((r) => r.ip !== undefined);
 
+  // ── 학기별(Spring / Fall) 명단·기록 ─────────────────────────────────────
+  const selectedTerm = normalizeTerm(query.term);
+  const relatedIdSet = new Set(relatedPlayerIds);
+  const termSeasonKeys = (selectedSeason === "Career"
+    ? Array.from(new Set([
+        ...careerSeasonKeys,
+        ...(rosterUploads || []).map((upload) => parseTermStatSnapshot(upload)?.season),
+      ].filter((value): value is string => Boolean(value) && value !== "Career")))
+    : [selectedSeason]
+  ).sort((a, b) => b.localeCompare(a));
+
+  type TermRow = {
+    season: string;
+    term: SeasonTerm;
+    onRoster: boolean;
+    bat: { g: number; pa: number; ab: number; hits: number; hr: number; rbi: number; bb: number; hbp: number; sb: number; doubles: number; triples: number } | null;
+    pit: { g: number; w: number; l: number; sv: number; ip: number; ha: number; er: number; bb: number; so: number } | null;
+  };
+  const sumLines = <T extends Record<string, any>>(lines: T[], fields: string[]) =>
+    lines.length === 0
+      ? null
+      : lines.reduce((acc, line) => {
+          for (const field of fields) acc[field] = (acc[field] || 0) + (Number(line[field]) || 0);
+          return acc;
+        }, {} as Record<string, number>);
+
+  const termRows: TermRow[] = termSeasonKeys.flatMap((season) =>
+    buildSeasonTermViews({
+      season,
+      uploads: rosterUploads || [],
+      players: allPlayers || [],
+      batting: allBatting || [],
+      pitching: allPitching || [],
+      games: allGames || [],
+    }).map((view) => {
+      const isMine = (entry: { player: { id: number } | null }) => Boolean(entry.player && relatedIdSet.has(entry.player.id));
+      const bat = sumLines(view.batting.filter(isMine).filter(hasBattingLineActivity), ["g", "pa", "ab", "hits", "hr", "rbi", "bb", "hbp", "sb", "doubles", "triples"]);
+      const pit = sumLines(view.pitching.filter(isMine).filter(hasPitchingLineActivity), ["g", "w", "l", "sv", "ip", "ha", "er", "bb", "so"]);
+      return {
+        season,
+        term: view.term,
+        onRoster: view.roster.some(isMine),
+        bat: bat as TermRow["bat"],
+        pit: pit as TermRow["pit"],
+      };
+    })
+  ).filter((row) => selectedSeason !== "Career" || row.onRoster || row.bat || row.pit);
+  const showTermPit = termRows.some((row) => row.pit);
+
   // 4 hero metric cards
   const metricCards = bat ? [
     { label: "OPS", value: ops, color: "var(--coral)" },
@@ -445,6 +504,99 @@ export default async function PlayerDetail({
               }
               return Array.from(m.values());
             })()} lang={lang} />
+
+            {/* 학기별 명단 · 기록 (Spring / Fall) */}
+            {termRows.length > 0 && (
+              <div style={{ background: "var(--surface-raised)", borderRadius: "var(--radius)", padding: "var(--pad-card)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" as const, color: "var(--text-faint)", marginBottom: 6 }}>
+                  {lang === "ko" ? "학기별 명단 · 기록" : "Roster & Stats by Term"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 16 }}>
+                  {lang === "ko"
+                    ? "학기마다 선수단이 바뀌므로 Spring / Fall 명단 포함 여부와 기록을 따로 보여줍니다."
+                    : "The roster changes every term, so Spring and Fall rosters and stats are shown separately."}
+                </div>
+
+                <div style={{ overflowX: "auto" as const, marginBottom: showTermPit ? 24 : 0 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ color: "var(--text-faint)", fontSize: 11, letterSpacing: 0.5 }}>
+                        {["학기", "명단", "경기", "타석", "타수", "안타", "홈런", "타점", "도루", "타율", "출루율", "OPS"].map((h, i) => (
+                          <th key={h} style={{ textAlign: (i === 0 ? "left" : "center") as "left" | "center", padding: "6px 8px", fontWeight: 600 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {termRows.map((r) => {
+                        const b = r.bat;
+                        const avgN = b && b.ab > 0 ? b.hits / b.ab : null;
+                        const obpN = b && b.pa > 0 ? (b.hits + b.bb + b.hbp) / b.pa : null;
+                        const slgN = b && b.ab > 0 ? (b.hits + b.doubles + b.triples * 2 + b.hr * 3) / b.ab : null;
+                        const isSelected = selectedSeason !== "Career" && r.term === selectedTerm;
+                        return (
+                          <tr key={`${r.season}-${r.term}`} style={{ boxShadow: "inset 0 1px 0 rgba(148,163,184,.06)", background: isSelected ? "var(--coral-dim)" : undefined }}>
+                            <td style={{ padding: "8px 8px", fontWeight: 700, whiteSpace: "nowrap" as const }}>
+                              {selectedSeason === "Career" ? `${r.season} ${r.term}` : getTermLabel(r.term, lang)}
+                            </td>
+                            <td style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: r.onRoster ? "var(--green)" : "var(--text-faint)" }}>
+                              {r.onRoster ? (lang === "ko" ? "등록" : "Yes") : "—"}
+                            </td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{b ? b.g : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{b ? b.pa : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{b ? b.ab : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{b ? b.hits : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{b ? b.hr : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{b ? b.rbi : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{b ? b.sb : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{avgN !== null ? avgN.toFixed(3) : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{obpN !== null ? obpN.toFixed(3) : "-"}</td>
+                            <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{obpN !== null && slgN !== null ? (obpN + slgN).toFixed(3) : "-"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {showTermPit && (
+                  <div style={{ overflowX: "auto" as const }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ color: "var(--text-faint)", fontSize: 11, letterSpacing: 0.5 }}>
+                          {["학기", "경기", "승", "패", "세", "이닝", "ERA", "피안타", "자책", "볼넷", "삼진", "WHIP"].map((h, i) => (
+                            <th key={h} style={{ textAlign: (i === 0 ? "left" : "center") as "left" | "center", padding: "6px 8px", fontWeight: 600 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {termRows.filter((r) => r.pit).map((r) => {
+                          const p = r.pit!;
+                          const isSelected = selectedSeason !== "Career" && r.term === selectedTerm;
+                          return (
+                            <tr key={`${r.season}-${r.term}-pit`} style={{ boxShadow: "inset 0 1px 0 rgba(148,163,184,.06)", background: isSelected ? "var(--coral-dim)" : undefined }}>
+                              <td style={{ padding: "8px 8px", fontWeight: 700, whiteSpace: "nowrap" as const }}>
+                                {selectedSeason === "Career" ? `${r.season} ${r.term}` : getTermLabel(r.term, lang)}
+                              </td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.g}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.w}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.l}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.sv}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{formatIP(p.ip)}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{p.ip > 0 ? ((p.er / p.ip) * 5).toFixed(2) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.ha}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.er}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.bb}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.so}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.ip > 0 ? ((p.ha + p.bb) / p.ip).toFixed(2) : "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Career overview table */}
             {careerRows.length > 1 && (

@@ -57,8 +57,24 @@ function toSortedRoster(roster: Map<string, ParsedRosterPlayer>) {
   return Array.from(roster.values()).sort((a, b) => a.number - b.number);
 }
 
+// "#" / "No." 헤더는 정규화하면 빈 문자열이 되어 별칭 매칭에서 빠지므로 따로 인식
+const NUMBER_SYMBOL_HEADERS = new Set(["#", "no", "no."]);
+const NUMBER_HEADER_ALIASES = [...COLUMN_ALIASES.number, ...NUMBER_SYMBOL_HEADERS];
+
+function isNumberHeaderCell(cell: unknown) {
+  return matchesAlias(cell, COLUMN_ALIASES.number) || NUMBER_SYMBOL_HEADERS.has(String(cell ?? "").trim().toLowerCase());
+}
+
+function findRosterHeaderRowIndex(rows: SpreadsheetRow[]) {
+  const byAlias = findHeaderRowIndex(rows, [COLUMN_ALIASES.number, COLUMN_ALIASES.name], 20);
+  if (byAlias >= 0) return byAlias;
+  return rows
+    .slice(0, 20)
+    .findIndex((row) => (row ?? []).some(isNumberHeaderCell) && (row ?? []).some((cell) => matchesAlias(cell, COLUMN_ALIASES.name)));
+}
+
 function extractFromHeaderRow(rows: SpreadsheetRow[]): ParsedRosterPlayer[] {
-  const headerRowIndex = findHeaderRowIndex(rows, [COLUMN_ALIASES.number, COLUMN_ALIASES.name], 20);
+  const headerRowIndex = findRosterHeaderRowIndex(rows);
   if (headerRowIndex < 0) return [];
 
   const headerRow = rows[headerRowIndex];
@@ -68,14 +84,15 @@ function extractFromHeaderRow(rows: SpreadsheetRow[]): ParsedRosterPlayer[] {
   const pickColumn = (aliases: readonly string[], isValid: (value: unknown) => boolean) => {
     let best = { col: -1, hits: -1 };
     headerRow.forEach((cell, col) => {
-      if (!matchesAlias(cell, aliases)) return;
-      const playerBonus = /선수|player/i.test(String(cell ?? "")) ? 0.5 : 0;
+      const isHeaderMatch = aliases === NUMBER_HEADER_ALIASES ? isNumberHeaderCell(cell) : matchesAlias(cell, aliases);
+      if (!isHeaderMatch) return;
+      const playerBonus = /선수|player|korean|한글/i.test(String(cell ?? "")) ? 0.5 : 0;
       const hits = dataRows.filter((row) => isValid(row?.[col])).length + playerBonus;
       if (hits > best.hits) best = { col, hits };
     });
     return best.col;
   };
-  const numCol = pickColumn(COLUMN_ALIASES.number, (value) => parseJerseyNumber(value) !== null);
+  const numCol = pickColumn(NUMBER_HEADER_ALIASES, (value) => parseJerseyNumber(value) !== null);
   const nameCol = pickColumn(COLUMN_ALIASES.name, (value) => sanitizeImportedPlayerName(value) !== "");
   const roster = new Map<string, ParsedRosterPlayer>();
 

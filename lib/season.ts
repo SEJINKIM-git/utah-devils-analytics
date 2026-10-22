@@ -1,7 +1,13 @@
 export const ACTIVE_SEASON_COOKIE = "ud_active_season";
 
+// 시즌 값은 연도(2026) 또는 Career만 허용. "Spring"처럼 학기 이름이 시즌으로 잘못 저장된 값은 숨긴다
+export function isSeasonValue(value: string | null | undefined) {
+  const season = String(value ?? "").trim();
+  return season === "Career" || /^20\d{2}$/.test(season);
+}
+
 export function sortSeasons(values: Array<string | null | undefined>) {
-  const seasons = Array.from(new Set(values.filter(Boolean) as string[]));
+  const seasons = Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(isSeasonValue)));
   const regular = seasons.filter((season) => season !== "Career").sort((a, b) => b.localeCompare(a));
   if (seasons.includes("Career")) regular.push("Career");
   return regular;

@@ -10,6 +10,7 @@ import { buildPlayerIdentityKey, dedupePlayersByIdentity, normalizePlayerName } 
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
+import { buildSeasonTermViews, normalizeTerm } from "@/lib/seasonTerms";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
 import { Users, Trophy, TrendingUp, TrendingDown, BrainCircuit } from "lucide-react";
@@ -92,7 +93,7 @@ function findRosterPlayerMatch(players: any[], snapshotPlayer: { name: string; n
 export default async function Dashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ season?: string }>;
+  searchParams: Promise<{ season?: string; term?: string }>;
 }) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -134,6 +135,31 @@ export default async function Dashboard({
   );
   const season = normalizeSelectedSeason(params.season, seasons, preferredSeason || "2025", preferredSeason);
   const isPlaceholderSeason = isLockedSeason(season, visibility.activatedSeasons);
+
+  // ── 학기(Spring/Fall) 분리: 학기를 고르면 명단·기록·경기 목록을 그 학기 기준으로 교체 ──
+  // 연도 버튼을 누르면 고를 수 있는 학기 목록 (연도별)
+  const termViewsBySeason = new Map(
+    seasons
+      .filter((value) => value !== "Career" && !isLockedSeason(value, visibility.activatedSeasons))
+      .map((value) => [
+        value,
+        buildSeasonTermViews({
+          season: value,
+          uploads: rosterUploads || [],
+          players,
+          batting: allBatting || [],
+          pitching: allPitching || [],
+          games: allGames || [],
+        }),
+      ])
+  );
+  const termsBySeason = Object.fromEntries(
+    Array.from(termViewsBySeason.entries()).map(([value, views]) => [value, views.map((view) => view.term)])
+  );
+  const termViews = isPlaceholderSeason ? [] : termViewsBySeason.get(season) || [];
+  const requestedTerm = normalizeTerm(params.term);
+  const termView = termViews.find((view) => view.term === requestedTerm) || null;
+  const selectedTerm = termView?.term || null;
 
   const batting = isPlaceholderSeason
     ? []
@@ -197,12 +223,18 @@ export default async function Dashboard({
       battingByPlayer.set(identityKey, { ...b, player_id: player.id, player });
     }
   }
-  const uniqueBatting = Array.from(battingByPlayer.values()).filter(hasBattingActivity);
+  const uniqueBatting = termView
+    ? termView.batting
+        .filter((line) => line.player)
+        .map((line) => ({ ...line, player_id: line.player!.id, player: line.player! }))
+        .filter(hasBattingActivity)
+    : Array.from(battingByPlayer.values()).filter(hasBattingActivity);
 
   // ── Per-game team batting for mini bar chart (last 7 games) ──
   const perGameBatMap = new Map<string, { hits: number; ab: number }>();
   for (const b of batting) {
     if (!b.game_id) continue;
+    if (termView && !termView.gameIds.has(b.game_id)) continue;
     if (shouldGateStatsToPostRosterGames && !validGameIds.has(b.game_id)) continue;
     const player = playerById.get(b.player_id);
     if (!player) continue;
@@ -214,6 +246,7 @@ export default async function Dashboard({
   const perGameEraMap = new Map<string, { er: number; ip: number }>();
   for (const p of pitching) {
     if (!p.game_id) continue;
+    if (termView && !termView.gameIds.has(p.game_id)) continue;
     if (shouldGateStatsToPostRosterGames && !validGameIds.has(p.game_id)) continue;
     const player = playerById.get(p.player_id);
     if (!player) continue;
@@ -225,6 +258,7 @@ export default async function Dashboard({
   // Deduplicate games by date+opponent: keep the one with more batting data
   const gamesSortedRaw = (allGames || [])
     .filter((g) => g.season === season && validGameIds.has(g.id))
+    .filter((g) => !termView || termView.gameIds.has(g.id))
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const gamesByKey = new Map<string, typeof gamesSortedRaw[0]>();
   for (const g of gamesSortedRaw) {
@@ -286,7 +320,12 @@ export default async function Dashboard({
       pitchingByPlayer.set(identityKey, { ...p, player_id: player.id, player, ip: parseIP(p.ip) });
     }
   }
-  const uniquePitching = Array.from(pitchingByPlayer.values()).filter(hasPitchingActivity);
+  const uniquePitching = termView
+    ? termView.pitching
+        .filter((line) => line.player)
+        .map((line) => ({ ...line, player_id: line.player!.id, player: line.player! }))
+        .filter(hasPitchingActivity)
+    : Array.from(pitchingByPlayer.values()).filter(hasPitchingActivity);
 
   // ── Recent 3 games ──
   const recentGames = gamesSorted
@@ -313,6 +352,8 @@ export default async function Dashboard({
 
   const rosterSeasonPlayers = isPlaceholderSeason
     ? []
+    : termView
+    ? dedupePlayersByIdentity(termView.roster.map((entry) => entry.player).filter((player): player is NonNullable<typeof player> => Boolean(player)))
     : dedupePlayersByIdentity(
         (latestRosterSnapshot?.players || [])
           .map((player) => findRosterPlayerMatch(players, player))
@@ -386,7 +427,10 @@ export default async function Dashboard({
   const teamERA = teamIP > 0 ? ((teamER / teamIP) * 5).toFixed(2) : "---";
 
   const seasonLabel =
-    season === "Career" ? t("site.career", lang) : `${season} ${t("site.season", lang)}`;
+    season === "Career"
+      ? t("site.career", lang)
+      : `${season}${selectedTerm ? ` ${selectedTerm}` : ""} ${t("site.season", lang)}`;
+  const seasonTermLabel = selectedTerm ? `${season} ${selectedTerm}` : season;
 
   // ── AI insights from supabase ──
   const { data: aiReport } = await supabase
@@ -533,7 +577,13 @@ export default async function Dashboard({
             season={season}
             lang={lang}
           />
-          <SeasonFilter seasons={seasons} basePath="/" lang={lang} />
+          <SeasonFilter
+            seasons={seasons}
+            basePath="/"
+            lang={lang}
+            termsBySeason={termsBySeason}
+            currentTerm={selectedTerm}
+          />
         </div>
 
         {/* ── 2-column dashboard grid ── */}
@@ -572,7 +622,7 @@ export default async function Dashboard({
                     marginBottom: 8,
                   }}
                 >
-                  SEASON PERFORMANCE · {season}
+                  SEASON PERFORMANCE · {seasonTermLabel}
                 </p>
                 <div
                   style={{
@@ -697,8 +747,8 @@ export default async function Dashboard({
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                     <Users size={18} />
                     {lang === "ko"
-                      ? `${season} 선수단 명단 · ${seasonPlayers.length}명`
-                      : `${season} Roster · ${seasonPlayers.length}`}
+                      ? `${seasonTermLabel} 선수단 명단 · ${seasonPlayers.length}명`
+                      : `${seasonTermLabel} Roster · ${seasonPlayers.length}`}
                   </span>
                 </h2>
                 <div
@@ -713,9 +763,11 @@ export default async function Dashboard({
                     }}
                   >
                     {seasonPlayers.map((player: any) => (
-                      <div
+                      <Link
                         key={`${player.number}-${player.name}-${player.id}`}
+                        href={`/players/${player.id}?season=${season}${selectedTerm ? `&term=${selectedTerm}` : ""}`}
                         style={{
+                          textDecoration: "none",
                           display: "flex",
                           alignItems: "center",
                           gap: 10,
@@ -755,7 +807,7 @@ export default async function Dashboard({
                             {getPlayerDisplayName(player.name, lang)}
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 </div>
@@ -1049,7 +1101,7 @@ export default async function Dashboard({
                         </td>
                         <td style={{ padding: "14px 16px", fontWeight: 700 }}>
                           <Link
-                            href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`}
+                            href={`/players/${b.player.id}?season=${encodeURIComponent(season)}${selectedTerm ? `&term=${selectedTerm}` : ""}`}
                             style={{ color: "var(--text-strong)", textDecoration: "none" }}
                           >
                             {getPlayerDisplayName(b.player.name, lang)}
@@ -1319,7 +1371,7 @@ export default async function Dashboard({
                   {battingWithPlayers.slice(0, 3).map((b: any, i: number) => (
                     <Link
                       key={i}
-                      href={`/players/${b.player.id}?season=${encodeURIComponent(season)}`}
+                      href={`/players/${b.player.id}?season=${encodeURIComponent(season)}${selectedTerm ? `&term=${selectedTerm}` : ""}`}
                       style={{
                         display: "flex",
                         alignItems: "center",
