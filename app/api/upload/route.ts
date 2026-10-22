@@ -401,9 +401,12 @@ async function detectConflicts(rosterPlayers: RosterPlayer[]): Promise<ConflictP
 
   const conflicts: ConflictPlayer[] = [];
   for (const player of rosterPlayers) {
+    // 이름·배번이 모두 같은 기존 선수는 복귀 선수일 뿐 충돌이 아님
+    if (existing.some((entry) => entry.number === player.number && entry.name === player.name)) continue;
+
     const byNumber = existing.find((entry) => entry.number === player.number);
     const byName = existing.find((entry) => entry.name === player.name);
-    const match = byNumber || byName;
+    const match = byName || byNumber;
     if (!match) continue;
 
     conflicts.push({
@@ -505,6 +508,7 @@ async function initializeRosterSeasons(
   overwrite: boolean,
   seasons: string[]
 ) {
+  const { data: existingPlayers } = await supabase.from("players").select("id,name,number").order("id", { ascending: false });
   const targetSeasons = uniqueSeasons(seasons);
   const results = {
     players: 0,
@@ -518,19 +522,13 @@ async function initializeRosterSeasons(
   for (const rosterPlayer of rosterPlayers) {
     let playerId: string | null = null;
 
-    const { data: byNumber } = await supabase
-      .from("players")
-      .select("id,name,number")
-      .eq("number", rosterPlayer.number)
-      .maybeSingle();
-
-    const { data: byName } = await supabase
-      .from("players")
-      .select("id,name,number")
-      .eq("name", rosterPlayer.name)
-      .maybeSingle();
-
-    const existing = byNumber || byName;
+    // 이름+배번 일치 → 이름 일치 → (덮어쓰기일 때만) 배번 일치.
+    // 덮어쓰기가 아니면 배번만 같은 다른 이름은 학기가 바뀌며 배번을 물려받은 새 선수로 등록
+    const pool = existingPlayers || [];
+    const exact = pool.find((entry) => entry.number === rosterPlayer.number && entry.name === rosterPlayer.name);
+    const byName = pool.find((entry) => entry.name === rosterPlayer.name);
+    const byNumber = overwrite ? pool.find((entry) => entry.number === rosterPlayer.number) : undefined;
+    const existing = exact || byName || byNumber;
 
     if (existing) {
       playerId = existing.id;
@@ -1297,14 +1295,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ needsConfirm: true, conflicts, total: rosterPlayers.length });
       }
 
-      const playersToProcess = skipConflicts
-        ? rosterPlayers.filter(
-            (player) =>
-              !conflicts.some(
-                (conflict) => conflict.name === player.name || conflict.existingNumber === player.number
-              )
-          )
-        : rosterPlayers;
+      // "기존 선수 유지" 모드도 명단에는 파일의 모든 선수를 남긴다 (기존 선수 정보만 수정하지 않음)
+      const playersToProcess = rosterPlayers;
 
       const initialized = await initializeRosterSeasons(playersToProcess, overwrite, rosterSeasons);
       const rosterTerm = requestedTerm || detectTermFromText(file.name);
@@ -1315,7 +1307,7 @@ export async function POST(request: NextRequest) {
       const skipped =
         initialized.skipped_batting > 0 ? ` (기존 기록 ${initialized.skipped_batting}건 유지)` : "";
       const skippedCount =
-        skipConflicts && conflicts.length > 0 ? ` · 중복 ${conflicts.length}명 제외` : "";
+        skipConflicts && conflicts.length > 0 ? ` · 이름/배번이 다른 기존 선수 ${conflicts.length}명은 기존 정보 유지` : "";
       const activeSeason = getLatestSeason(rosterSeasons, requestedSeason);
 
       return withActiveSeasonCookie(NextResponse.json({

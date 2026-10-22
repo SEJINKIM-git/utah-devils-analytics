@@ -64,7 +64,7 @@ export function inferRosterSnapshotSeasons(filename?: string | null, source?: st
   if (activationMatch?.[1]) return [activationMatch[1]];
 
   const years = Array.from(
-    new Set(Array.from(rawName.matchAll(/\b(20\d{2})\b/g)).map((match) => match[1]))
+    new Set(Array.from(rawName.matchAll(/(?<!\d)(20\d{2})(?!\d)/g)).map((match) => match[1]))
   );
   if (years.length > 0) return years;
 

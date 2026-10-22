@@ -313,7 +313,7 @@ export default function UploadPage() {
                   </button>
                   <button onClick={() => resolveConflict("skip")} disabled={loading}
                     style={{ flex: 1, padding: "12px", borderRadius: 10, background: "var(--blue-dim)", border: "1px solid rgba(127,166,217,0.3)", color: "var(--blue)", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
-                    중복 제외, 새 선수만 추가
+                    기존 선수 유지, 새 선수만 추가 (권장)
                   </button>
                 </div>
               </div>
