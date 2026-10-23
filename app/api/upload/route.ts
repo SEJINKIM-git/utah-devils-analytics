@@ -12,7 +12,7 @@ import { parseGameLines } from "@/lib/parseDocxGameRecord";
 import { inferRosterSnapshotSeasons } from "@/lib/rosterSnapshot";
 import { extractRosterPlayersFromWorkbook, readUploadedWorkbook } from "@/lib/rosterWorkbook";
 import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
-import { type PlayerCandidate, resolvePlayerMatch } from "@/lib/playerMatching";
+import { type PlayerCandidate, describeAmbiguousPlayers, resolvePlayerMatch } from "@/lib/playerMatching";
 import { normalizeInningsForStorage } from "@/lib/statFormulas";
 import { parseGameWorkbook } from "@/lib/gameSheet";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, isSeasonValue } from "@/lib/season";
@@ -471,6 +471,11 @@ async function upsertPlayer(
   const normalizedNumber = playerNumber && playerNumber > 0 ? playerNumber : null;
   const match = resolvePlayerMatch(await findPlayerCandidates(normalizedNumber, name), normalizedNumber, name, isPitcher);
 
+  if (match.action === "ambiguous") {
+    // 배번 없는 기록지에서 동명이인 → 어느 선수인지 정할 수 없으므로 저장하지 않는다
+    throw new Error(describeAmbiguousPlayers(name, match.candidates));
+  }
+
   if (match.action === "create") {
     const insertNumber = normalizedNumber ?? await getNextSyntheticPlayerNumber();
     const { data: created } = await supabase
@@ -833,6 +838,17 @@ async function processLiveGameWorkbook(
   results.warnings = [...(results.warnings ?? []), ...parsed.warnings];
   if (!info.date || !info.opponent || !info.season) {
     throw new Error("경기 날짜와 상대팀을 찾지 못했습니다. 경기 정보 시트를 채우거나 파일명을 '9_26 VS 선학 경기 기록.xlsx' 형식으로 저장하세요.");
+  }
+
+  // 기록지에는 배번이 없어 이름으로만 선수를 찾는다. 동명이인이 있으면 어떤 기록도 지우거나 쓰기 전에 중단한다.
+  const ambiguous: string[] = [];
+  const names = new Set([...parsed.batting, ...parsed.pitching].map((row) => sanitizeImportedPlayerName(row.name)).filter(Boolean));
+  for (const name of names) {
+    const match = resolvePlayerMatch(await findPlayerCandidates(null, name), null, name, false);
+    if (match.action === "ambiguous") ambiguous.push(describeAmbiguousPlayers(name, match.candidates));
+  }
+  if (ambiguous.length > 0) {
+    throw new Error(`동명이인 때문에 저장하지 않았습니다.\n${ambiguous.join("\n")}`);
   }
 
   const gameCache = new Map<string, number>();
