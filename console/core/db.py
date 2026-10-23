@@ -56,6 +56,9 @@ class BaseRepo:
     def save_ai_report(self, report: dict, actor) -> WriteResult:
         return WriteResult(False, "읽기 전용 데모 모드입니다.")
 
+    def replace_game(self, sheet, actor) -> WriteResult:
+        return WriteResult(False, "읽기 전용 데모 모드입니다.")
+
 
 # ── 로컬 데모 ────────────────────────────────────────────────────────────────
 class LocalRepo(BaseRepo):
@@ -252,6 +255,65 @@ class SupabaseRepo(BaseRepo):
                                                     "season": situation["season"], "logged_by": actor}).execute()
         self._audit(actor, "insert", "situations", None, {"situation": sit, "decision": decision})
         return WriteResult(True, f"상황 기록 완료 (LI {li.get('li')}, {li.get('lc')})")
+
+    # 경기 기록지 v3.0 ─────────────────────────────────────────────────────
+    def _next_synthetic_number(self) -> int:
+        data = self.sb.table("players").select("number").gte("number", 900).order("number", desc=True).limit(1).execute().data
+        return (data[0]["number"] if data else 899) + 1
+
+    def replace_game(self, sheet, actor):
+        """경기 하나를 원자적으로 교체 (sql/005 console_replace_game). 기록지에 배번이 없으므로 이름으로 선수를 찾는다:
+        같은 이름의 가장 최근 선수 레코드, 없으면 임시 배번(900번대)으로 새로 만든다 (플랫폼 업로드와 같은 규칙)."""
+        import re
+
+        from .aggregate import canonical_players
+
+        if not self.audit_ready():
+            return WriteResult(False, f"감사 로그 테이블({AUDIT_TABLE})이 없습니다. 저장소의 sql/001을 먼저 적용하세요.")
+        info = sheet.info
+        if not (info.get("date") and info.get("opponent") and info.get("season")):
+            return WriteResult(False, "경기 날짜와 상대팀을 찾지 못했습니다.")
+
+        cp = canonical_players(self.players())
+        key = lambda n: re.sub(r"\s+", "", str(n)).lower()  # noqa: E731
+        by_name = {}
+        for r in cp.sort_values("id").itertuples():
+            by_name[key(r.name)] = r.canonical_id  # 뒤(최근 id)가 덮어씀
+        new_players = []
+
+        def pid(name, pitcher):
+            k = key(name)
+            if k in by_name:
+                if pitcher:
+                    self.sb.table("players").update({"is_pitcher": True}).eq("id", by_name[k]).execute()
+                return by_name[k]
+            row = self.sb.table("players").insert({"number": self._next_synthetic_number(), "name": name,
+                                                   "is_pitcher": bool(pitcher)}).execute().data[0]
+            by_name[k] = row["id"]
+            new_players.append(name)
+            return row["id"]
+
+        bat = [{"player_id": pid(r.name, r.position == "P"), **{c: int(getattr(r, c)) for c in (
+            "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "bb", "hbp", "so", "sb", "sf", "sh", "ci")}}
+               for r in sheet.batting.itertuples()]
+        pit = [{"player_id": pid(r.name, True), "ip": float(outs_to_ip(r.outs)), **{c: int(getattr(r, c)) for c in (
+            "w", "l", "sv", "hld", "ha", "runs_allowed", "er", "bb", "hbp", "so", "hr_allowed", "pitches")}}
+               for r in sheet.pitching.itertuples()]
+        us = info.get("score_us") if info.get("score_us") is not None else int(sheet.batting["runs"].sum())
+        them = info.get("score_them") if info.get("score_them") is not None else int(sheet.pitching["runs_allowed"].sum())
+        game = {"date": info["date"], "opponent": info["opponent"], "is_home": info.get("is_home"),
+                "location": info.get("location"), "score_us": us, "score_them": them,
+                "result": "W" if us > them else "L" if us < them else ("D" if us or them else None),
+                "notes": " | ".join(sheet.highlights) or None}
+        res = self.sb.rpc("console_replace_game", {
+            "p_season": info["season"], "p_game": game, "p_batting": bat, "p_pitching": pit,
+            "p_actor": actor, "p_source": sheet.source,
+        }).execute().data
+        return WriteResult(True, f"{info['date']} vs {info['opponent']} 저장 완료",
+                           {"경기": "새 경기" if res["created"] else f"기존 경기 #{res['game_id']}",
+                            "타자": res["batting"], "투수": res["pitching"],
+                            "이전 타자 행": res["before_batting"], "이전 투수 행": res["before_pitching"],
+                            "신규 선수": ", ".join(new_players) or "없음"})
 
     def save_ai_report(self, report, actor):
         row = self.sb.table("ai_reports").insert(report).execute().data[0]

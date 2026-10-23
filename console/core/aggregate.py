@@ -57,9 +57,17 @@ def season_batting(raw: pd.DataFrame, players: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
     df["g"] = df["game_id"].notna().astype(int)  # 경기별 행만 경기 수로 센다
-    agg = df.groupby(["player_id", "season"])[[*BAT_DB, "g"]].sum().reset_index()
+    # 출루율 분모: 희생플라이 구분이 있는 행(v3.0 경기 기록지)은 AB+BB+HBP+SF, 없는 행(과거 시즌)은 PA
+    sf = pd.to_numeric(df["sf"], errors="coerce") if "sf" in df else pd.Series(float("nan"), index=df.index)
+    df["obp_den"] = (df["ab"] + df["bb"] + df["hbp"] + sf.fillna(0)).where(sf.notna(), df["pa"])
+    for extra in ("sf", "sh", "ci"):
+        df[extra] = pd.to_numeric(df[extra], errors="coerce") if extra in df else float("nan")
+    agg = df.groupby(["player_id", "season"]).agg(
+        **{c: (c, "sum") for c in [*BAT_DB, "g", "obp_den"]},
+        **{c: (c, lambda s: s.sum(min_count=1)) for c in ("sf", "sh", "ci")},
+    ).reset_index()
     agg = agg[agg[BAT_DB].sum(axis=1) > 0]  # 로스터 등록용 0 행 제외
-    for c in [*BAT_DB, "g"]:
+    for c in [*BAT_DB, "g", "obp_den"]:
         agg[c] = agg[c].astype(int)
     return _attach(add_batting_rates(agg), players)
 
@@ -88,7 +96,7 @@ def season_pitching(raw: pd.DataFrame, players: pd.DataFrame) -> tuple[pd.DataFr
 def career(season_df: pd.DataFrame, kind: str) -> pd.DataFrame:
     if season_df.empty:
         return season_df
-    cols = BAT_DB if kind == "batting" else [*PIT_DB, "outs"]
+    cols = [*BAT_DB, "obp_den"] if kind == "batting" else [*PIT_DB, "outs"]
     agg = season_df.groupby(["player_id", "number", "name"])[cols].sum().reset_index()
     agg["seasons"] = season_df.groupby("player_id")["season"].nunique().reindex(agg["player_id"]).values
     agg["season"] = "Career"
@@ -101,7 +109,7 @@ def team_totals(df: pd.DataFrame, kind: str) -> dict:
     if df.empty:
         return {}
     if kind == "batting":
-        s = df[BAT_DB].sum()
+        s = df[[*BAT_DB, *(["obp_den"] if "obp_den" in df else [])]].sum()
         r = add_batting_rates(pd.DataFrame([s]))
     else:
         s = df[[*PIT_DB, "outs"]].sum()
