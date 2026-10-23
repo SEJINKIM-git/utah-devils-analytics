@@ -42,7 +42,10 @@ def _prepare(raw: pd.DataFrame, players: pd.DataFrame, cols: list[str]) -> pd.Da
     df["season"] = df["season"].astype(str).str.strip()
     df = df[df["season"].str.match(SEASON_RE)]
     for c in cols:
-        df[c] = pd.to_numeric(df.get(c, 0), errors="coerce").fillna(0)
+        # 없는 칸(예: 마이그레이션 전 DB의 sf)은 0으로 — df.get(c, 0)은 스칼라를 돌려줘 .fillna에서 죽는다
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0) if c in df.columns else 0
+    if "game_id" not in df.columns:
+        df["game_id"] = None
     cp = canonical_players(players)[["id", "canonical_id"]]
     df = df.merge(cp, left_on="player_id", right_on="id", how="inner", suffixes=("", "_p"))
     df["player_id"] = df["canonical_id"]

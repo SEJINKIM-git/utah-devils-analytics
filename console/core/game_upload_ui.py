@@ -17,8 +17,17 @@ GAME_COMPARE_B = ["pa", "ab", "hits", "bb", "so", "runs", "rbi", "sb"]
 GAME_COMPARE_P = ["outs", "er", "ha", "bb", "so"]
 
 
+class UnreadableWorkbook(ValueError):
+    """엑셀로 열 수 없는 파일 (손상, 다른 형식, 암호 등)."""
+
+
 def is_game_file(uploaded) -> bool:
-    wb = openpyxl.load_workbook(io.BytesIO(uploaded.getvalue()), read_only=True)
+    """경기 기록지(타자 기록·투수 기록 시트)인지. 엑셀로 열 수 없으면 UnreadableWorkbook."""
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(uploaded.getvalue()), read_only=True)
+    except Exception as e:  # openpyxl은 zipfile.BadZipFile, KeyError, InvalidFileException 등 다양하게 던진다
+        raise UnreadableWorkbook(f"{uploaded.name}: 엑셀 파일로 열 수 없습니다 ({type(e).__name__}). "
+                                 "Excel에서 .xlsx 또는 .xlsm으로 다시 저장해 올려 주세요.") from e
     try:
         return is_game_workbook(wb.sheetnames)
     finally:
@@ -59,8 +68,18 @@ def _existing_rows(data, info):
 
 def render_game_files(files, repo, data):
     st.header("경기 기록지")
+    v3_ready = repo.read_only or repo.v3_ready()
+    if not v3_ready:
+        st.error("DB에 경기 기록지 v3.0 칸(희생플라이·희생번트·포수방해·투구수)과 경기 교체 함수가 아직 없습니다. "
+                 "저장소의 `sql/005_game_sheet_v3.sql`을 Supabase SQL Editor에서 적용하면 저장할 수 있습니다. "
+                 "아래 미리보기는 그대로 볼 수 있습니다.", icon=":material/database_off:")
+
     for f in files:
-        sheet = _parse(hashlib.sha1(f.getvalue()).hexdigest(), f.name, f.getvalue())
+        try:
+            sheet = _parse(hashlib.sha1(f.getvalue()).hexdigest(), f.name, f.getvalue())
+        except Exception as e:
+            st.error(f"{f.name}: 경기 기록지를 읽지 못했습니다 — {e}", icon=":material/error:")
+            continue
         info = sheet.info
         st.subheader(f"{info.get('date') or '날짜 없음'} vs {info.get('opponent') or '상대 없음'}")
         st.caption(f"{f.name} · 기록지 {info.get('version') or '버전 미표기'}")
@@ -109,6 +128,16 @@ def render_game_files(files, repo, data):
         if repo.read_only:
             st.info("데모 모드에서는 저장할 수 없습니다.", icon=":material/lock:")
             continue
+        if not v3_ready:
+            continue
+
+        # 기록지에는 배번이 없어 이름으로 선수를 찾는다 — 동명이인이면 저장할 수 없다
+        ambiguous = repo.ambiguous_names(list(sheet.batting["name"]) + list(sheet.pitching["name"]))
+        if ambiguous:
+            st.error("동명이인 때문에 이 경기는 저장할 수 없습니다.\n\n" + "\n\n".join(f"- {m}" for m in ambiguous),
+                     icon=":material/person_off:")
+            continue
+
         key = hashlib.sha1(f.getvalue()).hexdigest()[:8]
         ok = st.checkbox("위 내용을 확인했고 이 경기 기록을 저장합니다." + ("" if sheet.is_reviewed else " (검수 미완료)"),
                          key=f"game_ok_{key}")

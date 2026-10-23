@@ -4,13 +4,15 @@
   · SupabaseRepo : 운영 DB (홈페이지·기존 플랫폼과 같은 프로젝트)
   · LocalRepo    : secrets가 없을 때 tests/fixtures의 엑셀로 띄우는 읽기 전용 데모
 
-모든 쓰기는 이 파일을 거치고, 쓰기마다 console_audit_log에 전/후 값을 남긴다.
+모든 쓰기는 이 파일을 거치고, 테이블에 직접 insert/update/delete 하지 않는다.
+쓰기마다 DB 함수(sql/001·005·006의 console_*)가 변경과 console_audit_log 기록을 한 트랜잭션으로 처리한다.
 홈페이지가 읽는 테이블 구조(ip를 야구식 표기로 저장 등)는 바꾸지 않는다.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,12 +24,29 @@ from .stats import outs_to_ip
 FIXTURES = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 AUDIT_TABLE = "console_audit_log"
 
+# 각 DB 함수가 어느 마이그레이션에 들어 있는지 — 없을 때 안내 문구에 쓴다
+RPC_MIGRATION = {
+    "console_replace_season": "sql/001_audit_log_and_report_season.sql",
+    "console_replace_game": "sql/005_game_sheet_v3.sql",
+    "console_update_rows": "sql/006_console_writes.sql",
+    "console_log_situation": "sql/006_console_writes.sql",
+    "console_save_ai_report": "sql/006_console_writes.sql",
+}
+
 
 @dataclass
 class WriteResult:
     ok: bool
     message: str
     counts: dict | None = None
+
+
+class ConsoleWriteError(Exception):
+    """쓰기 실패 — 메시지는 그대로 화면에 보여 줄 수 있는 안내 문구."""
+
+
+def name_key(name) -> str:
+    return re.sub(r"\s+", "", str(name or "")).lower()
 
 
 class BaseRepo:
@@ -42,6 +61,10 @@ class BaseRepo:
     def situations(self, season: str | None = None) -> pd.DataFrame: return pd.DataFrame()
     def ai_reports(self) -> pd.DataFrame: return pd.DataFrame()
     def audit_log(self, limit=200) -> pd.DataFrame: return pd.DataFrame()
+
+    # 저장 가능 여부 (마이그레이션 적용 상태). 데모는 항상 저장 불가.
+    def v3_ready(self) -> bool: return False
+    def ambiguous_names(self, names) -> list[str]: return []
 
     # 쓰기 (LocalRepo는 거부)
     def replace_season(self, season, batting, pitching, actor, source) -> WriteResult:
@@ -153,15 +176,7 @@ class SupabaseRepo(BaseRepo):
         except Exception:
             return pd.DataFrame()
 
-    # 감사 로그 ─────────────────────────────────────────────────────────────
-    def _audit(self, actor, action, table, before, after, note=None):
-        self.sb.table(AUDIT_TABLE).insert({
-            "actor": actor, "action": action, "table_name": table,
-            "before": json.loads(json.dumps(before, default=str)) if before is not None else None,
-            "after": json.loads(json.dumps(after, default=str)) if after is not None else None,
-            "note": note,
-        }).execute()
-
+    # 마이그레이션 상태 ───────────────────────────────────────────────────────
     def audit_ready(self) -> bool:
         try:
             self.sb.table(AUDIT_TABLE).select("id").limit(1).execute()
@@ -169,56 +184,100 @@ class SupabaseRepo(BaseRepo):
         except Exception:
             return False
 
+    def v3_ready(self) -> bool:
+        """sql/005 적용 여부 — 희생플라이 칸이 있으면 console_replace_game도 함께 들어온 것."""
+        try:
+            self.sb.table("batting_stats").select("sf").limit(1).execute()
+            return True
+        except Exception:
+            return False
+
+    # DB 함수 호출 ────────────────────────────────────────────────────────────
+    def _rpc(self, name: str, params: dict):
+        """모든 쓰기는 여기를 거친다. 함수가 없으면(마이그레이션 미적용) 어떤 파일을 적용할지 알려 준다."""
+        to_py = json.loads(json.dumps(params, default=_json_default))  # numpy 숫자 → 파이썬 숫자
+        try:
+            return self.sb.rpc(name, to_py).execute().data
+        except Exception as e:  # postgrest APIError 등
+            code = str(getattr(e, "code", "") or "")
+            text = str(getattr(e, "message", "") or e)
+            if code == "PGRST202" or name in text or ("function" in text.lower() and "exist" in text.lower()):
+                raise ConsoleWriteError(
+                    f"DB 함수 {name}이(가) 없습니다. 저장소의 {RPC_MIGRATION.get(name, 'sql/')}을(를) Supabase SQL Editor에서 먼저 적용하세요."
+                ) from e
+            raise ConsoleWriteError(f"저장 실패 (DB 오류): {text}") from e
+
     # 선수 매칭 ──────────────────────────────────────────────────────────────
-    def _player_id(self, number, name, is_pitcher, cache):
+    def _identity_cache(self) -> dict[str, tuple[int, bool]]:
+        """(배번, 이름) → (대표 id, 투수 여부). 같은 (배번, 이름) 중복 레코드는 최신 id 하나로."""
+        from .aggregate import canonical_players
+
+        players = self.players()
+        if players.empty:
+            return {}
+        cp = canonical_players(players)
+        pitcher_by_id = dict(zip(players["id"], players["is_pitcher"].fillna(False).astype(bool)))
+        return {r.identity: (int(r.canonical_id), bool(pitcher_by_id.get(r.canonical_id, False))) for r in cp.itertuples()}
+
+    @staticmethod
+    def _player_ref(cache: dict, number, name, pitcher: bool) -> dict:
+        """RPC 행의 선수 부분: 기존 선수면 player_id(+set_pitcher), 아니면 number·name·is_pitcher (DB 함수가 만든다)."""
         from .aggregate import identity_key
 
-        key = identity_key(number, name)
-        if key in cache:
-            pid = cache[key]
-            if is_pitcher:
-                self.sb.table("players").update({"is_pitcher": True}).eq("id", pid).execute()
-            return pid, False
-        row = self.sb.table("players").insert({"number": int(number), "name": name, "is_pitcher": bool(is_pitcher)}).execute().data[0]
-        cache[key] = row["id"]
-        return row["id"], True
+        hit = cache.get(identity_key(number, name))
+        if hit:
+            pid, is_pitcher = hit
+            return {"player_id": pid, **({"set_pitcher": True} if pitcher and not is_pitcher else {})}
+        return {"number": int(number), "name": str(name).strip(), "is_pitcher": bool(pitcher)}
+
+    def _name_groups(self) -> dict[str, dict[int, int]]:
+        """이름(공백 제거·소문자) → {대표 id: 배번}. 경기 기록지(배번 없음)의 이름 매칭용."""
+        from .aggregate import canonical_players
+
+        players = self.players()
+        groups: dict[str, dict[int, int]] = {}
+        if players.empty:
+            return groups
+        for r in canonical_players(players).itertuples():
+            groups.setdefault(name_key(r.name), {})[int(r.canonical_id)] = int(r.number or 0)
+        return groups
+
+    def ambiguous_names(self, names) -> list[str]:
+        """같은 이름이 서로 다른 배번으로 둘 이상 등록돼 있어 어느 선수인지 정할 수 없는 이름들의 안내 문구."""
+        groups = self._name_groups()
+        players = self.players()
+        out = []
+        for name in sorted({str(n).strip() for n in names if str(n).strip()}):
+            g = groups.get(name_key(name), {})
+            if len(set(g.values())) > 1:
+                detail = ", ".join(f"#{num} {players.loc[players.id == pid, 'name'].iloc[0]} (id {pid})" for pid, num in sorted(g.items(), key=lambda kv: kv[1]))
+                out.append(f"'{name}' 이름의 선수가 {len(g)}명 있어 어느 선수의 기록인지 정할 수 없습니다: {detail}. "
+                           "기록지 이름에 구분자를 붙이거나 선수 명단을 정리한 뒤 다시 올려 주세요.")
+        return out
 
     # 시즌 교체 업로드 ───────────────────────────────────────────────────────
     def replace_season(self, season, batting, pitching, actor, source):
         """기존 업로드와 같은 의미(해당 시즌 요약 행 교체) + 멱등성 + 감사 로그.
-        경기별 행(game_id 있음)은 건드리지 않는다. 같은 파일을 두 번 올려도 결과가 같다."""
-        from .aggregate import canonical_players
-
+        경기별 행(game_id 있음)과 games·situations는 건드리지 않는다. 같은 파일을 두 번 올려도 결과가 같다."""
         if not self.audit_ready():
-            return WriteResult(False, f"감사 로그 테이블({AUDIT_TABLE})이 없습니다. 저장소의 sql/001_audit_log_and_report_season.sql을 먼저 적용하세요.")
-        players = self.players()
-        cp = canonical_players(players)
-        cache = dict(zip(cp["identity"], cp["canonical_id"]))
-
-        new_players = 0
-        bat_rows, pit_rows = [], []
-        for r in batting.itertuples():
-            pid, created = self._player_id(r.number, r.name, False, cache)
-            new_players += created
-            bat_rows.append({"player_id": pid, "season": season, "pa": r.pa, "ab": r.ab, "runs": r.runs, "hits": r.hits,
-                             "doubles": r.doubles, "triples": r.triples, "hr": r.hr, "rbi": r.rbi, "bb": r.bb,
-                             "hbp": r.hbp, "so": r.so, "sb": r.sb})
-        for r in pitching.itertuples():
-            pid, created = self._player_id(r.number, r.name, True, cache)
-            new_players += created
-            # 홈페이지 호환: ip는 기존처럼 야구식 표기 숫자로 저장 (46.2)
-            pit_rows.append({"player_id": pid, "season": season, "w": r.w, "l": r.l, "sv": r.sv, "hld": r.hld,
-                             "ip": float(outs_to_ip(r.outs)), "ha": r.ha, "runs_allowed": r.runs_allowed, "er": r.er,
-                             "bb": r.bb, "hbp": r.hbp, "so": r.so, "hr_allowed": r.hr_allowed})
-
-        # 삭제·삽입·감사 로그를 DB 함수 하나로 처리 → 중간 실패 시 전체 롤백
-        to_py = lambda rows: json.loads(json.dumps(rows, default=int))  # numpy int → int  # noqa: E731
-        res = self.sb.rpc("console_replace_season", {
-            "p_season": season, "p_batting": to_py(bat_rows), "p_pitching": to_py(pit_rows),
-            "p_actor": actor, "p_source": source,
-        }).execute().data
+            return WriteResult(False, f"감사 로그 테이블({AUDIT_TABLE})이 없습니다. 저장소의 {RPC_MIGRATION['console_replace_season']}을 먼저 적용하세요.")
+        cache = self._identity_cache()
+        bat_rows = [{**self._player_ref(cache, r.number, r.name, False),
+                     "pa": r.pa, "ab": r.ab, "runs": r.runs, "hits": r.hits, "doubles": r.doubles, "triples": r.triples,
+                     "hr": r.hr, "rbi": r.rbi, "bb": r.bb, "hbp": r.hbp, "so": r.so, "sb": r.sb}
+                    for r in batting.itertuples()]
+        # 홈페이지 호환: ip는 기존처럼 야구식 표기 숫자로 저장 (46.2)
+        pit_rows = [{**self._player_ref(cache, r.number, r.name, True),
+                     "w": r.w, "l": r.l, "sv": r.sv, "hld": r.hld, "ip": float(outs_to_ip(r.outs)), "ha": r.ha,
+                     "runs_allowed": r.runs_allowed, "er": r.er, "bb": r.bb, "hbp": r.hbp, "so": r.so, "hr_allowed": r.hr_allowed}
+                    for r in pitching.itertuples()]
+        try:
+            res = self._rpc("console_replace_season", {"p_season": season, "p_batting": bat_rows, "p_pitching": pit_rows,
+                                                       "p_actor": actor, "p_source": source})
+        except ConsoleWriteError as e:
+            return WriteResult(False, str(e))
         return WriteResult(True, f"{season} 시즌 저장 완료",
-                           {"타자": res["batting"], "투수": res["pitching"], "신규 선수": new_players,
+                           {"타자": res["batting"], "투수": res["pitching"], "신규 선수": res.get("new_players", 0),
                             "이전 타자 행": res["before_batting"], "이전 투수 행": res["before_pitching"]})
 
     # 셀 단위 수정 ───────────────────────────────────────────────────────────
@@ -229,74 +288,61 @@ class SupabaseRepo(BaseRepo):
     }
 
     def update_rows(self, table, changes, actor):
-        if not self.audit_ready():
-            return WriteResult(False, f"감사 로그 테이블({AUDIT_TABLE})이 없습니다.")
         allowed = self.EDITABLE.get(table, set())
-        n = 0
+        payload = []
         for ch in changes:
             fields = {k: v for k, v in ch["after"].items() if k in allowed}
-            if not fields:
-                continue
-            self.sb.table(table).update(fields).eq("id", ch["id"]).execute()
-            self._audit(actor, "update", table, {"id": ch["id"], **ch["before"]}, {"id": ch["id"], **fields}, ch.get("note"))
-            n += 1
-        return WriteResult(True, f"{n}행 저장", {"rows": n})
+            if fields:
+                payload.append({"id": int(ch["id"]), "after": fields, "note": ch.get("note")})
+        if not payload:
+            return WriteResult(True, "바뀐 값이 없습니다.", {"rows": 0})
+        try:
+            n = self._rpc("console_update_rows", {"p_table": table, "p_changes": payload, "p_actor": actor})
+        except ConsoleWriteError as e:
+            return WriteResult(False, str(e))
+        return WriteResult(True, f"{n}행 저장", {"rows": int(n or 0)})
 
     # 상황 기록 ──────────────────────────────────────────────────────────────
     def log_situation(self, situation, decision, actor):
-        diff = situation["score_us"] - situation["score_them"]
-        li = self.sb.rpc("calculate_leverage", {"p_inning": situation["inning"], "p_out_count": situation["out_count"],
-                                                "p_score_diff": diff, "p_base_state": situation["base_state"]}).execute().data
-        li = (li[0] if isinstance(li, list) and li else li) or {}
-        sit = self.sb.table("situations").insert({**situation, "leverage_index": li.get("li"),
-                                                  "leverage_class": li.get("lc") or "medium", "logged_by": actor}).execute().data[0]
-        if decision:
-            self.sb.table("game_decisions").insert({**decision, "situation_id": sit["id"], "game_id": situation["game_id"],
-                                                    "season": situation["season"], "logged_by": actor}).execute()
-        self._audit(actor, "insert", "situations", None, {"situation": sit, "decision": decision})
-        return WriteResult(True, f"상황 기록 완료 (LI {li.get('li')}, {li.get('lc')})")
+        try:
+            res = self._rpc("console_log_situation", {"p_situation": situation, "p_decision": decision, "p_actor": actor})
+        except ConsoleWriteError as e:
+            return WriteResult(False, str(e))
+        return WriteResult(True, f"상황 기록 완료 (LI {res.get('li')}, {res.get('lc')})", res)
 
     # 경기 기록지 v3.0 ─────────────────────────────────────────────────────
-    def _next_synthetic_number(self) -> int:
-        data = self.sb.table("players").select("number").gte("number", 900).order("number", desc=True).limit(1).execute().data
-        return (data[0]["number"] if data else 899) + 1
-
     def replace_game(self, sheet, actor):
-        """경기 하나를 원자적으로 교체 (sql/005 console_replace_game). 기록지에 배번이 없으므로 이름으로 선수를 찾는다:
-        같은 이름의 가장 최근 선수 레코드, 없으면 임시 배번(900번대)으로 새로 만든다 (플랫폼 업로드와 같은 규칙)."""
-        import re
-
-        from .aggregate import canonical_players
-
+        """경기 하나를 원자적으로 교체 (sql/005 console_replace_game). 기록지에 배번이 없으므로 이름으로 선수를 찾는다.
+        같은 이름이 다른 배번으로 여럿이면(동명이인) 저장하지 않고 안내한다. 처음 보는 이름은 DB 함수가 임시 배번으로 만든다."""
         if not self.audit_ready():
-            return WriteResult(False, f"감사 로그 테이블({AUDIT_TABLE})이 없습니다. 저장소의 sql/001을 먼저 적용하세요.")
+            return WriteResult(False, f"감사 로그 테이블({AUDIT_TABLE})이 없습니다. 저장소의 {RPC_MIGRATION['console_replace_season']}을 먼저 적용하세요.")
+        if not self.v3_ready():
+            return WriteResult(False, f"DB에 경기 기록지 v3.0 칸(희생플라이·희생번트·포수방해·투구수)과 경기 교체 함수가 없습니다. "
+                                      f"저장소의 {RPC_MIGRATION['console_replace_game']}을 Supabase SQL Editor에서 적용한 뒤 다시 저장하세요.")
         info = sheet.info
         if not (info.get("date") and info.get("opponent") and info.get("season")):
             return WriteResult(False, "경기 날짜와 상대팀을 찾지 못했습니다.")
 
-        cp = canonical_players(self.players())
-        key = lambda n: re.sub(r"\s+", "", str(n)).lower()  # noqa: E731
-        by_name = {}
-        for r in cp.sort_values("id").itertuples():
-            by_name[key(r.name)] = r.canonical_id  # 뒤(최근 id)가 덮어씀
-        new_players = []
+        names = list(sheet.batting["name"]) + list(sheet.pitching["name"])
+        ambiguous = self.ambiguous_names(names)
+        if ambiguous:
+            return WriteResult(False, "동명이인 때문에 저장하지 않았습니다.\n\n" + "\n\n".join(f"- {m}" for m in ambiguous))
 
-        def pid(name, pitcher):
-            k = key(name)
-            if k in by_name:
-                if pitcher:
-                    self.sb.table("players").update({"is_pitcher": True}).eq("id", by_name[k]).execute()
-                return by_name[k]
-            row = self.sb.table("players").insert({"number": self._next_synthetic_number(), "name": name,
-                                                   "is_pitcher": bool(pitcher)}).execute().data[0]
-            by_name[k] = row["id"]
-            new_players.append(name)
-            return row["id"]
+        groups = self._name_groups()
+        players = self.players()
+        pitcher_by_id = dict(zip(players["id"], players["is_pitcher"].fillna(False).astype(bool))) if not players.empty else {}
 
-        bat = [{"player_id": pid(r.name, r.position == "P"), **{c: int(getattr(r, c)) for c in (
+        def ref(name, pitcher):
+            g = groups.get(name_key(name))
+            if g:
+                pid = max(g)  # 같은 (배번, 이름) 중복 레코드는 최신 것
+                return {"player_id": pid, **({"set_pitcher": True} if pitcher and not pitcher_by_id.get(pid, False) else {})}
+            return {"name": str(name).strip(), "is_pitcher": bool(pitcher)}  # 배번 없음 → DB 함수가 900번대 임시 배번
+
+        bat = [{**ref(r.name, r.position == "P"), **{c: int(getattr(r, c)) for c in (
             "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "bb", "hbp", "so", "sb", "sf", "sh", "ci")}}
                for r in sheet.batting.itertuples()]
-        pit = [{"player_id": pid(r.name, True), "ip": float(outs_to_ip(r.outs)), **{c: int(getattr(r, c)) for c in (
+        pit = [{**ref(r.name, True), "ip": float(outs_to_ip(r.outs)), **{c: int(getattr(r, c)) for c in (
             "w", "l", "sv", "hld", "ha", "runs_allowed", "er", "bb", "hbp", "so", "hr_allowed", "pitches")}}
                for r in sheet.pitching.itertuples()]
         us = info.get("score_us") if info.get("score_us") is not None else int(sheet.batting["runs"].sum())
@@ -305,17 +351,32 @@ class SupabaseRepo(BaseRepo):
                 "location": info.get("location"), "score_us": us, "score_them": them,
                 "result": "W" if us > them else "L" if us < them else ("D" if us or them else None),
                 "notes": " | ".join(sheet.highlights) or None}
-        res = self.sb.rpc("console_replace_game", {
-            "p_season": info["season"], "p_game": game, "p_batting": bat, "p_pitching": pit,
-            "p_actor": actor, "p_source": sheet.source,
-        }).execute().data
+        try:
+            res = self._rpc("console_replace_game", {"p_season": info["season"], "p_game": game, "p_batting": bat,
+                                                     "p_pitching": pit, "p_actor": actor, "p_source": sheet.source})
+        except ConsoleWriteError as e:
+            return WriteResult(False, str(e))
+        new_names = [row["name"] for row in bat + pit if "name" in row]
         return WriteResult(True, f"{info['date']} vs {info['opponent']} 저장 완료",
                            {"경기": "새 경기" if res["created"] else f"기존 경기 #{res['game_id']}",
                             "타자": res["batting"], "투수": res["pitching"],
                             "이전 타자 행": res["before_batting"], "이전 투수 행": res["before_pitching"],
-                            "신규 선수": ", ".join(new_players) or "없음"})
+                            "신규 선수": ", ".join(dict.fromkeys(new_names)) or "없음"})
 
     def save_ai_report(self, report, actor):
-        row = self.sb.table("ai_reports").insert(report).execute().data[0]
-        self._audit(actor, "insert", "ai_reports", None, {"id": row["id"], "report_type": report.get("report_type")})
+        try:
+            self._rpc("console_save_ai_report", {"p_report": report, "p_actor": actor})
+        except ConsoleWriteError as e:
+            return WriteResult(False, str(e))
         return WriteResult(True, "리포트 저장")
+
+
+def _json_default(value):
+    """numpy 정수·실수, NaN을 JSON으로."""
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and value != value:
+        return None
+    if isinstance(value, (int, float, str, bool)) or value is None:
+        return value
+    return str(value)
