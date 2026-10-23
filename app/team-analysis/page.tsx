@@ -10,11 +10,23 @@ function getCookie(name: string) {
   return match ? match[2] : null;
 }
 
+/** /api/analyze-team 응답 (모델이 만든 JSON — 필드가 빠질 수 있어 전부 선택) */
+type TeamReport = {
+  overview?: string;
+  batting_analysis?: string;
+  pitching_analysis?: string;
+  top_performers?: string[];
+  team_strengths?: string[];
+  team_weaknesses?: string[];
+  strategic_recommendations?: string[];
+  key_matchup_tips?: string;
+};
+
 export default function TeamAnalysisPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<any>(null);
+  const [report, setReport] = useState<TeamReport | null>(null);
   const [error, setError] = useState("");
   const [season, setSeason] = useState(searchParams.get("season") || "2025");
   const [seasons, setSeasons] = useState<string[]>(["2025"]);

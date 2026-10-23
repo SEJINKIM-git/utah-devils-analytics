@@ -12,11 +12,11 @@ import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { buildSeasonTermViews, normalizeTerm } from "@/lib/seasonTerms";
 import { t, Lang } from "@/lib/translations";
-import { formatIP, parseIP } from "@/lib/statFormatting";
-import { Users, Trophy, TrendingUp, TrendingDown, BrainCircuit } from "lucide-react";
+import { parseIP } from "@/lib/statFormatting";
+import { Users, Trophy, BrainCircuit } from "lucide-react";
 import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
 import { fetchTeamReport } from "@/lib/teamReports";
-import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
+import { computeObp, eraFromInnings, formatRate, obpDenominator } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -395,36 +395,18 @@ export default async function Dashboard({
     .filter(Boolean)
     .sort((a: any, b: any) => b.opsNum - a.opsNum);
 
-  const pitchingWithPlayers = uniquePitching
-    .map((p) => {
-      const player = p.player;
-      if (!player) return null;
-      const era = formatRate(eraFromInnings(p.er, p.ip));
-      const whip = formatRate(whipFromInnings(p.ha, p.bb, p.ip));
-      return { ...p, player, era, whip, eraNum: parseFloat(era) || 99 };
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => a.eraNum - b.eraNum);
-
   const teamHits    = uniqueBatting.reduce((a, b) => a + b.hits, 0);
   const teamAB      = uniqueBatting.reduce((a, b) => a + b.ab, 0);
   const teamBB      = uniqueBatting.reduce((a, b) => a + b.bb, 0);
   const teamHBP     = uniqueBatting.reduce((a, b) => a + b.hbp, 0);
-  const teamSB      = uniqueBatting.reduce((a, b) => a + b.sb, 0);
-  const teamSO      = uniqueBatting.reduce((a, b) => a + b.so, 0);
   const teamDoubles = uniqueBatting.reduce((a, b) => a + (b.doubles || 0), 0);
   const teamTriples = uniqueBatting.reduce((a, b) => a + (b.triples || 0), 0);
   const teamHRBat   = uniqueBatting.reduce((a, b) => a + (b.hr || 0), 0);
-  const teamBBHBP   = teamBB + teamHBP;
   const teamAvg  = teamAB > 0 ? (teamHits / teamAB).toFixed(3) : "---";
   const teamObpDen = uniqueBatting.reduce((a, b) => a + obpDenominator(b), 0);
   const teamOBP  = formatRate(computeObp({ hits: teamHits, bb: teamBB, hbp: teamHBP, obp_den: teamObpDen }), 3);
   const teamTB   = teamHits + teamDoubles + teamTriples * 2 + teamHRBat * 3;
   const teamSLG  = teamAB > 0 ? (teamTB / teamAB).toFixed(3) : "---";
-  const teamOPS  =
-    teamOBP !== "---" && teamSLG !== "---"
-      ? (parseFloat(teamOBP) + parseFloat(teamSLG)).toFixed(3)
-      : "---";
   const teamW  = uniquePitching.reduce((a, b) => a + b.w, 0);
   const teamL  = uniquePitching.reduce((a, b) => a + b.l, 0);
   const teamSV = uniquePitching.reduce((a, b) => a + b.sv, 0);
@@ -432,10 +414,6 @@ export default async function Dashboard({
   const teamER = uniquePitching.reduce((a, b) => a + b.er, 0);
   const teamERA = formatRate(eraFromInnings(teamER, teamIP));
 
-  const seasonLabel =
-    season === "Career"
-      ? t("site.career", lang)
-      : `${season}${selectedTerm ? ` ${selectedTerm}` : ""} ${t("site.season", lang)}`;
   const seasonTermLabel = selectedTerm ? `${season} ${selectedTerm}` : season;
 
   // ── AI insights from supabase ──

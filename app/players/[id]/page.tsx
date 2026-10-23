@@ -3,7 +3,6 @@ import SeasonChart from "@/app/components/SeasonChart";
 import PlayerGoals from "@/app/components/PlayerGoals";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import Link from "next/link";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
@@ -21,7 +20,7 @@ import {
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
 import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
-import { computeEra, computeObp, computeWhip, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
+import { ERA_BASE_INNINGS, computeEra, computeObp, computeWhip, eraFromInnings, formatRate, obpDenominator, perBaseInnings, whipFromInnings } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -347,7 +346,7 @@ export default async function PlayerDetail({
   ] : pitch && pitch.ip > 0 ? [
     { label: "ERA", value: era || "---", color: era && parseFloat(era) <= 3.5 ? "var(--green)" : "var(--coral)" },
     { label: "WHIP", value: whip || "---", color: "var(--blue)" },
-    { label: "K/5이닝", value: pitch.ip > 0 ? ((pitch.so / pitch.ip) * 5).toFixed(1) : "---", color: "#a78bfa" },
+    { label: `K/${ERA_BASE_INNINGS}이닝`, value: formatRate(perBaseInnings(pitch.so, pitch.ip), 1), color: "#a78bfa" },
     { label: "이닝 IP", value: formatIP(pitch.ip), color: "#f59e0b" },
   ] : [];
 

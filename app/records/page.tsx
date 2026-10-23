@@ -5,7 +5,7 @@ import SeasonFilter from "@/app/components/SeasonFilter";
 import SbEditCell from "@/app/components/SbEditCell";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
-import { buildPlayerIdentityKey, dedupePlayersByIdentity, normalizePlayerName } from "@/lib/playerIdentity";
+import { buildPlayerIdentityKey } from "@/lib/playerIdentity";
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
@@ -35,20 +35,6 @@ function hasPitchingActivity(record: any) {
   return [record.w, record.l, record.sv, record.hld, record.ip, record.ha, record.runs_allowed, record.er, record.bb, record.hbp, record.so, record.hr_allowed].some(
     (value) => Number(value) > 0
   );
-}
-
-function findRosterPlayerMatch(players: any[], snapshotPlayer: { name: string; number: number }) {
-  const exactKey = buildPlayerIdentityKey(snapshotPlayer.name, snapshotPlayer.number);
-  const normalizedName = normalizePlayerName(snapshotPlayer.name);
-  const exact = [...players].filter((p) => buildPlayerIdentityKey(p.name, p.number) === exactKey).sort((a, b) => b.id - a.id)[0];
-  if (exact) return exact;
-  const byName = [...players].filter((p) => normalizePlayerName(p.name) === normalizedName).sort((a, b) => b.id - a.id)[0];
-  if (byName) return byName;
-  if (snapshotPlayer.number) {
-    const byNumber = [...players].filter((p) => p.number === snapshotPlayer.number).sort((a, b) => b.id - a.id)[0];
-    if (byNumber) return byNumber;
-  }
-  return null;
 }
 
 export default async function RecordsPage({

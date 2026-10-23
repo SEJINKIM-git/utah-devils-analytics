@@ -87,3 +87,29 @@ export function computeObp(row: ObpRow): number | null {
   const den = obpDenominator(row);
   return den > 0 ? (num(row.hits) + num(row.bb) + num(row.hbp)) / den : null;
 }
+
+export type SlgRow = {
+  hits?: number | null;
+  ab?: number | null;
+  doubles?: number | null;
+  triples?: number | null;
+  hr?: number | null;
+};
+
+export function computeAvg(row: Pick<SlgRow, "hits" | "ab">): number | null {
+  return num(row.ab) > 0 ? num(row.hits) / num(row.ab) : null;
+}
+
+/** 장타율 = 루타 ÷ 타수. 루타 = 1루타 + 2×2루타 + 3×3루타 + 4×홈런 */
+export function computeSlg(row: SlgRow): number | null {
+  const ab = num(row.ab);
+  if (ab <= 0) return null;
+  const singles = num(row.hits) - num(row.doubles) - num(row.triples) - num(row.hr);
+  return (singles + 2 * num(row.doubles) + 3 * num(row.triples) + 4 * num(row.hr)) / ab;
+}
+
+export function computeOps(row: ObpRow & SlgRow): number | null {
+  const obp = computeObp(row);
+  const slg = computeSlg(row);
+  return obp === null || slg === null ? null : obp + slg;
+}

@@ -307,7 +307,6 @@ ${statsText}
         { role: "user", content: userPrompt },
       ],
       temperature: 0.4,
-      // @ts-ignore
       response_format: { type: "json_object" },
     });
 

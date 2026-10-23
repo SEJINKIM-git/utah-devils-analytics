@@ -200,7 +200,7 @@ export default async function LineupPage({
       .eq("season", selectedSeason)
       .order("created_at", { ascending: false });
     if (data) lineups = data;
-    } catch (e) {}
+    } catch {}
   }
 
   const validPlayers = (rawPlayers || []).filter((player) => isLikelyPlayerName(player.name));
