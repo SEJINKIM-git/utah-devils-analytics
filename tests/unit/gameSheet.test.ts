@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
+import { extractGameMetaFromFilename } from "@/lib/gameFileMeta";
 import { parseGameWorkbook } from "@/lib/gameSheet";
 import { parseOfficialGamePitchingSheet } from "@/lib/officialGameWorkbook";
 import { computeEra, computeObp, obpDenominator } from "@/lib/statFormulas";
@@ -106,6 +107,19 @@ describe("경고", () => {
     const wb = read("reviewed.xlsx");
     wb.Sheets["경기 정보"]["C9"] = { t: "n", v: 5 };
     expect(parseGameWorkbook(wb, FILE_NAME, "2026").warnings).toContain("상대 점수 5 ≠ 투수 실점 합 2");
+  });
+});
+
+describe(".xlsm (매크로 포함 템플릿 그대로 저장한 파일)", () => {
+  it("파일명이 .xlsm이어도 같은 내용으로 읽히고 파일명 날짜·상대팀을 인식한다", () => {
+    // 내용은 같은 zip 구조라 확장자와 무관하게 읽힌다. 업로드 화면(accept)과 파일명 해석이 .xlsm을 받는지가 핵심.
+    const p = parse("reviewed.xlsx", "10_17 VS 테스트팀 경기 기록.xlsm");
+    expect(p.format).toBe("v3");
+    expect(p.info).toMatchObject({ date: "2026-10-17", opponent: "테스트팀" });
+    expect(p.warnings).toEqual([]);                                   // 파일명 대조도 일치
+    expect(extractGameMetaFromFilename("10_17 VS 테스트팀 경기 기록.xlsm", "2026")).toMatchObject({ date: "2026-10-17", opponent: "테스트팀" });
+    const accept = readFileSync(path.resolve(__dirname, "../../app/upload/page.tsx"), "utf8").match(/accept="([^"]+)"/)?.[1] ?? "";
+    expect(accept.split(",")).toContain(".xlsm");
   });
 });
 
