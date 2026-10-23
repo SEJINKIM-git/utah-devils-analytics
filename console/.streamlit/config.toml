@@ -1,0 +1,18 @@
+# "Digital Curator" 지침 중 Streamlit 테마로 표현 가능한 부분만 반영
+[theme]
+base = "light"
+primaryColor = "#0058bc"
+backgroundColor = "#faf9fe"
+secondaryBackgroundColor = "#f4f3f8"
+textColor = "#1a1b1f"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+baseRadius = "large"
+borderColor = "#c1c6d726"
+showWidgetBorder = false
+showSidebarBorder = false
+
+[server]
+maxUploadSize = 20
+
+[client]
+toolbarMode = "minimal"

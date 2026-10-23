@@ -1,0 +1,9 @@
+.streamlit/secrets.toml
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+
+# 실제 기록지 (공개 저장소에 올리지 않음)
+tests/fixtures/*.xlsx
+!tests/fixtures/README.md
