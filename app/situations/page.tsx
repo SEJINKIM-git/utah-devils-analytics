@@ -103,7 +103,7 @@ export default function SituationsPage() {
   const [lastResult, setLastResult]       = useState<{ li: number | null; lc: string; situation_id?: string } | null>(null);
   const [sessionLog, setSessionLog]       = useState<LoggedSituation[]>([]);
   const [dbLog, setDbLog]                 = useState<LoggedSituation[]>([]);
-  const [showOptions, setShowOptions]     = useState(false);
+  const [, setShowOptions]                = useState(false);
 
   // ── Load existing situations from DB when game changes
   useEffect(() => {

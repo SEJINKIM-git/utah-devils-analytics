@@ -205,7 +205,8 @@ async function saveGameRecord(record: Record<string, unknown>) {
   if (!withSeason.error) return withSeason;
 
   if ("season" in record) {
-    const { season, ...withoutSeason } = record;
+    const { season: _dropped, ...withoutSeason } = record;
+    void _dropped;
     const fallbackInsert = await supabase.from("game_records").insert(withoutSeason).select().single();
     if (!fallbackInsert.error) return fallbackInsert;
   }

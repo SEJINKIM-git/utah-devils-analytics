@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  UploadCloud, Users, FileSpreadsheet, BookOpen, CheckCircle2, XCircle,
+  UploadCloud, Users, FileSpreadsheet, BookOpen, CheckCircle2,
   AlertTriangle, Calendar, ArrowLeftRight, BarChart3, Loader2,
   TrendingUp, Info, AlertCircle,
 } from "lucide-react";
@@ -357,10 +357,10 @@ export default function UploadPage() {
                       { key: "pitching", label: "투수 기록", color: "var(--coral)" },
                       { key: "players",  label: "신규 선수", color: "var(--green)" },
                     ].map(({ key, label, color }) => {
-                      const val = (result.details as any)[key];
+                      const val = (result.details as Record<string, unknown>)[key];
                       return val !== undefined ? (
                         <div key={key} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "10px 20px", textAlign: "center" as const }}>
-                          <div className="num" style={{ fontSize: 26, fontWeight: 800, color }}>{val}</div>
+                          <div className="num" style={{ fontSize: 26, fontWeight: 800, color }}>{String(val)}</div>
                           <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{label}</div>
                         </div>
                       ) : null;
