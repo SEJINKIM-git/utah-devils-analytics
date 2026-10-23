@@ -19,7 +19,8 @@ pytest                 # 화면·파서·계산 테스트
 
 운영 DB 연결
 1. `.streamlit/secrets.toml.example`을 `secrets.toml`로 복사해 키를 채웁니다 (커밋 금지, .gitignore 처리됨).
-2. 저장소 루트의 `sql/001_audit_log_and_report_season.sql`을 먼저 적용합니다. 감사 로그 테이블과 시즌 교체 함수가 없으면 저장 버튼이 막힙니다.
+2. 저장소 루트의 `sql/001` → `002` → `005` → `006`을 순서대로 적용합니다 (`sql/README.md`).
+   - 001이 없으면 모든 저장 버튼이 막히고, 005가 없으면 경기 기록지 저장만, 006이 없으면 셀 수정·상황 기록·AI 리포트 저장만 안내 문구로 바뀝니다. 미리보기·조회는 항상 됩니다.
 3. 로그인은 분석 플랫폼·홈페이지와 같은 운영진 계정입니다 (Supabase Auth + `admin_members` 승인).
 
 ## 화면
@@ -45,7 +46,8 @@ core/game_sheet.py      경기 기록지 v3.0 파서 (플랫폼 lib/gameSheet.ts
 core/validation.py      업로드 전 검증 규칙
 core/aggregate.py       DB 행 → 선수·시즌 집계 (분석 플랫폼 lib/statRows.ts와 같은 규칙)
 core/diffing.py         업로드 미리보기
-core/db.py              Supabase / 데모 저장소. 모든 쓰기는 여기를 거침
+core/db.py              Supabase / 데모 저장소. 모든 쓰기는 여기서 DB 함수(console_*)만 호출 — 테이블 직접 쓰기 없음 (test_db_writes가 확인)
+core/game_upload_ui.py  경기 기록지 업로드 화면 (005 미적용·동명이인·깨진 파일 안내)
 views/*.py              화면
 tests/synthetic.py      가짜 기록지 생성기 (실제 결함을 재현)
 tests/fixtures/         실제 기록지를 넣는 곳 — 공개 저장소라 .xlsx는 커밋되지 않음
@@ -60,7 +62,9 @@ tests/fixtures/         실제 기록지를 넣는 곳 — 공개 저장소라 .
 | `test_game_sheet.py` | 경기 기록지 v3.0 — 공식 템플릿 수식 결과(`tests/fixtures/game-v3/expected.json`)와 일치 | 항상 |
 | `test_diffing.py` | 업로드 미리보기 (이름 다름 짝짓기, 기록 감소 경고) | 항상 |
 | `test_pages_smoke.py` | 모든 화면이 데모 모드에서 예외 없이 렌더링 | 항상 |
-| `test_contracts.py` | 콘솔과 분석 플랫폼의 ERA 기준·WHIP 정의·판단 유형 목록 일치 | 항상 |
+| `test_contracts.py` | 콘솔과 분석 플랫폼의 ERA 기준·WHIP 정의·판단 유형 목록 일치 + 숫자 계약(`tests/fixtures/contracts/stat-cases.json`: 타율·출루율·장타율·OPS·ERA·WHIP·이닝 합산·이중 집계 제거를 TS `tests/unit/contracts.test.ts`와 같은 기대값으로) | 항상 |
+| `test_db_writes.py` | 모든 저장이 DB 함수(RPC)만 거치는지, 마이그레이션 미적용·동명이인·함수 없음일 때 안내 문구를 돌려주는지 (가짜 Supabase 클라이언트) | 항상 |
+| `test_upload_errors.py` | 업로드 화면 AppTest: 005 미적용 DB, 데모 모드, 깨진 엑셀, 시즌 시트 없는 파일, `.xlsm`, 검수 미완료, 동명이인 | 항상 |
 | `test_parser_golden.py` | 실제 2022~2025·통산 기록지로 회귀 검사 | `tests/fixtures/`에 기록지가 있을 때 |
 
 ## 규칙 (기존 플랫폼과 같음)
@@ -69,9 +73,33 @@ tests/fixtures/         실제 기록지를 넣는 곳 — 공개 저장소라 .
 - 출루율은 경기 기록지 v3.0 기준 (분모에 희생플라이 포함, 희생번트·포수방해 제외). 희생플라이 구분이 없는 과거 시즌 행은 ÷ 타석. 기준을 바꾸려면 `core/stats.py`와 `lib/statFormulas.ts`를 함께 바꿉니다.
 - 통산은 항상 시즌 합. Career 시트는 저장하지 않습니다 (기록지 SUM이 이닝 표기를 소수로 더해 85.4 같은 값이 있음).
 - 같은 선수·시즌에 경기별 행이 있으면 그것만 사용 (요약 행과 이중 집계 방지).
-- 선수는 (배번, 이름)이 모두 같을 때만 같은 선수.
+- 선수는 (배번, 이름)이 모두 같을 때만 같은 선수. 기존 선수의 이름·배번은 바꾸지 않는다.
+- 경기 기록지 v3.0에는 배번이 없어 이름으로만 찾는다. 같은 이름이 서로 다른 배번으로 둘 이상이면(동명이인) **저장하지 않고** 어떤 선수들이 겹치는지 보여 준다. 처음 보는 이름은 임시 배번(900번대)으로 새 선수가 된다.
+- 저장은 모두 DB 함수(`console_replace_season`, `console_replace_game`, `console_update_rows`, `console_log_situation`, `console_save_ai_report`) 하나로 처리되어 중간 실패 시 전체가 되돌아가고 `console_audit_log`에 전/후 값이 남는다.
 
-## 배포
+## 배포 (Streamlit Community Cloud 기준)
 
-Streamlit Community Cloud 또는 Render. 앱 경로는 `console/app.py`, Python 3.12. Vercel에는 올릴 수 없습니다.
-secrets는 호스팅 서비스의 비밀값 설정에 넣습니다.
+Vercel에는 올릴 수 없습니다 (Python). Community Cloud 또는 Render 같은 Python 호스팅을 씁니다.
+
+1. **앱 만들기**: share.streamlit.io → New app → 저장소 `SEJINKIM-git/utah-devils-analytics`, 브랜치 `main`, Main file path `console/app.py`.
+   Advanced settings에서 Python 3.12를 고릅니다. 의존성은 `console/requirements.txt`를 자동으로 읽습니다.
+2. **Secrets** (앱 설정 → Secrets, TOML 형식. `.streamlit/secrets.toml.example`과 같은 키):
+
+   | 키 | 용도 | 없으면 |
+   |---|---|---|
+   | `supabase.url` | 프로젝트 주소 `https://vdnhdncxmkzcmqmvqgfb.supabase.co` | 데모 모드(가짜 기록지, 저장 불가) |
+   | `supabase.anon_key` | 운영진 **로그인**용 (Supabase Auth 이메일+비밀번호) | 로그인 불가 |
+   | `supabase.service_role_key` | 데이터 읽기·쓰기. RLS를 우회하므로 서버(Streamlit 프로세스)에만 둔다 | 데모 모드 |
+   | `openai.api_key` | AI 리포트 생성 | 리포트 버튼 대신 안내 |
+   | `openai.model` | 선택, 기본 `gpt-4o` | 기본값 |
+
+   secrets.toml 파일은 커밋하지 않습니다 (.gitignore). 키를 바꾸면 앱이 자동으로 다시 시작됩니다.
+3. **관리자 인증**: 화면을 열면 로그인 폼이 먼저 뜹니다. Supabase Auth로 이메일·비밀번호를 확인한 뒤 `admin_members`에서
+   `user_id`가 승인(`approved_at`)된 계정만 들어옵니다. 홈페이지 `/admin`에서 가입·승인하는 그 계정입니다.
+   세션은 브라우저 탭 단위(`st.session_state`)이며, 저장할 때마다 로그인한 이메일이 `console_audit_log.actor`에 남습니다.
+4. **접근 제한** (두 겹으로 둡니다):
+   - Community Cloud 앱 설정 → Sharing을 **Private**으로 두고 운영진 이메일만 Viewer로 초대합니다. 그러면 로그인 폼조차 외부에 보이지 않습니다.
+   - 앱 안의 운영진 로그인(3번)은 그대로 유지합니다. Viewer 초대만으로는 누가 무엇을 저장했는지 남지 않기 때문입니다.
+   - service_role 키는 Secrets에만 있고 브라우저로 나가지 않습니다. 콘솔이 호출하는 DB 함수는 anon·authenticated 실행 권한이 없어, 키 없이는 아무것도 바꿀 수 없습니다.
+5. **DB 준비**: 저장소 `sql/001 → 002 → 005 → 006`을 Supabase SQL Editor에서 적용합니다. 적용 전에도 조회·미리보기는 되고, 저장 버튼 자리에 어떤 파일을 적용해야 하는지 안내가 뜹니다.
+6. **확인**: 사이드바에 `연결: 운영 DB (Supabase)`와 로그인 이메일이 보이면 정상입니다. `데모 (…)`가 보이면 secrets 키 이름을 확인하세요.
