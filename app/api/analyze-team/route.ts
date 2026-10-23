@@ -10,6 +10,9 @@ import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisi
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { parseIP, formatIP } from "@/lib/statFormatting";
+import { selectEffectiveStatRows } from "@/lib/statRows";
+import { saveTeamReport } from "@/lib/teamReports";
+import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -91,9 +94,9 @@ export async function POST(request: NextRequest) {
       ...((pitching || []).map((row) => row.season)),
     ].filter((value): value is string => Boolean(value)))].filter((value) => isLockedSeason(value, activatedSeasons));
 
-    const safeBatting = filterRecordsForSeason(batting ?? [], season, { lockedSeasons })
+    const safeBatting = filterRecordsForSeason(selectEffectiveStatRows(batting), season, { lockedSeasons })
       .filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
-    const safePitching = filterRecordsForSeason(pitching ?? [], season, { lockedSeasons })
+    const safePitching = filterRecordsForSeason(selectEffectiveStatRows(pitching), season, { lockedSeasons })
       .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
       .filter((p) => parseIP(p.ip) > 0);
 
@@ -207,8 +210,8 @@ export async function POST(request: NextRequest) {
     const teamHA = allPitStats.reduce((a, b) => a + n(b.ha), 0);
 
     // 5이닝제(아마추어/리그 규정) 기준: ERA = ER/IP * 5
-    const teamERA = teamIP > 0 ? ((teamER / teamIP) * 5).toFixed(2) : "0.00";
-    const teamWHIP = teamIP > 0 ? ((teamHA + teamPBB) / teamIP).toFixed(2) : "0.00";
+    const teamERA = formatRate(eraFromInnings(teamER, teamIP), 2, "0.00");
+    const teamWHIP = formatRate(whipFromInnings(teamHA, teamPBB, teamIP), 2, "0.00");
 
     // 개인별 주요 지표 텍스트 생성
     let playerStats = "\n[Individual Player Stats]\n";
@@ -242,7 +245,7 @@ export async function POST(request: NextRequest) {
       if (pit && (pit.ip || 0) > 0) {
         const ip = pit.ip || 0;
         const er = n(pit.er);
-        const era = ((er / ip) * 5).toFixed(2);
+        const era = formatRate(eraFromInnings(er, ip), 2, "0.00");
         playerStats += `  Pitching: ERA ${era} | W${n(pit.w)}-L${n(pit.l)} | IP ${formatIP(ip)} | SO ${n(pit.so)} | BB ${n(pit.bb)}\n`;
       }
     }
@@ -317,12 +320,7 @@ ${statsText}
       return Response.json({ error: "AI 응답 파싱 실패", raw: responseText }, { status: 500 });
     }
 
-    const del = await supabase.from("ai_reports").delete().eq("report_type", "team");
-    if (del.error) throw new Error(del.error.message);
-
-    const ins = await supabase.from("ai_reports").insert({
-      player_id: null,
-      report_type: "team",
+    await saveTeamReport(supabase, season, {
       summary: analysis.overview,
       strengths: JSON.stringify({
         batting_analysis: analysis.batting_analysis,
@@ -336,8 +334,6 @@ ${statsText}
       }),
       training_plan: analysis.key_matchup_tips,
     });
-
-    if (ins.error) throw new Error(ins.error.message);
 
     return Response.json(analysis);
   } catch (error: unknown) {

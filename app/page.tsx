@@ -14,6 +14,9 @@ import { buildSeasonTermViews, normalizeTerm } from "@/lib/seasonTerms";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
 import { Users, Trophy, TrendingUp, TrendingDown, BrainCircuit } from "lucide-react";
+import { selectEffectiveStatRows } from "@/lib/statRows";
+import { fetchTeamReport } from "@/lib/teamReports";
+import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -108,8 +111,10 @@ export default async function Dashboard({
   const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const players = rawPlayers || [];
   const playerById = new Map(players.map((player) => [player.id, player]));
-  const { data: allBatting } = await supabase.from("batting_stats").select("*");
-  const { data: allPitching } = await supabase.from("pitching_stats").select("*");
+  const { data: allBattingRaw } = await supabase.from("batting_stats").select("*");
+  const { data: allPitchingRaw } = await supabase.from("pitching_stats").select("*");
+  const allBatting = selectEffectiveStatRows(allBattingRaw);
+  const allPitching = selectEffectiveStatRows(allPitchingRaw);
   const { data: allGames } = await supabase.from("games").select("id,season,created_at,date,opponent");
   const { data: rosterUploads } = await supabase
     .from("roster_uploads")
@@ -281,7 +286,7 @@ export default async function Dashboard({
   const perGameEraList = gamesSorted
     .map((g) => {
       const s = perGameEraMap.get(g.id);
-      return s && s.ip > 0 ? (s.er / s.ip) * 5 : null;
+      return s ? eraFromInnings(s.er, s.ip) : null;
     })
     .filter((v): v is number => v !== null)
     .slice(-7);
@@ -393,8 +398,8 @@ export default async function Dashboard({
     .map((p) => {
       const player = p.player;
       if (!player) return null;
-      const era = p.ip > 0 ? ((p.er / p.ip) * 5).toFixed(2) : "---";
-      const whip = p.ip > 0 ? ((p.ha + p.bb) / p.ip).toFixed(2) : "---";
+      const era = formatRate(eraFromInnings(p.er, p.ip));
+      const whip = formatRate(whipFromInnings(p.ha, p.bb, p.ip));
       return { ...p, player, era, whip, eraNum: parseFloat(era) || 99 };
     })
     .filter(Boolean)
@@ -424,7 +429,7 @@ export default async function Dashboard({
   const teamSV = uniquePitching.reduce((a, b) => a + b.sv, 0);
   const teamIP = uniquePitching.reduce((a, b) => a + b.ip, 0);
   const teamER = uniquePitching.reduce((a, b) => a + b.er, 0);
-  const teamERA = teamIP > 0 ? ((teamER / teamIP) * 5).toFixed(2) : "---";
+  const teamERA = formatRate(eraFromInnings(teamER, teamIP));
 
   const seasonLabel =
     season === "Career"
@@ -433,13 +438,10 @@ export default async function Dashboard({
   const seasonTermLabel = selectedTerm ? `${season} ${selectedTerm}` : season;
 
   // ── AI insights from supabase ──
-  const { data: aiReport } = await supabase
-    .from("ai_reports")
-    .select("summary, strengths, improvements, generated_at")
-    .eq("report_type", "team")
-    .order("generated_at", { ascending: false })
-    .limit(1)
-    .single();
+  // 리포트는 시즌별로 저장·조회한다. 기록이 없는 시즌에는 지난 시즌 리포트를 보여주지 않는다
+  // (이전: 2026에 기록이 하나도 없는데 지난 시즌 AI 분석이 "LIVE"로 노출됨).
+  const hasSeasonStats = uniqueBatting.length > 0 || uniquePitching.length > 0;
+  const aiReport = hasSeasonStats ? await fetchTeamReport(supabase, season) : null;
 
   let aiStrengths: string[] = [];
   let aiImprovement = "";
@@ -454,6 +456,12 @@ export default async function Dashboard({
       aiImprovement = (imp.team_weaknesses || [])[0] || "";
     }
   } catch {}
+  if (!hasSeasonStats) {
+    aiSummary =
+      lang === "ko"
+        ? "이 시즌 경기 기록이 업로드되면 인사이트가 생성됩니다."
+        : "Insights will appear once this season's game records are uploaded.";
+  }
   // Rule-based fallback if no AI report
   if (!aiSummary) {
     const topBatterName = battingWithPlayers[0]?.player?.name || "";
