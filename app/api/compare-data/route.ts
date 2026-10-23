@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
+import { selectEffectiveStatRows } from "@/lib/statRows";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,8 +11,10 @@ const supabase = createClient(
 
 export async function GET() {
   const { data: players } = await supabase.from("players").select("*").order("number");
-  const { data: batting } = await supabase.from("batting_stats").select("*");
-  const { data: pitching } = await supabase.from("pitching_stats").select("*");
+  const { data: battingRaw } = await supabase.from("batting_stats").select("*");
+  const { data: pitchingRaw } = await supabase.from("pitching_stats").select("*");
+  const batting = selectEffectiveStatRows(battingRaw);
+  const pitching = selectEffectiveStatRows(pitchingRaw);
   const { data: rosterUploads } = await supabase
     .from("roster_uploads")
     .select("filename,players_snapshot,source,uploaded_at")

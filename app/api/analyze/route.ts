@@ -6,6 +6,9 @@ import { NextRequest } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 import { parseIP } from "@/lib/statFormatting";
+import { selectEffectiveStatRows } from "@/lib/statRows";
+import { isSeasonValue } from "@/lib/season";
+import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,17 +42,21 @@ export async function POST(request: NextRequest) {
     ]);
 
     // game_id 기준 중복 제거: 여러 player_id가 동일 경기 기록을 가질 때 부풀림 방지
-    const batByGame = new Map<number, any>();
-    for (const row of rawBatting || []) {
-      if (!row.game_id) continue;
-      const prev = batByGame.get(row.game_id);
-      if (!prev || (row.pa || 0) >= (prev.pa || 0)) batByGame.set(row.game_id, row);
+    // 시즌 요약 행(game_id 없음)도 포함한다. 이전에는 game_id 없는 행을 모두 건너뛰어
+    // 시즌 누적 파일만 있는 2022~2025 시즌은 AI 분석에 기록이 하나도 전달되지 않았다.
+    const isRealSeason = (row: { season?: string | null }) =>
+      isSeasonValue(row.season) && String(row.season) !== "Career";
+    const batByGame = new Map<number | string, any>();
+    for (const row of selectEffectiveStatRows(rawBatting).filter(isRealSeason)) {
+      const key = row.game_id ?? `summary:${row.id}`;
+      const prev = batByGame.get(key);
+      if (!prev || (row.pa || 0) >= (prev.pa || 0)) batByGame.set(key, row);
     }
-    const pitByGame = new Map<number, any>();
-    for (const row of rawPitching || []) {
-      if (!row.game_id) continue;
-      const prev = pitByGame.get(row.game_id);
-      if (!prev || parseIP(row.ip) >= parseIP(prev.ip)) pitByGame.set(row.game_id, row);
+    const pitByGame = new Map<number | string, any>();
+    for (const row of selectEffectiveStatRows(rawPitching).filter(isRealSeason)) {
+      const key = row.game_id ?? `summary:${row.id}`;
+      const prev = pitByGame.get(key);
+      if (!prev || parseIP(row.ip) >= parseIP(prev.ip)) pitByGame.set(key, row);
     }
 
     const battingBySeason = new Map<string, any>();
@@ -121,8 +128,8 @@ export async function POST(request: NextRequest) {
       for (const pitch of allPitching) {
         if (!pitch.ip || pitch.ip === 0) continue;
         const season = pitch.season || "2025";
-        const era = ((pitch.er / pitch.ip) * 5).toFixed(2);
-        const whip = ((pitch.ha + pitch.bb) / pitch.ip).toFixed(2);
+        const era = formatRate(eraFromInnings(pitch.er, pitch.ip), 2, "0.00");
+        const whip = formatRate(whipFromInnings(pitch.ha, pitch.bb, pitch.ip), 2, "0.00");
         statsText += `\n● ${season}:\nW: ${pitch.w} | L: ${pitch.l} | SV: ${pitch.sv}\nIP: ${pitch.ip} | HA: ${pitch.ha}\nRA: ${pitch.runs_allowed} | ER: ${pitch.er}\nBB: ${pitch.bb} | SO: ${pitch.so} | HRA: ${pitch.hr_allowed}\nERA: ${era} | WHIP: ${whip}\n`;
       }
     }

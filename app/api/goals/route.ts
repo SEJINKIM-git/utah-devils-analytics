@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { parseIP } from "@/lib/statFormatting";
+import { selectEffectiveStatRows } from "@/lib/statRows";
+import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,8 +57,8 @@ export async function GET(request: NextRequest) {
   );
   const shouldGateStats = Boolean(latestRosterUpload);
 
-  const gatedBatting = (batting || []).filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
-  const gatedPitching = (pitching || [])
+  const gatedBatting = selectEffectiveStatRows(batting).filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
+  const gatedPitching = selectEffectiveStatRows(pitching)
     .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
     .filter((p) => parseIP(p.ip) > 0);
 
@@ -110,8 +112,8 @@ export async function GET(request: NextRequest) {
       case "sb": return bat?.sb || 0;
       case "bb": return bat?.bb || 0;
       case "so_bat": return bat?.so || 0;
-      case "era": return pit && pit.ip > 0 ? parseFloat(((pit.er / pit.ip) * 5).toFixed(2)) : 0;
-      case "whip": return pit && pit.ip > 0 ? parseFloat(((pit.ha + pit.bb) / pit.ip).toFixed(2)) : 0;
+      case "era": return pit ? parseFloat(formatRate(eraFromInnings(pit.er, pit.ip), 2, "0")) : 0;
+      case "whip": return pit ? parseFloat(formatRate(whipFromInnings(pit.ha, pit.bb, pit.ip), 2, "0")) : 0;
       case "wins": return pit?.w || 0;
       case "saves": return pit?.sv || 0;
       case "so_pit": return pit?.so || 0;
