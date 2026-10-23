@@ -57,3 +57,33 @@ export function eraFromInnings(er: number, innings: number): number | null {
 export function whipFromInnings(hitsAllowed: number, walks: number, innings: number): number | null {
   return innings > 0 ? (Number(hitsAllowed || 0) + Number(walks || 0)) / innings : null;
 }
+
+/**
+ * 출루율 — 경기 기록지 v3.0 기준: (안타 + 볼넷 + 사구) ÷ (타수 + 볼넷 + 사구 + 희생플라이).
+ * 희생번트·포수방해는 분모에서 제외한다.
+ *
+ * 2022~2025 시즌 누적 파일에는 희생플라이 구분이 없어(sf = null) 기존 방식(÷ 타석)을 유지한다.
+ * 그래서 행마다 분모(obp_den)를 정해 두고, 합산할 때도 분모를 따로 더한다.
+ */
+export type ObpRow = {
+  hits?: number | null;
+  pa?: number | null;
+  ab?: number | null;
+  bb?: number | null;
+  hbp?: number | null;
+  sf?: number | null;
+  obp_den?: number | null;
+};
+
+const num = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v : Number(v) || 0);
+
+export function obpDenominator(row: ObpRow): number {
+  if (typeof row.obp_den === "number" && Number.isFinite(row.obp_den)) return row.obp_den;
+  if (row.sf !== null && row.sf !== undefined) return num(row.ab) + num(row.bb) + num(row.hbp) + num(row.sf);
+  return num(row.pa);
+}
+
+export function computeObp(row: ObpRow): number | null {
+  const den = obpDenominator(row);
+  return den > 0 ? (num(row.hits) + num(row.bb) + num(row.hbp)) / den : null;
+}

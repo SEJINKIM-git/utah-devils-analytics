@@ -11,8 +11,8 @@ import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
-import { selectEffectiveStatRows } from "@/lib/statRows";
-import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
+import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
+import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -71,7 +71,7 @@ export default async function RecordsPage({
   const playerById = new Map(players.map((p) => [p.id, p]));
   const { data: allBattingRaw } = await supabase.from("batting_stats").select("*");
   const { data: allPitchingRaw } = await supabase.from("pitching_stats").select("*");
-  const allBatting = selectEffectiveStatRows(allBattingRaw);
+  const allBatting = selectEffectiveBattingRows(allBattingRaw);
   const allPitching = selectEffectiveStatRows(allPitchingRaw);
   const { data: allGames } = await supabase.from("games").select("id,season,created_at,date,opponent");
   const { data: rosterUploads } = await supabase
@@ -141,6 +141,7 @@ export default async function RecordsPage({
         player: acc.player.id > player.id ? acc.player : player,
         player_id: acc.player.id > player.id ? acc.player.id : player.id,
         pa: acc.pa + (b.pa || 0),
+        obp_den: obpDenominator(acc) + obpDenominator(b),
         ab: acc.ab + (b.ab || 0),
         runs: acc.runs + (b.runs || 0),
         hits: acc.hits + (b.hits || 0),
@@ -199,7 +200,7 @@ export default async function RecordsPage({
       const player = b.player;
       if (!player) return null;
       const avg = b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
-      const obp = b.pa > 0 ? ((b.hits + b.bb + b.hbp) / b.pa).toFixed(3) : "---";
+      const obp = formatRate(computeObp(b), 3);
       const slg =
         b.ab > 0
           ? ((b.hits - b.doubles - b.triples - b.hr + b.doubles * 2 + b.triples * 3 + b.hr * 4) / b.ab).toFixed(3)

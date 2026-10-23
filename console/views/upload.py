@@ -6,18 +6,23 @@ import pandas as pd
 import streamlit as st
 
 from core.diffing import COMPARE_B, COMPARE_P, diff, shrink_report
+from core.game_upload_ui import is_game_file, render_game_files
 from core.parser import parse_workbook
 from core.session import actor, get_repo, load_core, refresh
 from core.validation import check_cross_files, validate
 
 repo = get_repo()
 st.title("기록지 업로드")
-st.caption("시즌 누적 기록지(엑셀)를 올리면 검증 후 해당 시즌 요약 기록을 교체합니다. 같은 파일을 여러 번 올려도 결과는 같습니다.")
+st.caption("경기 기록지(v3.0)는 그 경기를, 시즌 누적 기록지는 그 시즌 요약 기록을 교체합니다. 같은 파일을 여러 번 올려도 결과는 같습니다.")
 
-files = st.file_uploader("기록지 (.xlsx)", type=["xlsx"], accept_multiple_files=True)
+files = st.file_uploader("기록지 (.xlsx, .xlsm)", type=["xlsx", "xlsm"], accept_multiple_files=True)
 if not files:
     with st.expander("어떤 파일을 올리나요?"):
         st.markdown(
+            "**경기 기록지 v3.0** — `10_17 VS 상대 경기 기록.xlsx`\n"
+            "- 타석 결과 표기에서 직접 계산하고, 경기 정보·검수 시트를 함께 확인합니다.\n"
+            "- 검수가 끝나지 않았거나 점수·아웃 대조가 맞지 않으면 경고를 보여 줍니다 (저장은 가능).\n\n"
+            "**시즌 누적 기록지**\n"
             "- `2025 Utah Devils Player Stat.xlsx`처럼 **연도가 들어간 시즌 파일**\n"
             "- 시즌 시트(`2025`)의 선수 행이 저장됩니다. 학기 시트(`25 Spring`)와 경기별 시트(`25 Spring (타자)`)는 **교차 검증용**입니다.\n"
             "- 통산 파일은 저장하지 않습니다. 통산은 시즌 합으로 계산합니다. (통산 파일을 함께 올리면 시즌 파일과 대조해 줍니다)\n"
@@ -30,6 +35,15 @@ def parse_cached(digest: str, name: str, raw: bytes):
     pw = parse_workbook(io.BytesIO(raw), name)
     return pw, validate(pw)
 
+
+game_files = [f for f in files if is_game_file(f)]
+if game_files:
+    render_game_files(game_files, repo, load_core())
+files = [f for f in files if f not in game_files]
+if not files:
+    st.stop()
+if game_files:
+    st.header("시즌 누적 기록지")
 
 parsed = [parse_cached(hashlib.sha1(f.getvalue()).hexdigest(), f.name, f.getvalue()) for f in files]
 cross = check_cross_files([pw for pw, _ in parsed])

@@ -264,3 +264,71 @@ describe("004 데이터 정리", () => {
     expect((await db.query("select id, ip from pitching_stats order by id")).rows).toEqual(before);
   });
 });
+
+describe("005 경기 기록지 v3.0", () => {
+  const game = (extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ date: "2026-10-24", opponent: "선학", is_home: false, location: "테스트구장", score_us: 4, score_them: 2, result: "W", ...extra });
+  const bat = (overrides: Record<string, number> = {}) =>
+    JSON.stringify([{ player_id: 1, pa: 5, ab: 3, runs: 1, hits: 3, doubles: 1, triples: 0, hr: 0, rbi: 2, bb: 1, hbp: 0, so: 0, sb: 1, sf: 1, sh: 0, ci: 0, ...overrides }]);
+  const pit = JSON.stringify([{ player_id: 2, w: 1, l: 0, sv: 0, hld: 0, ip: 4, ha: 3, runs_allowed: 2, er: 1, bb: 2, hbp: 1, so: 5, hr_allowed: 1, pitches: 60 }]);
+
+  beforeAll(async () => {
+    await db.exec(sql("sql/005_game_sheet_v3.sql"));
+  });
+
+  it("희생플라이·희생번트·포수방해·투구수 칸이 생기고, 기존 행은 NULL(구분 정보 없음)이다", async () => {
+    expect(await count("select count(*) n from batting_stats where sf is null and sh is null and ci is null")).toBe(
+      await count("select count(*) n from batting_stats")
+    );
+    expect(await count("select count(*) n from pitching_stats where pitches is null")).toBe(
+      await count("select count(*) n from pitching_stats")
+    );
+  });
+
+  it("기존 경기(상황 기록 있음)에 기록을 넣고 경기 정보를 갱신하며, 상황 기록은 보존한다", async () => {
+    const r = (await db.query<{ r: Record<string, unknown> }>(
+      `select console_replace_game('2026', '${game()}'::jsonb, '${bat()}'::jsonb, '${pit}'::jsonb, 'ops@test', '10_24 VS 선학 경기 기록.xlsx') r`
+    )).rows[0].r;
+    expect(r).toMatchObject({ game_id: 29, created: false, batting: 1, pitching: 1 });
+    const g = (await db.query<Record<string, unknown>>("select is_home, location, score_us, score_them, result from games where id = 29")).rows[0];
+    expect(g).toEqual({ is_home: false, location: "테스트구장", score_us: 4, score_them: 2, result: "W" });
+    expect(await count("select count(*) n from batting_stats where game_id = 29 and sf = 1 and sh = 0 and ci = 0")).toBe(1);
+    expect(await count("select count(*) n from pitching_stats where game_id = 29 and pitches = 60")).toBe(1);
+    expect(await count("select count(*) n from situations where game_id = 29")).toBe(1);
+    expect(await count("select count(*) n from console_audit_log where action = 'replace_game'")).toBe(3);
+  });
+
+  it("같은 경기를 다시 올리면 교체된다 (멱등, 중복 행 없음)", async () => {
+    await db.query(`select console_replace_game('2026', '${game()}'::jsonb, '${bat({ hits: 2 })}'::jsonb, '${pit}'::jsonb, 'ops@test', 'v2')`);
+    expect(await count("select count(*) n from batting_stats where game_id = 29")).toBe(1);
+    expect(await count("select count(*) n from batting_stats where game_id = 29 and hits = 2")).toBe(1);
+    expect(await count("select count(*) n from games where date = '2026-10-24' and opponent = '선학'")).toBe(1);
+  });
+
+  it("새 경기는 만들어진다", async () => {
+    const r = (await db.query<{ r: Record<string, unknown> }>(
+      `select console_replace_game('2026', '${game({ date: "2026-10-31", opponent: "새상대" })}'::jsonb, '${bat()}'::jsonb, '[]'::jsonb, 't', 'x') r`
+    )).rows[0].r;
+    expect(r).toMatchObject({ created: true, batting: 1, pitching: 0 });
+  });
+
+  it("경기 날짜와 시즌이 다르면 거부한다 (파일명·시즌 실수 방지)", async () => {
+    await expect(
+      db.query(`select console_replace_game('2025', '${game()}'::jsonb, '[]'::jsonb, '[]'::jsonb, 't', 'x')`)
+    ).rejects.toThrow(/시즌/);
+  });
+
+  it("중간에 실패하면 이전 기록이 그대로 남는다", async () => {
+    await expect(
+      db.query(`select console_replace_game('2026', '${game()}'::jsonb, '${bat()}'::jsonb,
+        '[{"player_id":9999,"w":0,"l":0,"sv":0,"hld":0,"ip":1,"ha":0,"runs_allowed":0,"er":0,"bb":0,"hbp":0,"so":0,"hr_allowed":0,"pitches":5}]'::jsonb, 't', 'bad')`)
+    ).rejects.toThrow();
+    expect(await count("select count(*) n from batting_stats where game_id = 29 and hits = 2")).toBe(1);
+  });
+
+  it("anon은 호출할 수 없다", async () => {
+    await expect(
+      asRole("anon", () => db.query(`select console_replace_game('2026', '${game()}'::jsonb, '[]', '[]', 't', 'x')`))
+    ).rejects.toThrow(/permission denied/);
+  });
+});

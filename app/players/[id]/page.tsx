@@ -20,8 +20,8 @@ import {
 } from "@/lib/seasonTerms";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
-import { selectEffectiveStatRows } from "@/lib/statRows";
-import { computeEra, computeWhip, eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
+import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
+import { computeEra, computeObp, computeWhip, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -68,7 +68,7 @@ export default async function PlayerDetail({
     supabase.from("roster_uploads").select("filename, players_snapshot, source, uploaded_at").order("uploaded_at", { ascending: false }),
     supabase.from("players").select("id, name, number"),
   ]);
-  const allBatting = selectEffectiveStatRows(allBattingRaw);
+  const allBatting = selectEffectiveBattingRows(allBattingRaw);
   const allPitching = selectEffectiveStatRows(allPitchingRaw);
 
   const seasonValues = Array.from(new Set([
@@ -137,12 +137,12 @@ export default async function PlayerDetail({
 
   const bat = dedupedBat.length > 0 ? dedupedBat.reduce((acc, b) => ({
     ...acc,
-    pa: acc.pa + (b.pa || 0), ab: acc.ab + (b.ab || 0), runs: acc.runs + (b.runs || 0),
+    pa: acc.pa + (b.pa || 0), obp_den: obpDenominator(acc) + obpDenominator(b), ab: acc.ab + (b.ab || 0), runs: acc.runs + (b.runs || 0),
     hits: acc.hits + (b.hits || 0), doubles: acc.doubles + (b.doubles || 0),
     triples: acc.triples + (b.triples || 0), hr: acc.hr + (b.hr || 0),
     rbi: acc.rbi + (b.rbi || 0), bb: acc.bb + (b.bb || 0), hbp: acc.hbp + (b.hbp || 0),
     so: acc.so + (b.so || 0), sb: acc.sb + (b.sb || 0),
-  }), { ...dedupedBat[0], pa:0, ab:0, runs:0, hits:0, doubles:0, triples:0, hr:0, rbi:0, bb:0, hbp:0, so:0, sb:0 }) : null;
+  }), { ...dedupedBat[0], pa:0, obp_den:0, ab:0, runs:0, hits:0, doubles:0, triples:0, hr:0, rbi:0, bb:0, hbp:0, so:0, sb:0 }) : null;
 
   const pitch = dedupedPit.length > 0 ? dedupedPit.reduce((acc, p) => ({
     ...acc,
@@ -157,7 +157,7 @@ export default async function PlayerDetail({
   const report = reports?.[0];
 
   const avg = bat && bat.ab > 0 ? (bat.hits / bat.ab).toFixed(3) : "---";
-  const obp = bat && bat.pa > 0 ? ((bat.hits + bat.bb + bat.hbp) / bat.pa).toFixed(3) : "---";
+  const obp = bat ? formatRate(computeObp(bat), 3) : "---";
   const slg = bat && bat.ab > 0 ? ((bat.hits - bat.doubles - bat.triples - bat.hr + bat.doubles * 2 + bat.triples * 3 + bat.hr * 4) / bat.ab).toFixed(3) : "---";
   const ops = obp !== "---" && slg !== "---" ? (parseFloat(obp) + parseFloat(slg)).toFixed(3) : "---";
   const opsNum = parseFloat(ops) || 0;
@@ -226,7 +226,8 @@ export default async function PlayerDetail({
       const bb = bArr.reduce((s, b) => s + (b.bb || 0), 0);
       const hbp = bArr.reduce((s, b) => s + (b.hbp || 0), 0);
       const sb = bArr.reduce((s, b) => s + (b.sb || 0), 0);
-      const obpN = pa > 0 ? (hits + bb + hbp) / pa : 0;
+      const obpDen = bArr.reduce((s, b) => s + obpDenominator(b), 0);
+      const obpN = computeObp({ hits, bb, hbp, obp_den: obpDen }) ?? 0;
       const slgN = ab > 0 ? (hits - doubles - triples - hr + doubles * 2 + triples * 3 + hr * 4) / ab : 0;
       row.pa = pa; row.ab = ab; row.hits = hits; row.hr = hr;
       row.rbi = rbi; row.sb = sb;
@@ -534,7 +535,7 @@ export default async function PlayerDetail({
                       {termRows.map((r) => {
                         const b = r.bat;
                         const avgN = b && b.ab > 0 ? b.hits / b.ab : null;
-                        const obpN = b && b.pa > 0 ? (b.hits + b.bb + b.hbp) / b.pa : null;
+                        const obpN = b ? computeObp(b) : null;
                         const slgN = b && b.ab > 0 ? (b.hits + b.doubles + b.triples * 2 + b.hr * 3) / b.ab : null;
                         const isSelected = selectedSeason !== "Career" && r.term === selectedTerm;
                         return (

@@ -6,9 +6,9 @@ import { NextRequest } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 import { parseIP } from "@/lib/statFormatting";
-import { selectEffectiveStatRows } from "@/lib/statRows";
+import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
 import { isSeasonValue } from "@/lib/season";
-import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
+import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     const isRealSeason = (row: { season?: string | null }) =>
       isSeasonValue(row.season) && String(row.season) !== "Career";
     const batByGame = new Map<number | string, any>();
-    for (const row of selectEffectiveStatRows(rawBatting).filter(isRealSeason)) {
+    for (const row of selectEffectiveBattingRows(rawBatting).filter(isRealSeason)) {
       const key = row.game_id ?? `summary:${row.id}`;
       const prev = batByGame.get(key);
       if (!prev || (row.pa || 0) >= (prev.pa || 0)) batByGame.set(key, row);
@@ -64,12 +64,13 @@ export async function POST(request: NextRequest) {
       const key = String(row.season || "2025");
       const current = battingBySeason.get(key) || {
         season: key,
-        pa: 0, ab: 0, runs: 0, hits: 0, doubles: 0, triples: 0,
+        pa: 0, obp_den: 0, ab: 0, runs: 0, hits: 0, doubles: 0, triples: 0,
         hr: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sb: 0,
       };
       battingBySeason.set(key, {
         ...current,
         pa: current.pa + (row.pa || 0),
+        obp_den: current.obp_den + obpDenominator(row),
         ab: current.ab + (row.ab || 0),
         runs: current.runs + (row.runs || 0),
         hits: current.hits + (row.hits || 0),
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
       for (const bat of allBatting) {
         const season = bat.season || "2025";
         const avg = bat.ab > 0 ? (bat.hits / bat.ab).toFixed(3) : "0";
-        const obp = bat.pa > 0 ? ((bat.hits + bat.bb + bat.hbp) / bat.pa).toFixed(3) : "0";
+        const obp = formatRate(computeObp(bat), 3, "0");
         const slg = bat.ab > 0 ? ((bat.hits - bat.doubles - bat.triples - bat.hr + bat.doubles * 2 + bat.triples * 3 + bat.hr * 4) / bat.ab).toFixed(3) : "0";
         const ops = (parseFloat(obp) + parseFloat(slg)).toFixed(3);
         statsText += `\n● ${season}:\nPA: ${bat.pa} | AB: ${bat.ab} | H: ${bat.hits}\n2B: ${bat.doubles} | 3B: ${bat.triples} | HR: ${bat.hr}\nRBI: ${bat.rbi} | R: ${bat.runs}\nBB: ${bat.bb} | HBP: ${bat.hbp} | SO: ${bat.so}\nSB: ${bat.sb}\nAVG: ${avg} | OBP: ${obp} | SLG: ${slg} | OPS: ${ops}\n`;
