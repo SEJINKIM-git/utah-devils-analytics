@@ -5,7 +5,7 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { parseIP, formatIP } from "@/lib/statFormatting";
-import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
+import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -14,6 +14,8 @@ type BattingStat = {
   game_id?: number | null;
   games?: { date?: string | null; opponent?: string | null } | null;
   pa: number;
+  obp_den?: number;
+  sf?: number | null;
   ab: number;
   hits: number;
   hr: number;
@@ -57,12 +59,12 @@ function shortDate(d?: string | null): string {
 function computeBatRow(
   b: { pa: number; ab: number; hits: number; hr: number; rbi: number;
        bb: number; hbp: number; so: number; sb: number;
-       doubles: number; triples: number },
+       doubles: number; triples: number; obp_den?: number; sf?: number | null },
   xLabel: string,
   lang: string
 ): ChartRow {
   const avg = b.ab > 0 ? parseFloat((b.hits / b.ab).toFixed(3)) : 0;
-  const obp = b.pa > 0 ? parseFloat(((b.hits + b.bb + b.hbp) / b.pa).toFixed(3)) : 0;
+  const obp = parseFloat(formatRate(computeObp(b), 3, "0"));
   const slg = b.ab > 0
     ? parseFloat(((b.hits - b.doubles - b.triples - b.hr
         + b.doubles * 2 + b.triples * 3 + b.hr * 4) / b.ab).toFixed(3))
@@ -159,6 +161,7 @@ export default function SeasonChart({
         byYear.set(yr, {
           ...e,
           pa:      (e.pa      || 0) + (b.pa      || 0),
+          obp_den: obpDenominator(e) + obpDenominator(b),
           ab:      (e.ab      || 0) + (b.ab      || 0),
           hits:    (e.hits    || 0) + (b.hits    || 0),
           hr:      (e.hr      || 0) + (b.hr      || 0),

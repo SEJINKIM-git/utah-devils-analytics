@@ -22,7 +22,7 @@ type ValidationResult = {
 type UploadResult = {
   success?: boolean; message?: string; error?: string;
   needsConfirm?: boolean; conflicts?: ConflictPlayer[]; total?: number;
-  details?: { games?: number; batting?: number; pitching?: number; players?: number; updated?: number; seasons?: string[] };
+  details?: { games?: number; batting?: number; pitching?: number; players?: number; updated?: number; seasons?: string[]; warnings?: string[] };
   validation?: ValidationResult;
 };
 
@@ -213,7 +213,7 @@ export default function UploadPage() {
                 transition: "all 0.2s",
               }}
             >
-              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.docx" style={{ display: "none" }}
+              <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx" style={{ display: "none" }}
                 onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
               <div style={{
                 width: 60, height: 60, borderRadius: 18,
@@ -236,7 +236,7 @@ export default function UploadPage() {
                   <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
                     {dragging ? "파일을 여기에 놓으세요" : "성적 데이터를 끌어다 놓으세요"}
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--text-faint)", opacity: 0.7 }}>.xlsx · .xls · .csv · .docx · 최대 10MB</div>
+                  <div style={{ fontSize: 13, color: "var(--text-faint)", opacity: 0.7 }}>.xlsx · .xlsm · .xls · .csv · .docx · 최대 10MB</div>
                 </>
               )}
             </div>
@@ -335,6 +335,20 @@ export default function UploadPage() {
                     {result.message || result.error}
                   </span>
                 </div>
+                {result.success && (result.details?.warnings?.length ?? 0) > 0 && (
+                  <div
+                    role="status"
+                    style={{
+                      margin: "0 0 16px", padding: "12px 14px", borderRadius: 10,
+                      background: "rgba(234,179,8,0.10)", color: "var(--warning)", fontSize: 13, lineHeight: 1.6,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>확인이 필요한 항목 {result.details!.warnings!.length}건 (저장은 완료됨)</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {result.details!.warnings!.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </div>
+                )}
                 {result.success && result.details && (
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const, marginBottom: 18 }}>
                     {[

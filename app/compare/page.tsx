@@ -19,7 +19,7 @@ import { useState, useEffect, useRef } from 'react';
 import { getPlayerDisplayName, getPlayerNameVariants } from '@/lib/playerDisplay';
 import { inferRosterSnapshotSeasons, parseRosterSnapshot, type RosterSnapshotPlayer } from '@/lib/rosterSnapshot';
 import type { Lang } from '@/lib/translations';
-import { eraFromInnings, inningsDecimal } from "@/lib/statFormulas";
+import { computeObp, eraFromInnings, inningsDecimal, obpDenominator } from "@/lib/statFormulas";
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────────
 
@@ -34,6 +34,8 @@ interface BattingStat {
   walks: number;
   strikeouts: number;
   runs: number;
+  hbp: number;
+  obp_den: number;
 }
 
 interface PitchingStat {
@@ -240,6 +242,8 @@ async function fetchPlayers(): Promise<ComparePayload> {
       walks: 0,
       strikeouts: 0,
       runs: 0,
+      hbp: 0,
+      obp_den: 0,
     };
     battingByPlayerSeason.set(key, {
       season,
@@ -252,6 +256,8 @@ async function fetchPlayers(): Promise<ComparePayload> {
       walks: current.walks + Number(row.bb || 0),
       strikeouts: current.strikeouts + Number(row.so || 0),
       runs: current.runs + Number(row.runs || 0),
+      hbp: current.hbp + Number(row.hbp || 0),
+      obp_den: current.obp_den + obpDenominator(row),
     });
   }
 
@@ -385,14 +391,17 @@ function calcBatting(stats: BattingStat[], season?: number): CalcBatting | null 
     walks:      (acc.walks      || 0) + (s.walks      || 0),
     strikeouts: (acc.strikeouts || 0) + (s.strikeouts || 0),
     runs:       (acc.runs       || 0) + (s.runs       || 0),
-  }), { ...seasonStats[0], at_bats:0, hits:0, doubles:0, triples:0, home_runs:0, rbi:0, walks:0, strikeouts:0, runs:0 });
+    hbp:        (acc.hbp        || 0) + (s.hbp        || 0),
+    obp_den:    (acc.obp_den    || 0) + (s.obp_den    || 0),
+  }), { ...seasonStats[0], at_bats:0, hits:0, doubles:0, triples:0, home_runs:0, rbi:0, walks:0, strikeouts:0, runs:0, hbp:0, obp_den:0 });
   const ab = merged.at_bats || 0;
   const h  = merged.hits    || 0;
   const bb = merged.walks   || 0;
   const singles = h - (merged.doubles||0) - (merged.triples||0) - (merged.home_runs||0);
   const tb = singles + (merged.doubles||0)*2 + (merged.triples||0)*3 + (merged.home_runs||0)*4;
   const avg = ab > 0 ? h / ab : 0;
-  const obp = (ab + bb) > 0 ? (h + bb) / (ab + bb) : 0;
+  // 이전: (H+BB)/(AB+BB) — 사구를 빼고 계산해 다른 화면과 달랐다
+  const obp = computeObp({ hits: h, bb, hbp: merged.hbp || 0, obp_den: merged.obp_den || 0 }) ?? 0;
   const slg = ab > 0 ? tb / ab : 0;
   return { ...merged, avg, obp, slg, ops: obp + slg };
 }

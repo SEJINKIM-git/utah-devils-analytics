@@ -10,9 +10,9 @@ import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisi
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { parseIP, formatIP } from "@/lib/statFormatting";
-import { selectEffectiveStatRows } from "@/lib/statRows";
+import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
 import { saveTeamReport } from "@/lib/teamReports";
-import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
+import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,8 +51,8 @@ export async function POST(request: NextRequest) {
     ] = await Promise.all([
       supabase.from("players").select("id, name, number").order("number", { ascending: true }),
       isCareerSeason(season)
-        ? supabase.from("batting_stats").select("player_id, season, game_id, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples")
-        : supabase.from("batting_stats").select("player_id, season, game_id, pa, ab, hits, hr, rbi, bb, hbp, so, sb, doubles, triples").eq("season", season),
+        ? supabase.from("batting_stats").select("*")
+        : supabase.from("batting_stats").select("*").eq("season", season),
       isCareerSeason(season)
         ? supabase.from("pitching_stats").select("player_id, season, game_id, ip, er, w, l, sv, so, bb, ha")
         : supabase.from("pitching_stats").select("player_id, season, game_id, ip, er, w, l, sv, so, bb, ha").eq("season", season),
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
       ...((pitching || []).map((row) => row.season)),
     ].filter((value): value is string => Boolean(value)))].filter((value) => isLockedSeason(value, activatedSeasons));
 
-    const safeBatting = filterRecordsForSeason(selectEffectiveStatRows(batting), season, { lockedSeasons })
+    const safeBatting = filterRecordsForSeason(selectEffectiveBattingRows(batting), season, { lockedSeasons })
       .filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
     const safePitching = filterRecordsForSeason(selectEffectiveStatRows(pitching), season, { lockedSeasons })
       .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
@@ -140,6 +140,7 @@ export async function POST(request: NextRequest) {
           ...current,
           player: current.player && current.player.id > player.id ? current.player : player,
           pa: n(current.pa) + n(row.pa),
+          obp_den: obpDenominator(current) + obpDenominator(row),
           ab: n(current.ab) + n(row.ab),
           hits: n(current.hits) + n(row.hits),
           hr: n(current.hr) + n(row.hr),
@@ -185,7 +186,6 @@ export async function POST(request: NextRequest) {
     const allBatStats = Array.from(battingByPlayer.values());
     const allPitStats = Array.from(pitchingByPlayer.values());
 
-    const teamPA = allBatStats.reduce((a, b) => a + n(b.pa), 0);
     const teamAB = allBatStats.reduce((a, b) => a + n(b.ab), 0);
     const teamH = allBatStats.reduce((a, b) => a + n(b.hits), 0);
     const teamHR = allBatStats.reduce((a, b) => a + n(b.hr), 0);
@@ -198,7 +198,8 @@ export async function POST(request: NextRequest) {
     const team3B = allBatStats.reduce((a, b) => a + n(b.triples), 0);
 
     const teamAvg = teamAB > 0 ? (teamH / teamAB).toFixed(3) : "0.000";
-    const teamOBP = teamPA > 0 ? ((teamH + teamBB + teamHBP) / teamPA).toFixed(3) : "0.000";
+    const teamObpDen = allBatStats.reduce((a, b) => a + obpDenominator(b), 0);
+    const teamOBP = formatRate(computeObp({ hits: teamH, bb: teamBB, hbp: teamHBP, obp_den: teamObpDen }), 3, "0.000");
 
     const teamIP = allPitStats.reduce((a, b) => a + (b.ip || 0), 0);
     const teamER = allPitStats.reduce((a, b) => a + n(b.er), 0);
@@ -234,7 +235,7 @@ export async function POST(request: NextRequest) {
         const hr = n(bat.hr);
 
         const avg = (hits / ab).toFixed(3);
-        const obp = pa > 0 ? ((hits + bb + hbp) / pa).toFixed(3) : "0.000";
+        const obp = formatRate(computeObp({ hits, bb, hbp, pa, obp_den: bat.obp_den }), 3, "0.000");
         const singles = hits - doubles - triples - hr;
         const slg = ((singles + doubles * 2 + triples * 3 + hr * 4) / ab).toFixed(3);
         const ops = (parseFloat(obp) + parseFloat(slg)).toFixed(3);

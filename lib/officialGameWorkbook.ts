@@ -280,7 +280,8 @@ export function parseOfficialGamePitchingSheet(sheet: XLSX.WorkSheet): LiveGameP
       w: cols.w >= 0 ? toFlag(row[cols.w], ["승", "승리", "w"]) : toFlag(decision, ["승", "w"]),
       l: cols.l >= 0 ? toFlag(row[cols.l], ["패", "패배", "l"]) : toFlag(decision, ["패", "l"]),
       sv: cols.sv >= 0 ? toFlag(row[cols.sv], ["세", "세이브", "sv"]) : toFlag(decision, ["세", "sv"]),
-      hld: cols.hld >= 0 ? toNumber(row[cols.hld]) : 0,
+      // 결과 칸의 "홀"을 읽지 않아 홀드가 항상 0으로 저장되던 문제 수정
+      hld: cols.hld >= 0 ? toNumber(row[cols.hld]) : toFlag(decision, ["홀", "홀드", "hld"]),
       era: cols.era >= 0
         ? String(row[cols.era] ?? "").trim() || formatRate(computeEra(er, ip), 2, "0")
         : formatRate(computeEra(er, ip), 2, "0"),
