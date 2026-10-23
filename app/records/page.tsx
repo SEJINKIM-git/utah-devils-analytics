@@ -11,6 +11,8 @@ import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
+import { selectEffectiveStatRows } from "@/lib/statRows";
+import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -67,8 +69,10 @@ export default async function RecordsPage({
   const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
   const players = rawPlayers || [];
   const playerById = new Map(players.map((p) => [p.id, p]));
-  const { data: allBatting } = await supabase.from("batting_stats").select("*");
-  const { data: allPitching } = await supabase.from("pitching_stats").select("*");
+  const { data: allBattingRaw } = await supabase.from("batting_stats").select("*");
+  const { data: allPitchingRaw } = await supabase.from("pitching_stats").select("*");
+  const allBatting = selectEffectiveStatRows(allBattingRaw);
+  const allPitching = selectEffectiveStatRows(allPitchingRaw);
   const { data: allGames } = await supabase.from("games").select("id,season,created_at,date,opponent");
   const { data: rosterUploads } = await supabase
     .from("roster_uploads")
@@ -210,8 +214,8 @@ export default async function RecordsPage({
     .map((p) => {
       const player = p.player;
       if (!player) return null;
-      const era = p.ip > 0 ? ((p.er / p.ip) * 5).toFixed(2) : "---";
-      const whip = p.ip > 0 ? ((p.ha + p.bb) / p.ip).toFixed(2) : "---";
+      const era = formatRate(eraFromInnings(p.er, p.ip));
+      const whip = formatRate(whipFromInnings(p.ha, p.bb, p.ip));
       return { ...p, player, era, whip, eraNum: parseFloat(era) || 99 };
     })
     .filter(Boolean)

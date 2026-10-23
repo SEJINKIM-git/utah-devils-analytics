@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:sql": "vitest run tests/sql",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
@@ -27,7 +30,9 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.16",
     "eslint": "^9.39.4",
-    "eslint-config-next": "^15.3.9"
+    "eslint-config-next": "^15.3.9",
+    "vitest": "^3.2.7"
   }
 }

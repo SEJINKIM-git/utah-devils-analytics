@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import SituationsSubNav from "@/app/components/SituationsSubNav";
+import { DECISION_TYPES } from "@/lib/decisionTypes";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -57,19 +58,6 @@ const LEVERAGE_COLORS: Record<string, { bg: string; text: string; label: string 
   low:    { bg: "rgba(34,197,94,0.10)",   text: "#22c55e", label: "LOW"  },
 };
 
-const DECISION_TYPES = [
-  { value: "pitching_change",   label: "투수 교체"       },
-  { value: "steal_attempt",     label: "도루 시도"       },
-  { value: "bunt",              label: "번트"            },
-  { value: "hit_and_run",       label: "히트앤런"        },
-  { value: "intentional_walk",  label: "고의사구"        },
-  { value: "defensive_shift",   label: "수비 시프트"     },
-  { value: "pinch_hit",         label: "대타"            },
-  { value: "pinch_run",         label: "대주자"          },
-  { value: "infield_in",        label: "내야 전진"       },
-  { value: "no_doubles",        label: "노더블 얼라인"   },
-  { value: "other",             label: "기타"            },
-];
 
 // base_state bitmask: bit0=1루, bit1=2루, bit2=3루
 function baseLabel(state: number): string {

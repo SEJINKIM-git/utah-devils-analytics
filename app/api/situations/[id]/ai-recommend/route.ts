@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
+import { DECISION_LABEL, DECISION_TYPE_CHOICES } from "@/lib/decisionTypes";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,12 +27,6 @@ const EVAL_KO: Record<string, string> = {
   correct: "정확", incorrect: "오류", ambiguous: "애매", pending: "미평가",
 };
 
-const DECISION_KO: Record<string, string> = {
-  pitching_change: "투수 교체", steal_attempt: "도루 시도", bunt: "번트",
-  hit_and_run: "히트앤런", intentional_walk: "고의사구", defensive_shift: "수비 시프트",
-  pinch_hit: "대타", pinch_run: "대주자", infield_in: "내야 전진",
-  no_doubles: "노더블 얼라인", other: "기타",
-};
 
 export async function POST(
   _request: NextRequest,
@@ -74,7 +69,7 @@ export async function POST(
     const similarSection = similar.length > 0
       ? `\n유사 과거 사례 (${similar.length}건):\n` +
         similar.map((c, i) => {
-          const dt = c.decision_type ? (DECISION_KO[c.decision_type as string] ?? c.decision_type) : "결정 없음";
+          const dt = c.decision_type ? (DECISION_LABEL[c.decision_type as string] ?? c.decision_type) : "결정 없음";
           const ev = EVAL_KO[c.retrospective_eval as string ?? "pending"] ?? "미평가";
           return `  ${i + 1}. ${baseLabel(c.base_state as number)} ${c.out_count}아웃 — 결정: ${dt} → 평가: ${ev}`;
         }).join("\n")
@@ -98,7 +93,7 @@ export async function POST(
   "cards": [
     {
       "action": "작전 이름 (한국어)",
-      "action_type": "steal_attempt|bunt|hit_and_run|intentional_walk|pitching_change|defensive_shift|pinch_hit|pinch_run|infield_in|no_doubles|other 중 하나",
+      "action_type": "${DECISION_TYPE_CHOICES} 중 하나",
       "recommendation": "권장|고려|주의|비권장",
       "confidence": 0.0에서 1.0 사이 숫자,
       "rationale": "이 작전을 추천/비추천하는 이유 (1~2문장 한국어)",

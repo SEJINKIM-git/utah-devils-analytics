@@ -16,6 +16,8 @@ import { parseGameLines } from "@/lib/parseDocxGameRecord";
 import { inferRosterSnapshotSeasons } from "@/lib/rosterSnapshot";
 import { extractRosterPlayersFromWorkbook, readUploadedWorkbook } from "@/lib/rosterWorkbook";
 import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
+import { type PlayerCandidate, resolvePlayerMatch } from "@/lib/playerMatching";
+import { normalizeInningsForStorage } from "@/lib/statFormulas";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, isSeasonValue } from "@/lib/season";
 import { ensureSeasonActivated } from "@/lib/seasonVisibility";
 import { extractGameMetaFromFilename, extractSeasonFromFilename } from "@/lib/gameFileMeta";
@@ -66,7 +68,7 @@ type ConflictPlayer = RosterPlayer & {
 };
 
 type PlayerRecord = {
-  id: string;
+  id: number;
   name: string;
   number: number;
   is_pitcher?: boolean | null;
@@ -279,9 +281,13 @@ function getDetailedBlockTargets(workbook: XLSX.WorkBook, fileName: string, fall
 async function clearSeasonSnapshot(seasons: string[]) {
   if (seasons.length === 0) return;
 
-  await supabase.from("batting_stats").delete().in("season", seasons);
-  await supabase.from("pitching_stats").delete().in("season", seasons);
-  await supabase.from("games").delete().in("season", seasons);
+  // 시즌 누적 파일이 공식 기록이므로 해당 시즌 기록 행은 교체한다.
+  // 단, games는 지우지 않는다: situations/game_decisions가 games에 ON DELETE CASCADE로 묶여 있어
+  // 경기를 지우면 상황 기록·판단 로그가 함께 사라진다. 경기 행은 이후 업로드에서 그대로 재사용된다.
+  for (const table of ["batting_stats", "pitching_stats"] as const) {
+    const { error } = await supabase.from(table).delete().in("season", seasons);
+    if (error) throw new Error(`${table} 시즌 데이터 삭제 실패: ${error.message}`);
+  }
   for (const season of seasons) {
     await supabase.from("roster_uploads").delete().like("filename", `${TERM_STAT_PREFIX} ${season} %`);
   }
@@ -437,25 +443,19 @@ async function getNextSyntheticPlayerNumber() {
   return syntheticNumberCursor;
 }
 
-async function findPlayerByNumberOrName(playerNumber: number | null, name: string) {
+async function findPlayerCandidates(playerNumber: number | null, name: string): Promise<PlayerCandidate[]> {
+  const queries = [
+    supabase.from("players").select("id,name,number,is_pitcher").eq("name", name).limit(20),
+  ];
   if (playerNumber && playerNumber > 0) {
-    const { data: playersByNumber } = await supabase
-      .from("players")
-      .select("id,name,number,is_pitcher")
-      .eq("number", playerNumber)
-      .limit(5);
-
-    const exactByNumber = playersByNumber?.find((player) => player.number === playerNumber) || null;
-    if (exactByNumber) return exactByNumber as PlayerRecord;
+    queries.push(supabase.from("players").select("id,name,number,is_pitcher").eq("number", playerNumber).limit(50));
   }
-
-  const { data: playersByName } = await supabase
-    .from("players")
-    .select("id,name,number,is_pitcher")
-    .eq("name", name)
-    .limit(5);
-
-  return (playersByName?.[0] as PlayerRecord | undefined) || null;
+  const results = await Promise.all(queries);
+  const byId = new Map<number, PlayerCandidate>();
+  for (const { data } of results) {
+    for (const row of (data ?? []) as PlayerCandidate[]) byId.set(row.id, row);
+  }
+  return Array.from(byId.values());
 }
 
 async function upsertPlayer(
@@ -471,9 +471,9 @@ async function upsertPlayer(
   }
 
   const normalizedNumber = playerNumber && playerNumber > 0 ? playerNumber : null;
-  let player = await findPlayerByNumberOrName(normalizedNumber, name);
+  const match = resolvePlayerMatch(await findPlayerCandidates(normalizedNumber, name), normalizedNumber, name, isPitcher);
 
-  if (!player) {
+  if (match.action === "create") {
     const insertNumber = normalizedNumber ?? await getNextSyntheticPlayerNumber();
     const { data: created } = await supabase
       .from("players")
@@ -489,15 +489,12 @@ async function upsertPlayer(
     return (created as PlayerRecord | null) || null;
   }
 
-  const updates: Record<string, unknown> = {};
-  if (player.name !== name) updates.name = name;
-  if (normalizedNumber && player.number !== normalizedNumber) updates.number = normalizedNumber;
-  if (isPitcher && !player.is_pitcher) updates.is_pitcher = true;
-
-  if (Object.keys(updates).length > 0) {
-    await supabase.from("players").update(updates).eq("id", player.id);
+  // 기존 선수의 이름·배번은 바꾸지 않는다 (투수 여부만 보강)
+  let player = match.player as PlayerRecord;
+  if (Object.keys(match.updates).length > 0) {
+    await supabase.from("players").update(match.updates).eq("id", player.id);
     if (results) results.updated += 1;
-    player = { ...player, ...updates } as PlayerRecord;
+    player = { ...player, ...match.updates } as PlayerRecord;
   }
 
   return player;
@@ -508,7 +505,7 @@ async function initializeRosterSeasons(
   overwrite: boolean,
   seasons: string[]
 ) {
-  const { data: existingPlayers } = await supabase.from("players").select("id,name,number").order("id", { ascending: false });
+  const { data: existingPlayers } = await supabase.from("players").select("id,name,number,is_pitcher").order("id", { ascending: false });
   const targetSeasons = uniqueSeasons(seasons);
   const results = {
     players: 0,
@@ -520,28 +517,21 @@ async function initializeRosterSeasons(
   };
 
   for (const rosterPlayer of rosterPlayers) {
-    let playerId: string | null = null;
+    let playerId: number | null = null;
 
-    // 이름+배번 일치 → 이름 일치 → (덮어쓰기일 때만) 배번 일치.
-    // 덮어쓰기가 아니면 배번만 같은 다른 이름은 학기가 바뀌며 배번을 물려받은 새 선수로 등록
-    const pool = existingPlayers || [];
-    const exact = pool.find((entry) => entry.number === rosterPlayer.number && entry.name === rosterPlayer.name);
-    const byName = pool.find((entry) => entry.name === rosterPlayer.name);
-    const byNumber = overwrite ? pool.find((entry) => entry.number === rosterPlayer.number) : undefined;
-    const existing = exact || byName || byNumber;
+    // (배번, 이름) 일치할 때만 기존 선수. 배번만 같은 다른 이름은 새 선수로 등록하고
+    // 기존 선수의 이름·배번은 바꾸지 않는다 — 덮어쓰기 옵션이어도 과거 기록이 새 선수에게 넘어가지 않게.
+    // (overwrite는 기존 동작 호환을 위해 인자로만 남김)
+    void overwrite;
+    const match = resolvePlayerMatch(
+      (existingPlayers || []) as PlayerCandidate[],
+      rosterPlayer.number,
+      rosterPlayer.name,
+      Boolean(rosterPlayer.is_pitcher)
+    );
 
-    if (existing) {
-      playerId = existing.id;
-      if (overwrite) {
-        const updates: Record<string, unknown> = {};
-        if (existing.name !== rosterPlayer.name) updates.name = rosterPlayer.name;
-        if (existing.number !== rosterPlayer.number) updates.number = rosterPlayer.number;
-
-        if (Object.keys(updates).length > 0) {
-          await supabase.from("players").update(updates).eq("id", existing.id);
-          results.updated++;
-        }
-      }
+    if (match.action === "use") {
+      playerId = match.player.id;
     } else {
       const { data: created } = await supabase
         .from("players")
@@ -733,7 +723,7 @@ async function processSeasonTotalSheet(
         l: Number(row[cols.l]) || 0,
         sv: Number(row[cols.sv]) || 0,
         hld: Number(row[cols.hld]) || 0,
-        ip: Number(row[cols.ip]) || 0,
+        ip: normalizeInningsForStorage(row[cols.ip] as number | string),
         ha: Number(row[cols.ha]) || 0,
         runs_allowed: Number(row[cols.runsAllowed]) || 0,
         er: Number(row[cols.er]) || 0,
@@ -872,7 +862,7 @@ async function processLiveGameWorkbook(
       l: row.l,
       sv: row.sv,
       hld: row.hld,
-      ip: row.ip,
+      ip: normalizeInningsForStorage(row.ip),
       ha: row.ha,
       runs_allowed: row.runs_allowed,
       er: row.er,
@@ -957,7 +947,7 @@ async function processLiveGameDocxFile(
       l: 0,
       sv: 0,
       hld: 0,
-      ip: Number(row.innings) || 0,
+      ip: normalizeInningsForStorage(row.innings),
       ha: Number(row.hits) || 0,
       runs_allowed: Number(row.runs) || 0,
       er: Number(row.earnedRuns) || Number(row.runs) || 0,
@@ -1064,7 +1054,7 @@ async function processStructuredWorkbook(
           l: Number(row[cols.l]) || 0,
           sv: Number(row[cols.sv]) || 0,
           hld: Number(row[cols.hld]) || 0,
-          ip: Number(row[cols.ip]) || 0,
+          ip: normalizeInningsForStorage(row[cols.ip] as number | string),
           ha: Number(row[cols.ha]) || 0,
           runs_allowed: Number(row[cols.runsAllowed]) || 0,
           er: Number(row[cols.er]) || 0,
@@ -1156,7 +1146,7 @@ async function processDetailedBlockSheet(
         l: Number(row[activeCols.l]) || 0,
         sv: Number(row[activeCols.sv]) || 0,
         hld: Number(row[activeCols.hld]) || 0,
-        ip: Number(row[activeCols.ip]) || 0,
+        ip: normalizeInningsForStorage(row[activeCols.ip] as number | string),
         ha: Number(row[activeCols.ha]) || 0,
         runs_allowed: Number(row[activeCols.runsAllowed]) || 0,
         er: Number(row[activeCols.er]) || 0,

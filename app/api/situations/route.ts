@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeDecisionType } from "@/lib/decisionTypes";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
           situation_id:        situation.id,
           game_id:             gameIdInt,
           season,
-          decision_type:       decision.decision_type,
+          decision_type:       normalizeDecisionType(decision.decision_type),
           decision_summary:    decision.decision_summary,
           rationale:           decision.rationale            ?? null,
           ai_recommendation:   decision.ai_recommendation   ?? null,
