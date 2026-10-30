@@ -4,7 +4,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { parseIP, formatIP } from "@/lib/statFormatting";
+import { parseIP } from "@/lib/statFormatting";
 import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 // ── Types ─────────────────────────────────────────────────────────────────────

@@ -26,6 +26,10 @@ type RosterUploadRow = {
   source?: string | null;
 };
 
+/** 이 모듈이 쓰는 Supabase 클라이언트의 최소 형태 (서버 컴포넌트·API 라우트 양쪽에서 넘겨준다) */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseLike = { from: (table: string) => any };
+
 function getRosterUploadMeta(row: RosterUploadRow) {
   const filename = String(row.filename || "");
   const snapshot = parseRosterSnapshot(
@@ -41,9 +45,7 @@ function getRosterUploadMeta(row: RosterUploadRow) {
   };
 }
 
-async function getRosterUploadRows(supabase: {
-  from: (table: string) => any;
-}) {
+async function getRosterUploadRows(supabase: SupabaseLike) {
   try {
     const { data } = await supabase
       .from("roster_uploads")
@@ -63,9 +65,7 @@ export function shouldAutoActivateSeasonUpload(season: string, fileName: string)
   return PLACEHOLDER_SEASONS.includes(season) && !isKnownSampleUpload(fileName);
 }
 
-export async function getActivatedPlaceholderSeasons(supabase: {
-  from: (table: string) => any;
-}) {
+export async function getActivatedPlaceholderSeasons(supabase: SupabaseLike) {
   const rows = await getRosterUploadRows(supabase);
   const seasons = new Set<string>();
 
@@ -84,9 +84,7 @@ export async function getActivatedPlaceholderSeasons(supabase: {
   return Array.from(seasons);
 }
 
-export async function getRosterUploadSeasons(supabase: {
-  from: (table: string) => any;
-}) {
+export async function getRosterUploadSeasons(supabase: SupabaseLike) {
   const rows = await getRosterUploadRows(supabase);
   const seasons = new Set<string>();
 
@@ -104,9 +102,7 @@ export async function getRosterUploadSeasons(supabase: {
 }
 
 export async function ensureSeasonActivated(
-  supabase: {
-    from: (table: string) => any;
-  },
+  supabase: SupabaseLike,
   season: string,
   fileName: string
 ) {
@@ -156,9 +152,7 @@ export function isLockedSeason(season: string, activatedSeasons: string[]) {
 }
 
 export async function getSeasonVisibility(
-  supabase: {
-    from: (table: string) => any;
-  },
+  supabase: SupabaseLike,
   values: Array<string | null | undefined>,
   preferred: string | null | undefined,
   fallback = "2025"

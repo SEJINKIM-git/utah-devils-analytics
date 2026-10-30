@@ -19,7 +19,7 @@ import { useState, useEffect, useRef } from 'react';
 import { getPlayerDisplayName, getPlayerNameVariants } from '@/lib/playerDisplay';
 import { inferRosterSnapshotSeasons, parseRosterSnapshot, type RosterSnapshotPlayer } from '@/lib/rosterSnapshot';
 import type { Lang } from '@/lib/translations';
-import { computeObp, eraFromInnings, inningsDecimal, obpDenominator } from "@/lib/statFormulas";
+import { computeObp, eraFromInnings, inningsDecimal, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────────
 
@@ -365,15 +365,6 @@ async function fetchPlayers(): Promise<ComparePayload> {
 
 // ─── 통계 계산 ────────────────────────────────────────────────────────────────
 
-function getLatestSeason(stats: BattingStat[] | PitchingStat[], season?: number) {
-  if (!stats.length) return null;
-  if (season) {
-    const found = stats.find((s) => s.season === season);
-    if (found) return found;
-  }
-  return [...stats].sort((a, b) => b.season - a.season)[0];
-}
-
 function calcBatting(stats: BattingStat[], season?: number): CalcBatting | null {
   // 해당 시즌 레코드 전부 합산
   const seasonStats = season
@@ -422,7 +413,7 @@ function calcPitching(stats: PitchingStat[], season?: number): CalcPitching | nu
   }), { ...seasonStats[0], innings:0, hits:0, runs:0, earned_runs:0, walks:0, strikeouts:0 });
   const inn  = merged.innings || 0;
   const era  = eraFromInnings(merged.earned_runs || 0, inn);
-  const whip = inn > 0 ? ((merged.walks || 0) + (merged.hits || 0)) / inn : null;
+  const whip = whipFromInnings(merged.hits || 0, merged.walks || 0, inn);
   return { ...merged, era, whip };
 }
 
@@ -839,7 +830,7 @@ export default function ComparePage() {
           <div>
             {/* 선수 헤더 */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr', background: 'var(--card-bg)', borderRadius: 16, padding: '20px 24px', marginBottom: 20, border: '1px solid var(--border)' }}>
-              {([{ player: p1, color: '#DC2626' }, null, { player: p2, color: '#3b82f6' }] as Array<{ player: Player; color: string } | null>).map((item, idx) =>
+              {([{ player: p1, color: '#DC2626' }, null, { player: p2, color: '#3b82f6' }] as Array<{ player: Player; color: string } | null>).map((item) =>
                 item === null ? (
                   <div key="vs" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-dim)' }}>VS</span>
