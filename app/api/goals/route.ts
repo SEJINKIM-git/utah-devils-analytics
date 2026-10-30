@@ -5,8 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { parseIP } from "@/lib/statFormatting";
-import { selectEffectiveStatRows } from "@/lib/statRows";
-import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
+import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
+import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
   );
   const shouldGateStats = Boolean(latestRosterUpload);
 
-  const gatedBatting = selectEffectiveStatRows(batting).filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
+  const gatedBatting = selectEffectiveBattingRows(batting).filter((b) => !shouldGateStats || !b.game_id || validGameIds.has(b.game_id));
   const gatedPitching = selectEffectiveStatRows(pitching)
     .filter((p) => !shouldGateStats || !p.game_id || validGameIds.has(p.game_id))
     .filter((p) => parseIP(p.ip) > 0);
@@ -81,12 +81,12 @@ export async function GET(request: NextRequest) {
 
   const bat = dedupedBatting.length > 0 ? dedupedBatting.reduce((acc, b) => ({
     ...acc,
-    pa: (acc.pa||0)+(b.pa||0), ab: (acc.ab||0)+(b.ab||0),
+    pa: (acc.pa||0)+(b.pa||0), obp_den: obpDenominator(acc)+obpDenominator(b), ab: (acc.ab||0)+(b.ab||0),
     hits: (acc.hits||0)+(b.hits||0), doubles: (acc.doubles||0)+(b.doubles||0),
     triples: (acc.triples||0)+(b.triples||0), hr: (acc.hr||0)+(b.hr||0),
     rbi: (acc.rbi||0)+(b.rbi||0), bb: (acc.bb||0)+(b.bb||0),
     hbp: (acc.hbp||0)+(b.hbp||0), so: (acc.so||0)+(b.so||0), sb: (acc.sb||0)+(b.sb||0),
-  }), { ...dedupedBatting[0], pa:0,ab:0,hits:0,doubles:0,triples:0,hr:0,rbi:0,bb:0,hbp:0,so:0,sb:0 }) : null;
+  }), { ...dedupedBatting[0], pa:0,obp_den:0,ab:0,hits:0,doubles:0,triples:0,hr:0,rbi:0,bb:0,hbp:0,so:0,sb:0 }) : null;
   const pit = dedupedPitching.length > 0 ? dedupedPitching.reduce((acc, p) => ({
     ...acc,
     ip: (acc.ip||0) + parseIP(p.ip),
@@ -99,10 +99,10 @@ export async function GET(request: NextRequest) {
     if (!bat && !pit) return 0;
     switch (statType) {
       case "avg": return bat && bat.ab > 0 ? parseFloat((bat.hits / bat.ab).toFixed(3)) : 0;
-      case "obp": return bat && bat.pa > 0 ? parseFloat(((bat.hits + bat.bb + bat.hbp) / bat.pa).toFixed(3)) : 0;
+      case "obp": return bat ? parseFloat(formatRate(computeObp(bat), 3, "0")) : 0;
       case "ops": {
         if (!bat || bat.ab === 0) return 0;
-        const obp = bat.pa > 0 ? (bat.hits + bat.bb + bat.hbp) / bat.pa : 0;
+        const obp = computeObp(bat) ?? 0;
         const slg = (bat.hits - bat.doubles - bat.triples - bat.hr + bat.doubles * 2 + bat.triples * 3 + bat.hr * 4) / bat.ab;
         return parseFloat((obp + slg).toFixed(3));
       }

@@ -1,0 +1,53 @@
+{
+  "_note": "TS(lib/statFormulas.ts, lib/statRows.ts)와 Python(console/core/stats.py, core/aggregate.py)이 같은 입력에 같은 값을 내는지 양쪽 테스트가 이 파일로 확인한다. 기대값은 손으로 계산한 값(허용 오차 1e-6). 이닝은 야구식 표기(3.1 = 3⅓), ERA는 5이닝 기준.",
+  "tolerance": 1e-6,
+  "innings": [
+    { "label": "표기끼리 더하지 않는다 30.2 + 55.2 = 86.1", "values": [30.2, 55.2], "outs": 259, "notation": "86.1" },
+    { "label": "1.1 × 3 = 4", "values": [1.1, 1.1, 1.1], "outs": 12, "notation": "4" },
+    { "label": "소수 표기(3.3, 1.7)는 저장 전에 야구식으로 통일한다", "values": [3.3, 1.7], "lenient": true, "outs": 15, "normalized": ["3.1", "1.2"] }
+  ],
+  "pitching": [
+    { "label": "2023 기록지 46.2이닝 37자책", "er": 37, "ip": 46.2, "ha": 66, "bb": 42, "hbp": 4, "so": 30,
+      "era": 3.9642857142857144, "whip": 2.3142857142857145, "k_per_base": 3.2142857142857144 },
+    { "label": "v3.0 경기 4이닝", "er": 1, "ip": 4, "ha": 3, "bb": 2, "hbp": 1, "so": 5,
+      "era": 1.25, "whip": 1.25, "k_per_base": 6.25 },
+    { "label": "0이닝은 null", "er": 2, "ip": 0, "ha": 1, "bb": 1, "hbp": 0, "so": 0, "era": null, "whip": null, "k_per_base": null }
+  ],
+  "batting": [
+    { "label": "과거 시즌 행(sf 없음) — 분모는 타석",
+      "row": { "hits": 63, "ab": 208, "pa": 257, "bb": 43, "hbp": 4, "doubles": 10, "triples": 2, "hr": 1, "sf": null },
+      "avg": 0.3028846153846154, "obp": 0.4280155642023346, "slg": 0.38461538461538464, "ops": 0.8126309488177192 },
+    { "label": "v3.0 행 — 분모는 타수+볼넷+사구+희생플라이 (희생번트·포수방해 제외)",
+      "row": { "hits": 3, "ab": 3, "pa": 7, "bb": 1, "hbp": 0, "doubles": 1, "triples": 0, "hr": 0, "sf": 1, "sh": 1, "ci": 1 },
+      "avg": 1.0, "obp": 0.8, "slg": 1.3333333333333333, "ops": 2.1333333333333333 },
+    { "label": "타수 0 — 타율·장타율 null, 출루율은 분모가 있으면 계산",
+      "row": { "hits": 0, "ab": 0, "pa": 2, "bb": 2, "hbp": 0, "doubles": 0, "triples": 0, "hr": 0, "sf": null },
+      "avg": null, "obp": 1.0, "slg": null, "ops": null }
+  ],
+  "batting_aggregate": {
+    "label": "과거 행 + v3.0 행 합산 — 분모를 행마다 정한 뒤 더한다",
+    "rows": [
+      { "hits": 1, "ab": 3, "pa": 5, "bb": 1, "hbp": 0, "doubles": 0, "triples": 0, "hr": 0, "sf": null },
+      { "hits": 1, "ab": 2, "pa": 4, "bb": 0, "hbp": 0, "doubles": 0, "triples": 0, "hr": 0, "sf": 1 }
+    ],
+    "obp_den": 8, "avg": 0.4, "obp": 0.375, "slg": 0.4, "ops": 0.775
+  },
+  "dedupe": {
+    "label": "같은 선수·시즌에 경기별 행이 있으면 요약 행은 버린다 (2026 이중 집계)",
+    "players": [ { "id": 1, "number": 2, "name": "투수C" }, { "id": 2, "number": 11, "name": "투수D" } ],
+    "rows": [
+      { "id": 1, "player_id": 1, "season": "2026", "game_id": 27, "ip": 1.0, "er": 0 },
+      { "id": 2, "player_id": 1, "season": "2026", "game_id": 28, "ip": 3.1, "er": 2 },
+      { "id": 3, "player_id": 1, "season": "2026", "game_id": null, "ip": 1.0, "er": 0 },
+      { "id": 4, "player_id": 1, "season": "2026", "game_id": null, "ip": 3.1, "er": 2 },
+      { "id": 5, "player_id": 1, "season": "2023", "game_id": null, "ip": 46.2, "er": 37 },
+      { "id": 6, "player_id": 2, "season": "2026", "game_id": null, "ip": 4, "er": 1 }
+    ],
+    "effective_ids": [1, 2, 5, 6],
+    "totals": [
+      { "player_id": 1, "season": "2026", "outs": 13, "er": 2, "era": 2.3076923076923075 },
+      { "player_id": 1, "season": "2023", "outs": 140, "er": 37, "era": 3.9642857142857144 },
+      { "player_id": 2, "season": "2026", "outs": 12, "er": 1, "era": 1.25 }
+    ]
+  }
+}

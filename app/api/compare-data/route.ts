@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
-import { selectEffectiveStatRows } from "@/lib/statRows";
+import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,7 +13,7 @@ export async function GET() {
   const { data: players } = await supabase.from("players").select("*").order("number");
   const { data: battingRaw } = await supabase.from("batting_stats").select("*");
   const { data: pitchingRaw } = await supabase.from("pitching_stats").select("*");
-  const batting = selectEffectiveStatRows(battingRaw);
+  const batting = selectEffectiveBattingRows(battingRaw);
   const pitching = selectEffectiveStatRows(pitchingRaw);
   const { data: rosterUploads } = await supabase
     .from("roster_uploads")

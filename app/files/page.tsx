@@ -252,7 +252,7 @@ export default function FilesPage() {
             <div onClick={e => e.stopPropagation()} style={{ background: "#0f1629", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 20, width: "100%", maxWidth: 460, overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.6)" }}>
               <div style={{ background: "linear-gradient(135deg,rgba(59,130,246,0.15),rgba(59,130,246,0.05))", padding: "20px 24px", borderBottom: "1px solid rgba(59,130,246,0.12)" }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: "#93c5fd" }}>🔄 선수 재등록</div>
-                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>"{reAddModal.filename}" · {players.length}명을 2026 시즌에 다시 등록합니다</div>
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>&quot;{reAddModal.filename}&quot; · {players.length}명을 2026 시즌에 다시 등록합니다</div>
               </div>
               <div style={{ maxHeight: 260, overflowY: "auto", padding: "8px 0" }}>
                 {players.sort((a,b) => (a.number||999)-(b.number||999)).map((p, i) => (

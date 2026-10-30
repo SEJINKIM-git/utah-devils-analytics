@@ -1,5 +1,5 @@
 /**
- * sql/001~004를 운영 스키마 복제본(PGlite = WASM Postgres)에 실제로 적용해 검증한다.
+ * sql/001~006을 운영 스키마 복제본(PGlite = WASM Postgres)에 실제로 적용해 검증한다.
  * 운영 DB에서 발견된 문제(이중 행, 이닝 표기 오류, 학기 시즌 값, 열린 RLS)를 그대로 심어 두고 시작한다.
  */
 import { readFileSync } from "node:fs";
@@ -125,6 +125,18 @@ describe("적용 전 상태 (운영과 동일한 취약점 재현)", () => {
                 select id, '2026', 'infield_in', 'test' from situations limit 1`)
     ).rejects.toThrow();
   });
+
+  it("players에는 position 칸이 없다 — 이전 선수 등록 코드는 이 때문에 항상 실패했고, 지금 코드의 payload는 성공한다", async () => {
+    // 실패하는 문장은 트랜잭션 밖에서 (안에서 실패하면 트랜잭션이 깨진다)
+    await expect(
+      db.query("insert into players (number, name, is_pitcher, position) values (77, '테스트', false, 'P')")
+    ).rejects.toThrow(/position/);
+    await inRollback(async () => {
+      // app/api/players/route.ts · app/api/upload/route.ts가 보내는 그대로
+      const ins = await db.query<{ id: number }>("insert into players (number, name, is_pitcher) values (77, '테스트', false) returning id");
+      expect(ins.rows[0].id).toBeGreaterThan(0);
+    });
+  });
 });
 
 describe("001 감사 로그 · 시즌 교체 함수 · ai_reports.season", () => {
@@ -157,6 +169,36 @@ describe("001 감사 로그 · 시즌 교체 함수 · ai_reports.season", () =>
         '[]'::jsonb, 't', 'bad.xlsx')`)
     ).rejects.toThrow(); // 없는 선수 → FK 오류
     expect(await count("select count(*) n from batting_stats where season = '2022' and pa = 31")).toBe(1);
+  });
+
+  it("배번·이름만 준 행은 같은 트랜잭션에서 선수를 만들고(타자·투수 블록에 같이 나와도 1명), games·situations는 건드리지 않는다", async () => {
+    await inRollback(async () => {
+      const gamesBefore = await count("select count(*) n from games");
+      const stat = '"pa":4,"ab":3,"runs":1,"hits":2,"doubles":0,"triples":0,"hr":0,"rbi":1,"bb":1,"hbp":0,"so":0,"sb":0';
+      const pit = '"w":1,"l":0,"sv":0,"hld":0,"ip":5,"ha":3,"runs_allowed":1,"er":1,"bb":2,"hbp":0,"so":6,"hr_allowed":0';
+      const res = await db.query<{ r: Record<string, number> }>(`select console_replace_season('2024',
+        '[{"number":99,"name":"새선수","is_pitcher":false,${stat}}, {"player_id":2,"set_pitcher":true,${stat}}]'::jsonb,
+        '[{"number":99,"name":"새선수","is_pitcher":true,${pit}}]'::jsonb, 'ops@test', '2024.xlsx') r`);
+      expect(res.rows[0].r).toMatchObject({ batting: 2, pitching: 1, new_players: 1 });
+      const created = (await db.query<{ id: number; is_pitcher: boolean }>("select id, is_pitcher from players where number = 99 and name = '새선수'")).rows;
+      expect(created).toHaveLength(1);
+      expect(await count(`select count(*) n from batting_stats where season = '2024' and player_id = ${created[0].id}`)).toBe(1);
+      expect(await count(`select count(*) n from pitching_stats where season = '2024' and player_id = ${created[0].id}`)).toBe(1);
+      // 기존 선수(투수C)는 이름·배번 그대로
+      expect((await db.query<{ name: string; number: number }>("select name, number from players where id = 2")).rows[0]).toEqual({ name: "투수C", number: 2 });
+      expect(await count("select count(*) n from console_audit_log where action = 'insert' and table_name = 'players' and actor = 'ops@test'")).toBe(1);
+      expect(await count("select count(*) n from games")).toBe(gamesBefore);
+      expect(await count("select count(*) n from situations")).toBe(1);
+    });
+  });
+
+  it("이름만 준 행(배번 없는 기록지)에서 선수가 새로 생기면 임시 배번 900번대를 받는다", async () => {
+    await inRollback(async () => {
+      const stat = '"pa":1,"ab":1,"runs":0,"hits":0,"doubles":0,"triples":0,"hr":0,"rbi":0,"bb":0,"hbp":0,"so":1,"sb":0';
+      await db.query(`select console_replace_season('2024', '[{"name":"신인A",${stat}},{"name":"신인B",${stat}}]'::jsonb, '[]'::jsonb, 't', 'x')`);
+      const nums = (await db.query<{ number: number }>("select number from players where name in ('신인A','신인B') order by number")).rows.map((r) => r.number);
+      expect(nums).toEqual([900, 901]);
+    });
   });
 
   it("연도가 아닌 시즌 값은 거부한다", async () => {
@@ -262,5 +304,150 @@ describe("004 데이터 정리", () => {
     const before = (await db.query("select id, ip from pitching_stats order by id")).rows;
     await db.exec(cleanupFixBlock());
     expect((await db.query("select id, ip from pitching_stats order by id")).rows).toEqual(before);
+  });
+});
+
+describe("005 경기 기록지 v3.0", () => {
+  const game = (extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ date: "2026-10-24", opponent: "선학", is_home: false, location: "테스트구장", score_us: 4, score_them: 2, result: "W", ...extra });
+  const bat = (overrides: Record<string, number> = {}) =>
+    JSON.stringify([{ player_id: 1, pa: 5, ab: 3, runs: 1, hits: 3, doubles: 1, triples: 0, hr: 0, rbi: 2, bb: 1, hbp: 0, so: 0, sb: 1, sf: 1, sh: 0, ci: 0, ...overrides }]);
+  const pit = JSON.stringify([{ player_id: 2, w: 1, l: 0, sv: 0, hld: 0, ip: 4, ha: 3, runs_allowed: 2, er: 1, bb: 2, hbp: 1, so: 5, hr_allowed: 1, pitches: 60 }]);
+
+  beforeAll(async () => {
+    await db.exec(sql("sql/005_game_sheet_v3.sql"));
+  });
+
+  it("희생플라이·희생번트·포수방해·투구수 칸이 생기고, 기존 행은 NULL(구분 정보 없음)이다", async () => {
+    expect(await count("select count(*) n from batting_stats where sf is null and sh is null and ci is null")).toBe(
+      await count("select count(*) n from batting_stats")
+    );
+    expect(await count("select count(*) n from pitching_stats where pitches is null")).toBe(
+      await count("select count(*) n from pitching_stats")
+    );
+  });
+
+  it("기존 경기(상황 기록 있음)에 기록을 넣고 경기 정보를 갱신하며, 상황 기록은 보존한다", async () => {
+    const r = (await db.query<{ r: Record<string, unknown> }>(
+      `select console_replace_game('2026', '${game()}'::jsonb, '${bat()}'::jsonb, '${pit}'::jsonb, 'ops@test', '10_24 VS 선학 경기 기록.xlsx') r`
+    )).rows[0].r;
+    expect(r).toMatchObject({ game_id: 29, created: false, batting: 1, pitching: 1 });
+    const g = (await db.query<Record<string, unknown>>("select is_home, location, score_us, score_them, result from games where id = 29")).rows[0];
+    expect(g).toEqual({ is_home: false, location: "테스트구장", score_us: 4, score_them: 2, result: "W" });
+    expect(await count("select count(*) n from batting_stats where game_id = 29 and sf = 1 and sh = 0 and ci = 0")).toBe(1);
+    expect(await count("select count(*) n from pitching_stats where game_id = 29 and pitches = 60")).toBe(1);
+    expect(await count("select count(*) n from situations where game_id = 29")).toBe(1);
+    expect(await count("select count(*) n from console_audit_log where action = 'replace_game'")).toBe(3);
+  });
+
+  it("같은 경기를 다시 올리면 교체된다 (멱등, 중복 행 없음)", async () => {
+    await db.query(`select console_replace_game('2026', '${game()}'::jsonb, '${bat({ hits: 2 })}'::jsonb, '${pit}'::jsonb, 'ops@test', 'v2')`);
+    expect(await count("select count(*) n from batting_stats where game_id = 29")).toBe(1);
+    expect(await count("select count(*) n from batting_stats where game_id = 29 and hits = 2")).toBe(1);
+    expect(await count("select count(*) n from games where date = '2026-10-24' and opponent = '선학'")).toBe(1);
+  });
+
+  it("새 경기는 만들어진다", async () => {
+    const r = (await db.query<{ r: Record<string, unknown> }>(
+      `select console_replace_game('2026', '${game({ date: "2026-10-31", opponent: "새상대" })}'::jsonb, '${bat()}'::jsonb, '[]'::jsonb, 't', 'x') r`
+    )).rows[0].r;
+    expect(r).toMatchObject({ created: true, batting: 1, pitching: 0 });
+  });
+
+  it("경기 날짜와 시즌이 다르면 거부한다 (파일명·시즌 실수 방지)", async () => {
+    await expect(
+      db.query(`select console_replace_game('2025', '${game()}'::jsonb, '[]'::jsonb, '[]'::jsonb, 't', 'x')`)
+    ).rejects.toThrow(/시즌/);
+  });
+
+  it("중간에 실패하면 이전 기록이 그대로 남는다", async () => {
+    await expect(
+      db.query(`select console_replace_game('2026', '${game()}'::jsonb, '${bat()}'::jsonb,
+        '[{"player_id":9999,"w":0,"l":0,"sv":0,"hld":0,"ip":1,"ha":0,"runs_allowed":0,"er":0,"bb":0,"hbp":0,"so":0,"hr_allowed":0,"pitches":5}]'::jsonb, 't', 'bad')`)
+    ).rejects.toThrow();
+    expect(await count("select count(*) n from batting_stats where game_id = 29 and hits = 2")).toBe(1);
+  });
+
+  it("anon은 호출할 수 없다", async () => {
+    await expect(
+      asRole("anon", () => db.query(`select console_replace_game('2026', '${game()}'::jsonb, '[]', '[]', 't', 'x')`))
+    ).rejects.toThrow(/permission denied/);
+  });
+
+  it("이름만 있는 신규 선수는 같은 트랜잭션에서 임시 배번으로 만들어지고, 타자·투수 양쪽에 나와도 1명이다", async () => {
+    const newBat = bat().replace('"player_id":1,', '"name":"신인투수","is_pitcher":true,');
+    const newPit = pit.replace('"player_id":2,', '"name":"신인투수","is_pitcher":true,');
+    const r = (await db.query<{ r: Record<string, unknown> }>(
+      `select console_replace_game('2026', '${game({ date: "2026-11-07", opponent: "신규상대" })}'::jsonb,
+        '${newBat}'::jsonb, '${newPit}'::jsonb, 'ops@test', 'new.xlsx') r`
+    )).rows[0].r;
+    expect(r).toMatchObject({ created: true, batting: 1, pitching: 1, new_players: 1 });
+    const rows = (await db.query<{ id: number; number: number; is_pitcher: boolean }>("select id, number, is_pitcher from players where name = '신인투수'")).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].number).toBeGreaterThanOrEqual(900);
+    expect(rows[0].is_pitcher).toBe(true);
+    expect(await count(`select count(*) n from pitching_stats where player_id = ${rows[0].id} and pitches = 60`)).toBe(1);
+  });
+});
+
+describe("006 콘솔 쓰기 함수 (변경 + 감사 로그가 한 트랜잭션)", () => {
+  beforeAll(async () => {
+    await db.exec(sql("sql/006_console_writes.sql"));
+  });
+
+  it("셀 수정: 허용된 칸만 바꾸고 전/후 값을 감사 로그에 남긴다", async () => {
+    const row = (await db.query<{ id: number }>("select id from pitching_stats where season = '2023' and ip = 13.2")).rows[0];
+    const n = (await db.query<{ n: number }>(
+      `select console_update_rows('pitching_stats',
+        '[{"id":${row.id},"after":{"ip":13.1,"er":6,"player_id":999},"note":"기록지 재확인"}]'::jsonb, 'ops@test') n`
+    )).rows[0].n;
+    expect(Number(n)).toBe(1);
+    const after = (await db.query<{ ip: string; er: number; player_id: number }>(`select ip::text, er, player_id from pitching_stats where id = ${row.id}`)).rows[0];
+    expect(after).toEqual({ ip: "13.1", er: 6, player_id: 3 }); // player_id는 허용 칸이 아니라 무시
+    const log = (await db.query<{ before: Record<string, unknown>; after: Record<string, unknown>; note: string }>(
+      "select before, after, note from console_audit_log where action = 'update' order by id desc limit 1"
+    )).rows[0];
+    expect(log.before).toEqual({ id: row.id, ip: 13.2, er: 7 });
+    expect(log.after).toEqual({ id: row.id, ip: 13.1, er: 6 });
+    expect(log.note).toBe("기록지 재확인");
+  });
+
+  it("허용되지 않은 테이블·없는 행은 거부한다", async () => {
+    await expect(db.query(`select console_update_rows('games', '[{"id":27,"after":{"opponent":"x"}}]'::jsonb, 't')`)).rejects.toThrow(/수정할 수 없는/);
+    await expect(db.query(`select console_update_rows('players', '[{"id":9999,"after":{"name":"x"}}]'::jsonb, 't')`)).rejects.toThrow(/행이 없습니다/);
+  });
+
+  it("상황 기록: LI 계산 → situations + game_decisions + 감사 로그", async () => {
+    const before = await count("select count(*) n from game_decisions");
+    const r = (await db.query<{ r: Record<string, unknown> }>(
+      `select console_log_situation(
+        '{"game_id":27,"season":"2026","inning":6,"inning_half":"top","base_state":1,"out_count":0,"score_us":3,"score_them":3,"batter_id":1,"pitcher_id":null,"context_note":"테스트"}'::jsonb,
+        '{"decision_type":"bunt","decision_summary":"번트","rationale":"1점 승부","retrospective_eval":"pending"}'::jsonb, 'ops@test') r`
+    )).rows[0].r;
+    expect(r.situation_id).toBeTruthy();
+    expect(r.decision_id).toBeTruthy();
+    expect(Number(r.li)).toBe(1);
+    expect(await count("select count(*) n from game_decisions")).toBe(before + 1);
+    expect(await count("select count(*) n from situations where game_id = 27 and logged_by = 'ops@test' and leverage_index = 1.0")).toBe(1);
+    expect(await count("select count(*) n from console_audit_log where action = 'insert' and table_name = 'situations'")).toBe(1);
+  });
+
+  it("AI 리포트 저장: 시즌과 함께 저장하고 감사 로그를 남긴다", async () => {
+    const id = (await db.query<{ id: number }>(
+      `select console_save_ai_report('{"report_type":"team","season":"2026","summary":"요약","strengths":"{}","improvements":"{}","training_plan":"x"}'::jsonb, 'ops@test') id`
+    )).rows[0].id;
+    expect(await count(`select count(*) n from ai_reports where id = ${id} and season = '2026' and report_type = 'team'`)).toBe(1);
+    expect(await count("select count(*) n from console_audit_log where action = 'insert' and table_name = 'ai_reports'")).toBe(1);
+    await expect(db.query(`select console_save_ai_report('{"summary":"x"}'::jsonb, 't')`)).rejects.toThrow(/report_type/);
+  });
+
+  it("anon은 세 함수 모두 호출할 수 없다", async () => {
+    for (const call of [
+      "select console_update_rows('players', '[]'::jsonb, 't')",
+      "select console_log_situation('{}'::jsonb, null, 't')",
+      "select console_save_ai_report('{\"report_type\":\"team\"}'::jsonb, 't')",
+    ]) {
+      await expect(asRole("anon", () => db.query(call)), call).rejects.toThrow(/permission denied/);
+    }
   });
 });

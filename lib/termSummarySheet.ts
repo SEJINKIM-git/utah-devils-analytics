@@ -76,6 +76,7 @@ export function parseTermSummaryRows(rows: SpreadsheetRow[]) {
         ...identity,
         g: at(row, cols.g),
         pa: at(row, cols.pa),
+        obp_den: at(row, cols.pa), // 학기 요약 시트에는 희생플라이 구분이 없어 기존 방식(÷ 타석)
         ab: at(row, cols.ab),
         runs: at(row, cols.runs),
         hits: at(row, cols.hits),

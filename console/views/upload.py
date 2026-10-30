@@ -6,18 +6,23 @@ import pandas as pd
 import streamlit as st
 
 from core.diffing import COMPARE_B, COMPARE_P, diff, shrink_report
+from core.game_upload_ui import UnreadableWorkbook, is_game_file, render_game_files
 from core.parser import parse_workbook
 from core.session import actor, get_repo, load_core, refresh
 from core.validation import check_cross_files, validate
 
 repo = get_repo()
 st.title("기록지 업로드")
-st.caption("시즌 누적 기록지(엑셀)를 올리면 검증 후 해당 시즌 요약 기록을 교체합니다. 같은 파일을 여러 번 올려도 결과는 같습니다.")
+st.caption("경기 기록지(v3.0)는 그 경기를, 시즌 누적 기록지는 그 시즌 요약 기록을 교체합니다. 같은 파일을 여러 번 올려도 결과는 같습니다.")
 
-files = st.file_uploader("기록지 (.xlsx)", type=["xlsx"], accept_multiple_files=True)
+files = st.file_uploader("기록지 (.xlsx, .xlsm)", type=["xlsx", "xlsm"], accept_multiple_files=True)
 if not files:
     with st.expander("어떤 파일을 올리나요?"):
         st.markdown(
+            "**경기 기록지 v3.0** — `10_17 VS 상대 경기 기록.xlsx`\n"
+            "- 타석 결과 표기에서 직접 계산하고, 경기 정보·검수 시트를 함께 확인합니다.\n"
+            "- 검수가 끝나지 않았거나 점수·아웃 대조가 맞지 않으면 경고를 보여 줍니다 (저장은 가능).\n\n"
+            "**시즌 누적 기록지**\n"
             "- `2025 Utah Devils Player Stat.xlsx`처럼 **연도가 들어간 시즌 파일**\n"
             "- 시즌 시트(`2025`)의 선수 행이 저장됩니다. 학기 시트(`25 Spring`)와 경기별 시트(`25 Spring (타자)`)는 **교차 검증용**입니다.\n"
             "- 통산 파일은 저장하지 않습니다. 통산은 시즌 합으로 계산합니다. (통산 파일을 함께 올리면 시즌 파일과 대조해 줍니다)\n"
@@ -31,7 +36,30 @@ def parse_cached(digest: str, name: str, raw: bytes):
     return pw, validate(pw)
 
 
-parsed = [parse_cached(hashlib.sha1(f.getvalue()).hexdigest(), f.name, f.getvalue()) for f in files]
+# 파일 분류: 경기 기록지 / 시즌 누적 기록지 / 열 수 없는 파일 (하나가 깨져도 나머지는 계속 처리)
+game_files, season_files = [], []
+for f in files:
+    try:
+        (game_files if is_game_file(f) else season_files).append(f)
+    except UnreadableWorkbook as e:
+        st.error(str(e), icon=":material/broken_image:")
+
+if game_files:
+    render_game_files(game_files, repo, load_core())
+if not season_files:
+    st.stop()
+if game_files:
+    st.header("시즌 누적 기록지")
+
+parsed = []
+for f in season_files:
+    try:
+        parsed.append(parse_cached(hashlib.sha1(f.getvalue()).hexdigest(), f.name, f.getvalue()))
+    except Exception as e:
+        st.error(f"{f.name}: 기록지를 읽지 못했습니다 — {type(e).__name__}: {e}. "
+                 "시즌 시트(예: 2025) 구조가 공식 기록지와 같은지 확인해 주세요.", icon=":material/error:")
+if not parsed:
+    st.stop()
 cross = check_cross_files([pw for pw, _ in parsed])
 
 LEVEL = {"error": "🔴 오류", "warning": "🟠 경고", "info": "⚪ 참고"}
@@ -71,6 +99,8 @@ for pw, issues in parsed:
     s = pw.season_fallback
     if not s or not s.isdigit():
         continue
+    if "scope" not in pw.batting.columns or "scope" not in pw.pitching.columns:
+        continue  # 아는 시트가 하나도 없는 파일 (아래 '저장할 시즌 시트를 찾지 못했습니다'로 안내)
     season_sheets = {x["sheet"] for x in pw.sheets if x.get("type") == "summary" and x.get("season") == s and not x.get("term")}
     blocking = [i for i in issues if i.level == "error" and i.sheet in season_sheets]
     bat = pw.batting[pw.batting.scope == s]
