@@ -9,6 +9,7 @@ from core.diffing import COMPARE_B, COMPARE_P, diff, shrink_report
 from core.game_upload_ui import UnreadableWorkbook, is_game_file, render_game_files
 from core.parser import parse_workbook
 from core.session import actor, get_repo, load_core, refresh
+from core.reupload_precheck import analyze_reupload_impact, local_reference_counts
 from core.validation import check_cross_files, validate
 
 repo = get_repo()
@@ -143,6 +144,31 @@ for t in targets:
                          hide_index=True, width="stretch")
         else:
             st.success("현재 DB와 동일합니다. 저장하지 않아도 됩니다.", icon=":material/check_circle:")
+
+        st.markdown("#### 재업로드 영향")
+        disappearing, new_players = analyze_reupload_impact(
+            s, t["bat"], t["pit"], data["players"], data["bat_raw"], data["pit_raw"]
+        )
+        player_ids = disappearing["player_id"].astype(int).tolist() if not disappearing.empty else []
+        references = pd.concat([
+            local_reference_counts(player_ids, data["bat_raw"], data["pit_raw"]),
+            repo.player_reference_counts(player_ids),
+        ], ignore_index=True)
+        names = disappearing[["player_id", "배번", "이름"]]
+        referenced = references.merge(names, on="player_id", how="left") if not references.empty else references
+        a, b, c = st.columns(3)
+        a.metric("A · 요약 0개 예상", len(disappearing))
+        b.metric("B · 다른 참조 보유", referenced["player_id"].nunique() if not referenced.empty else 0)
+        c.metric("C · 새 선수 생성", len(new_players))
+        if not disappearing.empty:
+            st.dataframe(disappearing, hide_index=True, width="stretch")
+        if not referenced.empty:
+            st.warning("다른 테이블 참조가 남는 선수가 있습니다. 저장 전 참조를 옮길지 유지할지 결정하세요.",
+                       icon=":material/account_tree:")
+            st.dataframe(referenced[["player_id", "배번", "이름", "참조 테이블", "참조 열", "참조 수"]],
+                         hide_index=True, width="stretch")
+        if not new_players.empty:
+            st.dataframe(new_players, hide_index=True, width="stretch")
 
         if t["blocking"]:
             st.error(f"시즌 시트에 오류 {len(t['blocking'])}건 — 기록지를 고친 뒤 다시 올려 주세요.", icon=":material/block:")

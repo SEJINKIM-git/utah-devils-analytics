@@ -70,6 +70,9 @@ class BaseRepo:
     def replace_season(self, season, batting, pitching, actor, source) -> WriteResult:
         return WriteResult(False, "읽기 전용 데모 모드입니다.")
 
+    def player_reference_counts(self, player_ids):
+        return pd.DataFrame(columns=["player_id", "참조 테이블", "참조 열", "참조 수"])
+
     def update_rows(self, table, changes: list[dict], actor) -> WriteResult:
         return WriteResult(False, "읽기 전용 데모 모드입니다.")
 
@@ -175,6 +178,25 @@ class SupabaseRepo(BaseRepo):
             return pd.DataFrame(data)
         except Exception:
             return pd.DataFrame()
+
+    def player_reference_counts(self, player_ids):
+        """공개 스키마에서 확인된 선수 FK 참조를 읽기 전용으로 센다.
+
+        batting/pitching 경기 행은 이미 load_core에 있으므로 호출부에서 합치고,
+        여기서는 나머지 FK 테이블만 읽는다. 배포 환경에 없는 표는 건너뛴다.
+        """
+        if not player_ids:
+            return pd.DataFrame(columns=["player_id", "참조 테이블", "참조 열", "참조 수"])
+        rows = []
+        for table, column in (("ai_reports", "player_id"), ("player_goals", "player_id")):
+            try:
+                data = self.sb.table(table).select(column).in_(column, player_ids).execute().data
+            except Exception:
+                continue
+            counts = pd.Series([r[column] for r in data if r.get(column) is not None]).value_counts()
+            rows.extend({"player_id": int(pid), "참조 테이블": table, "참조 열": column, "참조 수": int(n)}
+                        for pid, n in counts.items() if n)
+        return pd.DataFrame(rows, columns=["player_id", "참조 테이블", "참조 열", "참조 수"])
 
     # 마이그레이션 상태 ───────────────────────────────────────────────────────
     def audit_ready(self) -> bool:
@@ -319,12 +341,17 @@ class SupabaseRepo(BaseRepo):
         if not self.v3_ready():
             return WriteResult(False, f"DB에 경기 기록지 v3.0 칸(희생플라이·희생번트·포수방해·투구수)과 경기 교체 함수가 없습니다. "
                                       f"저장소의 {RPC_MIGRATION['console_replace_game']}을 Supabase SQL Editor에서 적용한 뒤 다시 저장하세요.")
+        from .aggregate import identity_key
+
         info = sheet.info
         if not (info.get("date") and info.get("opponent") and info.get("season")):
             return WriteResult(False, "경기 날짜와 상대팀을 찾지 못했습니다.")
 
-        names = list(sheet.batting["name"]) + list(sheet.pitching["name"])
-        ambiguous = self.ambiguous_names(names)
+        # 템플릿 개정으로 배번 열이 있으면 (배번, 이름)으로 정확히 매칭한다.
+        # 없거나 빈칸이면 종전처럼 이름만 매칭하고 동명이인은 저장을 거부한다.
+        no_number_names = [r.name for r in list(sheet.batting.itertuples()) + list(sheet.pitching.itertuples())
+                           if getattr(r, "number", None) is None or pd.isna(getattr(r, "number", None))]
+        ambiguous = self.ambiguous_names(no_number_names)
         if ambiguous:
             return WriteResult(False, "동명이인 때문에 저장하지 않았습니다.\n\n" + "\n\n".join(f"- {m}" for m in ambiguous))
 
@@ -332,17 +359,25 @@ class SupabaseRepo(BaseRepo):
         players = self.players()
         pitcher_by_id = dict(zip(players["id"], players["is_pitcher"].fillna(False).astype(bool))) if not players.empty else {}
 
-        def ref(name, pitcher):
+        cache = self._identity_cache()
+
+        def ref(name, number, pitcher):
+            if number is not None and not pd.isna(number):
+                hit = cache.get(identity_key(int(number), name))
+                if hit:
+                    pid, is_pitcher = hit
+                    return {"player_id": pid, **({"set_pitcher": True} if pitcher and not is_pitcher else {})}
+                return {"number": int(number), "name": str(name).strip(), "is_pitcher": bool(pitcher)}
             g = groups.get(name_key(name))
             if g:
                 pid = max(g)  # 같은 (배번, 이름) 중복 레코드는 최신 것
                 return {"player_id": pid, **({"set_pitcher": True} if pitcher and not pitcher_by_id.get(pid, False) else {})}
             return {"name": str(name).strip(), "is_pitcher": bool(pitcher)}  # 배번 없음 → DB 함수가 900번대 임시 배번
 
-        bat = [{**ref(r.name, r.position == "P"), **{c: int(getattr(r, c)) for c in (
+        bat = [{**ref(r.name, getattr(r, "number", None), r.position == "P"), **{c: int(getattr(r, c)) for c in (
             "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "bb", "hbp", "so", "sb", "sf", "sh", "ci")}}
                for r in sheet.batting.itertuples()]
-        pit = [{**ref(r.name, True), "ip": float(outs_to_ip(r.outs)), **{c: int(getattr(r, c)) for c in (
+        pit = [{**ref(r.name, getattr(r, "number", None), True), "ip": float(outs_to_ip(r.outs)), **{c: int(getattr(r, c)) for c in (
             "w", "l", "sv", "hld", "ha", "runs_allowed", "er", "bb", "hbp", "so", "hr_allowed", "pitches")}}
                for r in sheet.pitching.itertuples()]
         us = info.get("score_us") if info.get("score_us") is not None else int(sheet.batting["runs"].sum())
