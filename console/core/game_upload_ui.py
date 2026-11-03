@@ -68,6 +68,7 @@ def _existing_rows(data, info):
 
 def render_game_files(files, repo, data):
     st.header("경기 기록지")
+    st.caption("시스템 입력 완료일은 업로드 후 기록지에 적어 주세요.")
     v3_ready = repo.read_only or repo.v3_ready()
     if not v3_ready:
         st.error("DB에 경기 기록지 v3.0 칸(희생플라이·희생번트·포수방해·투구수)과 경기 교체 함수가 아직 없습니다. "
@@ -131,8 +132,10 @@ def render_game_files(files, repo, data):
         if not v3_ready:
             continue
 
-        # 기록지에는 배번이 없어 이름으로 선수를 찾는다 — 동명이인이면 저장할 수 없다
-        ambiguous = repo.ambiguous_names(list(sheet.batting["name"]) + list(sheet.pitching["name"]))
+        # 배번 칸이 있으면 (배번, 이름)으로, 없으면 이름으로 찾는다.
+        numberless = pd.concat([sheet.batting, sheet.pitching])
+        numberless = numberless[numberless["number"].isna()]["name"].tolist()
+        ambiguous = repo.ambiguous_names(numberless)
         if ambiguous:
             st.error("동명이인 때문에 이 경기는 저장할 수 없습니다.\n\n" + "\n\n".join(f"- {m}" for m in ambiguous),
                      icon=":material/person_off:")

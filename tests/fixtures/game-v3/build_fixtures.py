@@ -1,11 +1,12 @@
 """
 경기 기록지 v3.0 테스트 파일 생성기.
 
-공식 템플릿(.xlsm)에 가짜 선수로 경기 하나를 입력해 네 가지 파일을 만든다.
+공식 템플릿(.xlsm)에 가짜 선수로 경기 하나를 입력해 다섯 가지 파일을 만든다.
   recalculated.xlsx  LibreOffice로 다시 계산해 저장 (Excel로 저장한 파일과 같음, 수식 결과 있음)
   uncached.xlsx      수식 결과 없이 저장 (Excel로 다시 저장하지 않은 파일)
   today-formula.xlsx 경기 날짜를 입력하지 않아 =TODAY() 수식이 남은 파일 (Excel처럼 다시 계산해 저장)
   reviewed.xlsx      검수까지 끝낸 파일 (검수 요약 = 검수 완료)
+  reviewed-no-c22.xlsx 검수는 끝났지만 업로드 뒤 적는 경기 정보 C22만 비어 있는 파일
 
 사용: python build_fixtures.py <템플릿.xlsm 경로>   (LibreOffice `soffice` 필요)
 결과는 이 폴더에 덮어쓴다. 기대값은 expected.json (기록지 수식 결과를 손으로 옮긴 값).
@@ -41,7 +42,7 @@ PITCHERS = [  # 이름, 결과, 아웃, 투구수, 피안타, 실점, 자책, �
 ]
 
 
-def fill(template: Path, *, reviewed=False, today_formula=False) -> openpyxl.Workbook:
+def fill(template: Path, *, reviewed=False, no_c22=False, today_formula=False) -> openpyxl.Workbook:
     wb = openpyxl.load_workbook(template)
     # 기록 방법 시트 '입력 예시' 표의 이름 칸(헤더 '이름' 바로 아래)을 가명으로
     guide = wb["기록 방법"]
@@ -56,7 +57,9 @@ def fill(template: Path, *, reviewed=False, today_formula=False) -> openpyxl.Wor
     g["C5"], g["C6"], g["C7"], g["C8"], g["C9"], g["C10"] = "테스트팀", "원정", "테스트구장", 4, 2, 7
     if reviewed:
         g["C12"], g["C13"], g["C14"], g["C15"] = "기록원A", "기록원B", "검수자1", "검수자2"
-        g["C16"], g["C22"] = GAME_DATE + dt.timedelta(days=1), GAME_DATE + dt.timedelta(days=2)
+        g["C16"] = GAME_DATE + dt.timedelta(days=1)
+        if not no_c22:
+            g["C22"] = GAME_DATE + dt.timedelta(days=2)
         g["C25"], g["C26"] = "확인 완료", "대조 완료"
 
     b = wb["타자 기록"]
@@ -100,6 +103,8 @@ def main(template: Path):
         recalc(tmp / "recalculated.xlsx", HERE / "recalculated.xlsx")
         fill(template, reviewed=True).save(tmp / "reviewed.xlsx")
         recalc(tmp / "reviewed.xlsx", HERE / "reviewed.xlsx")
+        fill(template, reviewed=True, no_c22=True).save(tmp / "reviewed-no-c22.xlsx")
+        recalc(tmp / "reviewed-no-c22.xlsx", HERE / "reviewed-no-c22.xlsx")
     print("생성 완료:", ", ".join(p.name for p in sorted(HERE.glob("*.xlsx"))))
 
 

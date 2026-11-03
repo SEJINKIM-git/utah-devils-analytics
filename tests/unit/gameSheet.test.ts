@@ -59,10 +59,18 @@ describe.each(["recalculated.xlsx", "uncached.xlsx", "reviewed.xlsx"])("%s", (fi
 });
 
 describe("경고", () => {
+  it("시스템 입력 완료일(C22)만 비어 있으면 검수 완료로 처리한다", () => {
+    const p = parse("reviewed-no-c22.xlsx");
+    expect(p.review.status).toBe("입력 대기");
+    expect(p.review.pending).toContain("3일 이내 검수·시스템 입력(입력 대기)");
+    expect(p.warnings).toEqual([]);
+  });
+
   it("검수 미완료면 미완료 항목을 알려 준다", () => {
     const w = parse("recalculated.xlsx").warnings.join("\n");
     expect(w).toContain("검수 시트 상태: 확인 필요");
     expect(w).toContain("플레이 판정 확인");
+    expect(w).not.toContain("3일 이내 검수·시스템 입력");
   });
 
   it("검수 완료·점수·아웃이 모두 맞으면 경고가 없다", () => {
@@ -107,6 +115,18 @@ describe("경고", () => {
     const wb = read("reviewed.xlsx");
     wb.Sheets["경기 정보"]["C9"] = { t: "n", v: 5 };
     expect(parseGameWorkbook(wb, FILE_NAME, "2026").warnings).toContain("상대 점수 5 ≠ 투수 실점 합 2");
+  });
+
+  it("선택 배번 열이 있으면 위치와 무관하게 읽는다", () => {
+    const wb = read("reviewed.xlsx");
+    const batting = wb.Sheets["타자 기록"];
+    const pitching = wb.Sheets["투수 기록"];
+    batting["AO1"] = { t: "s", v: "배번" }; batting["AO2"] = { t: "n", v: 7 };
+    pitching["U1"] = { t: "s", v: "배번" }; pitching["U2"] = { t: "n", v: 7 };
+    pitching["!ref"] = "A1:U12";
+    const p = parseGameWorkbook(wb, FILE_NAME, "2026");
+    expect(p.batting[0].number).toBe(7);
+    expect(p.pitching[0].number).toBe(7);
   });
 });
 
