@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  UploadCloud, Users, FileSpreadsheet, BookOpen, CheckCircle2, XCircle,
+  UploadCloud, Users, FileSpreadsheet, BookOpen, CheckCircle2,
   AlertTriangle, Calendar, ArrowLeftRight, BarChart3, Loader2,
   TrendingUp, Info, AlertCircle,
 } from "lucide-react";
@@ -22,7 +22,7 @@ type ValidationResult = {
 type UploadResult = {
   success?: boolean; message?: string; error?: string;
   needsConfirm?: boolean; conflicts?: ConflictPlayer[]; total?: number;
-  details?: { games?: number; batting?: number; pitching?: number; players?: number; updated?: number; seasons?: string[] };
+  details?: { games?: number; batting?: number; pitching?: number; players?: number; updated?: number; seasons?: string[]; warnings?: string[] };
   validation?: ValidationResult;
 };
 
@@ -213,7 +213,7 @@ export default function UploadPage() {
                 transition: "all 0.2s",
               }}
             >
-              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.docx" style={{ display: "none" }}
+              <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.xls,.csv,.docx" style={{ display: "none" }}
                 onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
               <div style={{
                 width: 60, height: 60, borderRadius: 18,
@@ -236,7 +236,7 @@ export default function UploadPage() {
                   <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
                     {dragging ? "파일을 여기에 놓으세요" : "성적 데이터를 끌어다 놓으세요"}
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--text-faint)", opacity: 0.7 }}>.xlsx · .xls · .csv · .docx · 최대 10MB</div>
+                  <div style={{ fontSize: 13, color: "var(--text-faint)", opacity: 0.7 }}>.xlsx · .xlsm · .xls · .csv · .docx · 최대 10MB</div>
                 </>
               )}
             </div>
@@ -335,6 +335,20 @@ export default function UploadPage() {
                     {result.message || result.error}
                   </span>
                 </div>
+                {result.success && (result.details?.warnings?.length ?? 0) > 0 && (
+                  <div
+                    role="status"
+                    style={{
+                      margin: "0 0 16px", padding: "12px 14px", borderRadius: 10,
+                      background: "rgba(234,179,8,0.10)", color: "var(--warning)", fontSize: 13, lineHeight: 1.6,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>확인이 필요한 항목 {result.details!.warnings!.length}건 (저장은 완료됨)</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {result.details!.warnings!.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </div>
+                )}
                 {result.success && result.details && (
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const, marginBottom: 18 }}>
                     {[
@@ -343,10 +357,10 @@ export default function UploadPage() {
                       { key: "pitching", label: "투수 기록", color: "var(--coral)" },
                       { key: "players",  label: "신규 선수", color: "var(--green)" },
                     ].map(({ key, label, color }) => {
-                      const val = (result.details as any)[key];
+                      const val = (result.details as Record<string, unknown>)[key];
                       return val !== undefined ? (
                         <div key={key} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "10px 20px", textAlign: "center" as const }}>
-                          <div className="num" style={{ fontSize: 26, fontWeight: 800, color }}>{val}</div>
+                          <div className="num" style={{ fontSize: 26, fontWeight: 800, color }}>{String(val)}</div>
                           <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{label}</div>
                         </div>
                       ) : null;

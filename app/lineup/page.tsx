@@ -17,7 +17,8 @@ import {
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { Lang } from "@/lib/translations";
-import { selectEffectiveStatRows } from "@/lib/statRows";
+import { selectEffectiveBattingRows } from "@/lib/statRows";
+import { computeObp, obpDenominator, formatRate } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -87,14 +88,15 @@ function buildRecentBattingSummary(rows: BattingRow[], gameTimestamps: Map<numbe
         bb: acc.bb + (Number(row.bb) || 0) * weight,
         hbp: acc.hbp + (Number(row.hbp) || 0) * weight,
         pa: acc.pa + (Number(row.pa) || 0) * weight,
+        obp_den: acc.obp_den + obpDenominator(row) * weight,
       };
     },
-    { ab: 0, hits: 0, doubles: 0, triples: 0, hr: 0, bb: 0, hbp: 0, pa: 0 }
+    { ab: 0, hits: 0, doubles: 0, triples: 0, hr: 0, bb: 0, hbp: 0, pa: 0, obp_den: 0 }
   );
 
   const recentAvg = weighted.ab > 0 ? (weighted.hits / weighted.ab).toFixed(3) : "---";
   const recentObp =
-    weighted.pa > 0 ? ((weighted.hits + weighted.bb + weighted.hbp) / weighted.pa).toFixed(3) : "---";
+    formatRate(computeObp(weighted), 3);
   const recentSlg =
     weighted.ab > 0
       ? (
@@ -198,7 +200,7 @@ export default async function LineupPage({
       .eq("season", selectedSeason)
       .order("created_at", { ascending: false });
     if (data) lineups = data;
-    } catch (e) {}
+    } catch {}
   }
 
   const validPlayers = (rawPlayers || []).filter((player) => isLikelyPlayerName(player.name));
@@ -228,7 +230,7 @@ export default async function LineupPage({
   const playersWithStats = playerEntries
     .map(({ player, relatedPlayers, canonicalName, canonicalNumber }) => {
       const relatedIds = new Set(relatedPlayers.map((entry) => entry.id));
-      const relatedBattingRows = selectEffectiveStatRows(batting).filter((row) => relatedIds.has(row.player_id));
+      const relatedBattingRows = selectEffectiveBattingRows(batting).filter((row) => relatedIds.has(row.player_id));
       const merged = relatedBattingRows.reduce(
         (acc, row) => {
           return {
@@ -240,14 +242,15 @@ export default async function LineupPage({
             hr: acc.hr + (row.hr || 0),
             bb: acc.bb + (row.bb || 0),
             hbp: acc.hbp + (row.hbp || 0),
+            obp_den: acc.obp_den + obpDenominator(row),
           };
         },
-        { pa: 0, ab: 0, hits: 0, doubles: 0, triples: 0, hr: 0, bb: 0, hbp: 0 }
+        { pa: 0, ab: 0, hits: 0, doubles: 0, triples: 0, hr: 0, bb: 0, hbp: 0, obp_den: 0 }
       );
       const recent = buildRecentBattingSummary(relatedBattingRows, gameTimestamps);
 
       const avg = merged.ab > 0 ? (merged.hits / merged.ab).toFixed(3) : "---";
-      const obp = merged.pa > 0 ? ((merged.hits + merged.bb + merged.hbp) / merged.pa).toFixed(3) : "---";
+      const obp = formatRate(computeObp(merged), 3);
       const slg = merged.ab > 0
         ? ((merged.hits - merged.doubles - merged.triples - merged.hr + merged.doubles * 2 + merged.triples * 3 + merged.hr * 4) / merged.ab).toFixed(3)
         : "---";

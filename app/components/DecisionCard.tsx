@@ -100,7 +100,6 @@ export default function DecisionCard({ row, onEvalUpdate, noteMode = false, link
   const [showNote, setShowNote] = useState(noteMode && !!row.retrospective_note);
 
   const lev = LEV_COLOR[row.leverage_class ?? "medium"] ?? LEV_COLOR.medium;
-  const evalCfg = EVAL_CONFIG[eval_ as keyof typeof EVAL_CONFIG] ?? EVAL_CONFIG.pending;
 
   const scoreText = `${row.score_us ?? 0} - ${row.score_them ?? 0}`;
   const inningText = `${row.inning}회 ${row.inning_half === "top" ? "초" : "말"}`;

@@ -1,5 +1,6 @@
 import { buildPlayerIdentityKey, normalizePlayerName } from "@/lib/playerIdentity";
 import { parseIP } from "@/lib/statFormatting";
+import { type ObpRow, obpDenominator } from "@/lib/statFormulas";
 
 /*
  * 학기(Spring / Summer / Fall) 단위 로스터·기록 분리
@@ -94,6 +95,7 @@ export type TermBattingLine = {
   hbp: number;
   so: number;
   sb: number;
+  obp_den: number;
 };
 
 export type TermPitchingLine = {
@@ -290,7 +292,7 @@ function createPlayerMatcher<P extends BasicPlayer>(players: P[]) {
   };
 }
 
-const EMPTY_BATTING = { g: 0, pa: 0, ab: 0, runs: 0, hits: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sb: 0 };
+const EMPTY_BATTING = { g: 0, pa: 0, obp_den: 0, ab: 0, runs: 0, hits: 0, doubles: 0, triples: 0, hr: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sb: 0 };
 const EMPTY_PITCHING = { g: 0, w: 0, l: 0, sv: 0, hld: 0, ip: 0, ha: 0, runs_allowed: 0, er: 0, bb: 0, hbp: 0, so: 0, hr_allowed: 0 };
 
 function aggregateGameRows<P extends BasicPlayer>(
@@ -323,6 +325,7 @@ function aggregateGameRows<P extends BasicPlayer>(
       for (const field of ["pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "bb", "hbp", "so", "sb"]) {
         acc[field] += Number(row[field]) || 0;
       }
+      acc.obp_den += obpDenominator(row as ObpRow);
     } else {
       acc.ip += parseIP(row.ip);
       for (const field of ["w", "l", "sv", "hld", "ha", "runs_allowed", "er", "bb", "hbp", "so", "hr_allowed"]) {

@@ -6,18 +6,15 @@ import { NextRequest, NextResponse } from "next/server";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import {
-  findOfficialGameSheet,
   isOfficialLiveGameWorkbook,
-  parseOfficialGameBattingSheet,
-  parseOfficialGameHighlights,
-  parseOfficialGamePitchingSheet,
 } from "@/lib/officialGameWorkbook";
 import { parseGameLines } from "@/lib/parseDocxGameRecord";
 import { inferRosterSnapshotSeasons } from "@/lib/rosterSnapshot";
 import { extractRosterPlayersFromWorkbook, readUploadedWorkbook } from "@/lib/rosterWorkbook";
 import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
-import { type PlayerCandidate, resolvePlayerMatch } from "@/lib/playerMatching";
+import { type PlayerCandidate, describeAmbiguousPlayers, resolvePlayerMatch } from "@/lib/playerMatching";
 import { normalizeInningsForStorage } from "@/lib/statFormulas";
+import { parseGameWorkbook } from "@/lib/gameSheet";
 import { ACTIVE_SEASON_COOKIE, getLatestSeason, isSeasonValue } from "@/lib/season";
 import { ensureSeasonActivated } from "@/lib/seasonVisibility";
 import { extractGameMetaFromFilename, extractSeasonFromFilename } from "@/lib/gameFileMeta";
@@ -83,6 +80,7 @@ type UploadResults = {
   skipped_batting: number;
   skipped_pitching: number;
   seasons: string[];
+  warnings?: string[];
 };
 
 function normalizeSeason(value: unknown): string | null {
@@ -473,6 +471,11 @@ async function upsertPlayer(
   const normalizedNumber = playerNumber && playerNumber > 0 ? playerNumber : null;
   const match = resolvePlayerMatch(await findPlayerCandidates(normalizedNumber, name), normalizedNumber, name, isPitcher);
 
+  if (match.action === "ambiguous") {
+    // 배번 없는 기록지에서 동명이인 → 어느 선수인지 정할 수 없으므로 저장하지 않는다
+    throw new Error(describeAmbiguousPlayers(name, match.candidates));
+  }
+
   if (match.action === "create") {
     const insertNumber = normalizedNumber ?? await getNextSyntheticPlayerNumber();
     const { data: created } = await supabase
@@ -788,6 +791,8 @@ async function upsertGameMetadata(
     score_us?: number | null;
     score_them?: number | null;
     notes?: string | null;
+    is_home?: boolean;
+    location?: string;
   }
 ) {
   if (!gameId) return;
@@ -798,42 +803,67 @@ async function upsertGameMetadata(
   await supabase.from("games").update(updates).eq("id", gameId);
 }
 
+/** sql/005 적용 전에는 새 칸(sf·sh·ci·pitches)이 없으므로 빼고 다시 저장한다 */
+function isMissingColumnError(error: { code?: string; message?: string } | null) {
+  if (!error) return false;
+  return error.code === "42703" || error.code === "PGRST204" || /column .* does not exist|Could not find the '.*' column/i.test(error.message ?? "");
+}
+
+async function insertWithOptionalColumns(
+  table: "batting_stats" | "pitching_stats",
+  row: Record<string, unknown>,
+  optional: string[],
+  results: UploadResults
+) {
+  const { error } = await supabase.from(table).insert(row);
+  if (!error) return;
+  if (!isMissingColumnError(error)) throw new Error(`${table} 저장 실패: ${error.message}`);
+  const fallback = Object.fromEntries(Object.entries(row).filter(([k]) => !optional.includes(k)));
+  const retry = await supabase.from(table).insert(fallback);
+  if (retry.error) throw new Error(`${table} 저장 실패: ${retry.error.message}`);
+  const note = "DB에 희생플라이·희생번트·포수방해·투구수 칸이 아직 없어 이 값들은 저장하지 않았습니다 (sql/005 적용 필요).";
+  results.warnings = results.warnings ?? [];
+  if (!results.warnings.includes(note)) results.warnings.push(note);
+}
+
+/** 현장 경기 기록지 (v3.0 및 이전 형식). 저장한 시즌을 돌려준다. */
 async function processLiveGameWorkbook(
   workbook: XLSX.WorkBook,
   fileName: string,
   fallbackSeason: string,
   results: UploadResults
-) {
-  const meta = extractGameMetaFromFilename(fileName, fallbackSeason);
-  if (!meta.date || !meta.opponent) {
-    throw new Error("현장 경기 파일은 파일명에 날짜와 상대팀이 포함되어야 합니다. 예: 9_26 VS 선학 경기 기록.xlsx");
+): Promise<string> {
+  const parsed = parseGameWorkbook(workbook, fileName, fallbackSeason);
+  const { info } = parsed;
+  results.warnings = [...(results.warnings ?? []), ...parsed.warnings];
+  if (!info.date || !info.opponent || !info.season) {
+    throw new Error("경기 날짜와 상대팀을 찾지 못했습니다. 경기 정보 시트를 채우거나 파일명을 '9_26 VS 선학 경기 기록.xlsx' 형식으로 저장하세요.");
   }
 
-  const battingSheet = findOfficialGameSheet(workbook, "batting");
-  const pitchingSheet = findOfficialGameSheet(workbook, "pitching");
-  const highlightsSheet = findOfficialGameSheet(workbook, "highlights");
-
-  const battingRows = battingSheet
-    ? parseOfficialGameBattingSheet(battingSheet)
-    : [];
-  const pitchingRows = pitchingSheet
-    ? parseOfficialGamePitchingSheet(pitchingSheet)
-    : [];
-  const highlights = parseOfficialGameHighlights(highlightsSheet);
+  // 기록지에는 배번이 없어 이름으로만 선수를 찾는다. 동명이인이 있으면 어떤 기록도 지우거나 쓰기 전에 중단한다.
+  const ambiguous: string[] = [];
+  const names = new Set([...parsed.batting, ...parsed.pitching].map((row) => sanitizeImportedPlayerName(row.name)).filter(Boolean));
+  for (const name of names) {
+    const match = resolvePlayerMatch(await findPlayerCandidates(null, name), null, name, false);
+    if (match.action === "ambiguous") ambiguous.push(describeAmbiguousPlayers(name, match.candidates));
+  }
+  if (ambiguous.length > 0) {
+    throw new Error(`동명이인 때문에 저장하지 않았습니다.\n${ambiguous.join("\n")}`);
+  }
 
   const gameCache = new Map<string, number>();
-  const gameId = await getOrCreateGameId(meta.date, meta.opponent, meta.season, gameCache, results);
+  const gameId = await getOrCreateGameId(info.date, info.opponent, info.season, gameCache, results);
 
   await clearGameSnapshot(gameId);
 
-  for (const row of battingRows) {
+  for (const row of parsed.batting) {
     const player = await upsertPlayer(null, row.name, row.position === "P", results);
     if (!player || !gameId) continue;
 
-    await supabase.from("batting_stats").insert({
+    await insertWithOptionalColumns("batting_stats", {
       player_id: player.id,
       game_id: gameId,
-      season: meta.season,
+      season: info.season,
       pa: row.pa,
       ab: row.ab,
       runs: row.runs,
@@ -846,18 +876,21 @@ async function processLiveGameWorkbook(
       hbp: row.hbp,
       so: row.so,
       sb: row.sb,
-    });
+      sf: row.sf,
+      sh: row.sh,
+      ci: row.ci,
+    }, ["sf", "sh", "ci"], results);
     results.batting += 1;
   }
 
-  for (const row of pitchingRows) {
+  for (const row of parsed.pitching) {
     const player = await upsertPlayer(null, row.name, true, results);
     if (!player || !gameId) continue;
 
-    await supabase.from("pitching_stats").insert({
+    await insertWithOptionalColumns("pitching_stats", {
       player_id: player.id,
       game_id: gameId,
-      season: meta.season,
+      season: info.season,
       w: row.w,
       l: row.l,
       sv: row.sv,
@@ -870,12 +903,14 @@ async function processLiveGameWorkbook(
       hbp: row.hbp,
       so: row.so,
       hr_allowed: row.hr_allowed,
-    });
+      pitches: row.pitches,
+    }, ["pitches"], results);
     results.pitching += 1;
   }
 
-  const scoreUs = battingRows.reduce((sum, row) => sum + row.runs, 0);
-  const scoreThem = pitchingRows.reduce((sum, row) => sum + row.runs_allowed, 0);
+  // 공식 점수는 경기 정보 시트 값, 없으면 기록 합계
+  const scoreUs = info.scoreUs ?? parsed.batting.reduce((sum, row) => sum + row.runs, 0);
+  const scoreThem = info.scoreThem ?? parsed.pitching.reduce((sum, row) => sum + row.runs_allowed, 0);
   const result =
     scoreUs > scoreThem ? "W" : scoreUs < scoreThem ? "L" : (scoreUs === 0 && scoreThem === 0 ? null : "D");
 
@@ -883,8 +918,12 @@ async function processLiveGameWorkbook(
     score_us: scoreUs,
     score_them: scoreThem,
     result,
-    notes: highlights.length > 0 ? highlights.join(" | ") : null,
+    notes: parsed.highlights.length > 0 ? parsed.highlights.join(" | ") : null,
+    is_home: info.isHome ?? undefined,
+    location: info.location ?? undefined,
   });
+
+  return info.season;
 }
 
 async function processLiveGameDocxFile(
@@ -1311,7 +1350,7 @@ export async function POST(request: NextRequest) {
       }), activeSeason);
     }
 
-    const statSeasons = collectFlexibleStatSeasons(workbook, file.name, requestedSeason);
+    let statSeasons = collectFlexibleStatSeasons(workbook, file.name, requestedSeason);
     if (statSeasons.length === 0) {
       return NextResponse.json(
         { error: "지원하지 않는 파일 형식입니다. 시즌 통계 또는 로스터 형식의 파일을 업로드해 주세요." },
@@ -1332,7 +1371,9 @@ export async function POST(request: NextRequest) {
 
     let savedTerms: string[] = [];
     if (hasLiveGameStatSheet) {
-      await processLiveGameWorkbook(workbook, file.name, requestedSeason, results);
+      const gameSeason = await processLiveGameWorkbook(workbook, file.name, requestedSeason, results);
+      statSeasons = [gameSeason];
+      results.seasons = statSeasons;
     } else {
       await clearSeasonSnapshot(statSeasons);
       savedTerms = await saveTermSnapshots(workbook, file.name, requestedSeason);

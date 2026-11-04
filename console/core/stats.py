@@ -73,12 +73,21 @@ class BattingRates:
     ops: float | None
 
 
-def batting_rates(hits, ab, pa, bb, hbp, doubles, triples, hr) -> BattingRates:
+def obp_denominator(ab, pa, bb, hbp, sf=None) -> float:
+    """출루율 분모 — 경기 기록지 v3.0: 타수 + 볼넷 + 사구 + 희생플라이 (희생번트·포수방해 제외).
+    희생플라이 구분이 없는 과거 시즌 행(sf = None)은 기존 방식(타석)을 쓴다. (플랫폼 lib/statFormulas.ts와 동일)"""
+    if sf is None or (isinstance(sf, float) and math.isnan(sf)):
+        return pa or 0
+    return (ab or 0) + (bb or 0) + (hbp or 0) + sf
+
+
+def batting_rates(hits, ab, pa, bb, hbp, doubles, triples, hr, sf=None, obp_den=None) -> BattingRates:
     singles = hits - doubles - triples - hr
     tb = singles + 2 * doubles + 3 * triples + 4 * hr
     avg = _div(hits, ab)
-    # 클럽 기록지·기존 플랫폼 공통: 출루율 분모 = 타석
-    obp = _div(hits + bb + hbp, pa)
+    den = obp_den if obp_den is not None and not (isinstance(obp_den, float) and math.isnan(obp_den)) \
+        else obp_denominator(ab, pa, bb, hbp, sf)
+    obp = _div(hits + bb + hbp, den)
     slg = _div(tb, ab)
     ops = obp + slg if obp is not None and slg is not None else None
     return BattingRates(avg, obp, slg, ops)
@@ -109,8 +118,12 @@ def pitching_rates(outs, er, ha, bb, hbp, so, ab_against=0) -> PitchingRates:
 # ── DataFrame 단위 ────────────────────────────────────────────────────────────
 def add_batting_rates(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
+    has_den = "obp_den" in out.columns
+    has_sf = "sf" in out.columns
     rates = [
-        batting_rates(r.hits, r.ab, r.pa, r.bb, r.hbp, r.doubles, r.triples, r.hr)
+        batting_rates(r.hits, r.ab, r.pa, r.bb, r.hbp, r.doubles, r.triples, r.hr,
+                      sf=getattr(r, "sf") if has_sf else None,
+                      obp_den=getattr(r, "obp_den") if has_den else None)
         for r in out.itertuples()
     ]
     for key in ("avg", "obp", "slg", "ops"):

@@ -80,7 +80,10 @@ create table public.situations (
   game_id integer references public.games(id) on delete cascade,
   season text not null, inning smallint not null, inning_half text not null, base_state smallint not null,
   out_count smallint not null, score_us smallint not null, score_them smallint not null,
+  score_diff smallint, batter_id integer, pitcher_id integer, context_note text,
+  leverage_index numeric,
   leverage_class public.leverage_class not null default 'medium',
+  logged_by text,
   logged_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 
@@ -91,9 +94,17 @@ create table public.game_decisions (
   season text not null,
   decision_type public.decision_type not null,
   decision_summary text not null,
+  rationale text,
   retrospective_eval public.retrospective_eval not null default 'pending',
+  logged_by text,
   logged_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+
+-- 운영의 레버리지 계산 함수와 같은 시그니처 (값은 고정 — 콘솔 RPC가 호출 가능한지만 확인)
+create function public.calculate_leverage(p_inning smallint, p_out_count smallint, p_score_diff smallint, p_base_state smallint)
+returns table(li numeric, lc public.leverage_class) language sql as $$
+  select 1.0::numeric, 'medium'::public.leverage_class
+$$;
 
 grant all on all tables in schema public to anon, authenticated, service_role;
 

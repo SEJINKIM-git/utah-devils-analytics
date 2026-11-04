@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getPlayerDisplayName, getPlayerNameVariants } from "@/lib/playerDisplay";
 import type { Lang } from "@/lib/translations";
-import { eraFromInnings, formatRate } from "@/lib/statFormulas";
+import { computeObp, eraFromInnings, formatRate } from "@/lib/statFormulas";
 
 type Player = {
   id: number | string;
@@ -105,7 +105,7 @@ export default function SearchBar({
 
     if (bat && bat.ab > 0) {
       avg = (bat.hits / bat.ab).toFixed(3);
-      const obp = bat.pa > 0 ? (bat.hits + bat.bb + bat.hbp) / bat.pa : 0;
+      const obp = computeObp(bat) ?? 0;
       const slg =
         (bat.hits - bat.doubles - bat.triples - bat.hr +
           bat.doubles * 2 +

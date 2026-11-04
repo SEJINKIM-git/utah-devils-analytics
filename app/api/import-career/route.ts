@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
-import { type PlayerCandidate, resolvePlayerMatch } from "@/lib/playerMatching";
+import { type PlayerCandidate, describeAmbiguousPlayers, resolvePlayerMatch } from "@/lib/playerMatching";
 import { normalizeInningsForStorage } from "@/lib/statFormulas";
 import * as XLSX from "xlsx";
 import {
@@ -105,6 +105,9 @@ async function getOrCreatePlayer(
     new Map([...(byName ?? []), ...(byNumber ?? [])].map((p) => [p.id, p as PlayerCandidate])).values()
   );
   const match = resolvePlayerMatch(candidates, playerNumber, name, isPitcher);
+  if (match.action === "ambiguous") {
+    throw new Error(describeAmbiguousPlayers(name, match.candidates));
+  }
   let player = null as { id: number } | null;
   if (match.action === "use") {
     player = { id: match.player.id };
