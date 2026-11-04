@@ -1,5 +1,18 @@
 # Devils Insight AI 인수인계 문서
 
+## 배포 순서 (필수)
+
+PR은 `#3 → #4 → #5(#6 포함)` 순서로 병합한다. `sql/001_audit_log_and_report_season.sql`은 PR 병합 **후 main 버전**만 적용한다.
+
+1. Vercel `ADMIN_SESSION_SECRET` 설정 → 병합 뒤 배포 확인
+2. SQL `001 → 002 → 005 → 006` 적용
+3. 운영 URL에서 `node tests/e2e/auth-smoke.mjs` 실행 (읽기 전용 확인)
+4. SQL 003 적용
+5. SQL 004 미리보기 결과 검토 후 적용 여부 결정
+6. Streamlit Community Cloud: `console/app.py`, Python 3.12, secrets 5개, Private 공유
+7. v3.0 기록지로 플랫폼 `/upload`와 콘솔 각각 저장 확인
+8. 2022~2025 재업로드는 [docs/reupload-runbook.md](docs/reupload-runbook.md)를 따른다.
+
 이 문서는 차후 운영 담당자가 비전공자여도 `Devils Insight AI`를 직접 업데이트하고 관리할 수 있도록 만든 실무용 안내서입니다.
 
 ## 1. 플랫폼 한 줄 설명

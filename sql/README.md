@@ -1,7 +1,7 @@
 # DB 마이그레이션
 
 Supabase SQL Editor에서 번호 순서대로 실행합니다. 이 폴더의 파일은 자동으로 적용되지 않습니다.
-2026-10-23 기준 운영 DB에는 아직 아무것도 적용되지 않았습니다 (console_* 함수·테이블 없음, 읽기 쿼리로 확인).
+운영 DB에는 아무것도 적용하지 않은 상태에서 시작한다. **001은 반드시 #3 → #4 → #5(#6 포함) 병합 뒤 `main` 버전으로 적용한다.**
 
 | 파일 | 내용 | 언제 |
 |---|---|---|
@@ -13,6 +13,18 @@ Supabase SQL Editor에서 번호 순서대로 실행합니다. 이 폴더의 파
 | `006_console_writes.sql` | 콘솔의 나머지 쓰기(셀 수정 `console_update_rows`, 상황 기록 `console_log_situation`, AI 리포트 `console_save_ai_report`)를 DB 함수로 — 변경과 감사 로그가 한 트랜잭션 | 001·005 이후 (추가만 함). 적용 전에는 콘솔의 해당 저장 버튼이 안내 문구를 보여 줌 |
 
 권장 순서: 001 → 002 → 005 → 006 → (배포 후) 003 → (프리뷰 확인 후) 004
+
+## 배포 체크리스트
+
+1. Vercel 환경변수 `ADMIN_SESSION_SECRET`을 설정한다.
+2. `#3 → #4 → #5(#6 포함)`을 병합하고 Vercel 배포를 확인한다.
+3. 병합된 `main`의 001 → 002 → 005 → 006을 적용한다.
+4. 운영 URL 대상으로 `node tests/e2e/auth-smoke.mjs`를 실행해 읽기 전용 인증 확인을 한다.
+5. 003을 적용한다.
+6. 004의 미리보기 쿼리를 실행해 결과를 검토하고 적용 여부를 결정한다.
+7. Streamlit Community Cloud에 `console/app.py`, Python 3.12, secrets 5개를 설정하고 Private 공유로 배포한다.
+8. v3.0 기록지 한 경기로 플랫폼 `/upload`와 콘솔 각각에서 실제 저장을 확인한다.
+9. 과거 시즌은 [재업로드 절차서](../docs/reupload-runbook.md)를 따른다.
 
 콘솔이 테이블에 직접 쓰는 곳은 없습니다. 선수 생성까지 `console_replace_season`·`console_replace_game` 안에서 일어나므로
 (행에 `player_id` 대신 `number`·`name`·`is_pitcher`를 주면 함수가 만든다) 기록 저장이 실패해도 선수 레코드만 남는 일이 없습니다.

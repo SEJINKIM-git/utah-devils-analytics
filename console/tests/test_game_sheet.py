@@ -72,8 +72,11 @@ def test_aggregate_mixes_legacy_and_v3_rows():
 
 def test_review_warnings():
     assert any("검수 시트 상태: 확인 필요" in w for w in parse("recalculated.xlsx").warnings)
+    assert not any("3일 이내 검수·시스템 입력" in w for w in parse("recalculated.xlsx").warnings)
     reviewed = parse("reviewed.xlsx")
     assert reviewed.is_reviewed and reviewed.warnings == []
+    no_c22 = parse("reviewed-no-c22.xlsx")
+    assert no_c22.review_status == "입력 대기" and no_c22.warnings == []
     assert "검수 시트를 찾지 못했거나 검수 요약이 비어 있습니다." in parse("uncached.xlsx").warnings
 
 
@@ -94,3 +97,16 @@ def test_cached_mismatch_and_unknown_code(tmp_path):
     first = g.batting.iloc[0]
     assert (first.pa, first.hits) == (6, 3)
     assert any("목록에 없는 타석 결과 '중전안타'" in w for w in g.warnings)
+
+
+def test_optional_jersey_number_column_is_read_by_header():
+    src = DIR / "reviewed.xlsx"
+    wb = openpyxl.load_workbook(src)
+    batting, pitching = wb["타자 기록"], wb["투수 기록"]
+    batting.cell(1, 41, "배번"); batting.cell(2, 41, 7)
+    pitching.cell(1, 21, "배번"); pitching.cell(2, 21, 7)
+    import io
+    out = io.BytesIO(); wb.save(out)
+    g = parse_game_workbook(out, NAME)
+    assert int(g.batting.iloc[0].number) == 7
+    assert int(g.pitching.iloc[0].number) == 7

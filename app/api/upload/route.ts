@@ -840,10 +840,12 @@ async function processLiveGameWorkbook(
     throw new Error("경기 날짜와 상대팀을 찾지 못했습니다. 경기 정보 시트를 채우거나 파일명을 '9_26 VS 선학 경기 기록.xlsx' 형식으로 저장하세요.");
   }
 
-  // 기록지에는 배번이 없어 이름으로만 선수를 찾는다. 동명이인이 있으면 어떤 기록도 지우거나 쓰기 전에 중단한다.
+  // 배번 열이 있으면 (배번, 이름), 없으면 이름으로만 찾는다. 후자의 동명이인은 쓰기 전에 중단한다.
   const ambiguous: string[] = [];
-  const names = new Set([...parsed.batting, ...parsed.pitching].map((row) => sanitizeImportedPlayerName(row.name)).filter(Boolean));
-  for (const name of names) {
+  const numberlessNames = new Set([...parsed.batting, ...parsed.pitching]
+    .filter((row) => row.number === null)
+    .map((row) => sanitizeImportedPlayerName(row.name)).filter(Boolean));
+  for (const name of numberlessNames) {
     const match = resolvePlayerMatch(await findPlayerCandidates(null, name), null, name, false);
     if (match.action === "ambiguous") ambiguous.push(describeAmbiguousPlayers(name, match.candidates));
   }
@@ -857,7 +859,7 @@ async function processLiveGameWorkbook(
   await clearGameSnapshot(gameId);
 
   for (const row of parsed.batting) {
-    const player = await upsertPlayer(null, row.name, row.position === "P", results);
+    const player = await upsertPlayer(row.number, row.name, row.position === "P", results);
     if (!player || !gameId) continue;
 
     await insertWithOptionalColumns("batting_stats", {
@@ -884,7 +886,7 @@ async function processLiveGameWorkbook(
   }
 
   for (const row of parsed.pitching) {
-    const player = await upsertPlayer(null, row.name, true, results);
+    const player = await upsertPlayer(row.number, row.name, true, results);
     if (!player || !gameId) continue;
 
     await insertWithOptionalColumns("pitching_stats", {

@@ -192,6 +192,9 @@ export default function UploadPage() {
           <p style={{ fontSize: 13, color: "var(--text-faint)", margin: "6px 0 0", lineHeight: 1.6 }}>
             파일을 다시 올리면 해당 시즌 대시보드는 항상 최신 업로드 기준으로 바뀝니다
           </p>
+          <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "4px 0 0" }}>
+            경기 기록지의 시스템 입력 완료일은 업로드 후 기록지에 적어 주세요.
+          </p>
         </div>
 
         {/* 2-col grid */}

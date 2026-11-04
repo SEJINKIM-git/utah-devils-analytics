@@ -37,9 +37,11 @@ PA_RESULTS: dict[str, dict[str, int]] = {
     "포수방해": {"ci": 1},
 }
 
-BAT_COLS = ["order", "name", "position", "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "bb", "hbp",
+SYSTEM_INPUT_DATE_REVIEW_LABEL = "3일 이내 검수·시스템 입력"
+
+BAT_COLS = ["order", "number", "name", "position", "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "bb", "hbp",
             "so", "sb", "sf", "sh", "ci"]
-PIT_COLS = ["name", "decision", "outs", "pitches", "ha", "runs_allowed", "er", "bb", "hbp", "so", "hr_allowed",
+PIT_COLS = ["number", "name", "decision", "outs", "pitches", "ha", "runs_allowed", "er", "bb", "hbp", "so", "hr_allowed",
             "w", "l", "sv", "hld"]
 
 FILENAME_RE = re.compile(r"(\d{1,2})_(\d{1,2})\s*VS\s*(.+?)\s*경기\s*기록", re.I)
@@ -146,12 +148,16 @@ def _parse_review(ws):
     return status, pending
 
 
+def _is_only_system_input_date_pending(status, pending) -> bool:
+    return status != "검수 완료" and len(pending) == 1 and _norm(pending[0]).startswith(_norm(SYSTEM_INPUT_DATE_REVIEW_LABEL))
+
+
 def _parse_batting(ws, warnings) -> pd.DataFrame:
     header = [c.value for c in ws[1]]
     pa_cols = [i for i, h in enumerate(header) if re.fullmatch(r"\d+타석", _norm(h))]
     col = lambda *names: next((i for i, h in enumerate(header) if _norm(h) in {_norm(n) for n in names}), None)  # noqa: E731
     c = {k: col(*v) for k, v in {
-        "order": ["타순"], "name": ["이름"], "position": ["포지션"], "runs": ["득점"], "rbi": ["타점"], "sb": ["도루"],
+        "order": ["타순"], "number": ["배번"], "name": ["이름"], "position": ["포지션"], "runs": ["득점"], "rbi": ["타점"], "sb": ["도루"],
         "c_pa": ["타석 PA"], "c_ab": ["타수"], "c_hits": ["안타"], "c_so": ["삼진"], "c_bb": ["볼넷"],
     }.items()}
     if not pa_cols:
@@ -185,7 +191,7 @@ def _parse_batting(ws, warnings) -> pd.DataFrame:
         if diff:
             warnings.append(f"타자 기록 {name}: 기록지 수식 값과 타석 결과 계산이 다름 ({', '.join(diff)}) — 타석 결과 기준으로 저장")
         out.append({
-            "order": _int(get(c["order"])) or len(out) + 1, "name": name, "position": str(get(c["position"]) or "").strip(),
+            "order": _int(get(c["order"])) or len(out) + 1, "number": _int(get(c["number"])), "name": name, "position": str(get(c["position"]) or "").strip(),
             "pa": t["pa"], "ab": t["ab"], "runs": extras[0], "hits": t["hit"], "doubles": t["double"],
             "triples": t["triple"], "hr": t["hr"], "rbi": extras[1], "bb": t["bb"], "hbp": t["hbp"], "so": t["so"],
             "sb": extras[2], "sf": t["sf"], "sh": t["sh"], "ci": t["ci"],
@@ -196,7 +202,7 @@ def _parse_batting(ws, warnings) -> pd.DataFrame:
 def _parse_pitching(ws, warnings) -> pd.DataFrame:
     header = [c.value for c in ws[1]]
     col = lambda *names: next((i for i, h in enumerate(header) if _norm(h) in {_norm(n) for n in names}), None)  # noqa: E731
-    c = {k: col(v) for k, v in {"name": "이름", "decision": "결과", "outs": "아웃", "pitches": "투구수", "ha": "피안타",
+    c = {k: col(v) for k, v in {"number": "배번", "name": "이름", "decision": "결과", "outs": "아웃", "pitches": "투구수", "ha": "피안타",
                                  "runs": "실점", "er": "자책", "bb": "볼넷", "hbp": "사구", "so": "삼진", "hr": "피홈런"}.items()}
     if c["outs"] is None:
         raise ValueError("투수 기록에 '아웃' 칸이 없습니다 — 경기 기록지 v3.0 형식이 아닙니다.")
@@ -216,7 +222,7 @@ def _parse_pitching(ws, warnings) -> pd.DataFrame:
             warnings.append(f"투수 기록 {name}: 자책점 미확정(빈칸) — 0으로 저장되며 ERA에 반영되지 않음")
         decision = str(get(c["decision"]) or "").strip()
         out.append({
-            "name": name, "decision": decision, "outs": outs or 0, "pitches": _int(get(c["pitches"])) or 0,
+            "number": _int(get(c["number"])), "name": name, "decision": decision, "outs": outs or 0, "pitches": _int(get(c["pitches"])) or 0,
             "ha": _int(get(c["ha"])) or 0, "runs_allowed": _int(get(c["runs"])) or 0, "er": er or 0,
             "bb": _int(get(c["bb"])) or 0, "hbp": _int(get(c["hbp"])) or 0, "so": _int(get(c["so"])) or 0,
             "hr_allowed": _int(get(c["hr"])) or 0,
@@ -263,8 +269,9 @@ def parse_game_workbook(path_or_buffer, filename: str, fallback_season: str | No
             if label and value not in (None, "", "-"):
                 highlights.append(f"{str(label).strip()}: {str(value).strip()}")
 
-    if status and status != "검수 완료":
-        warnings.append(f"검수 시트 상태: {status}" + (f" — {', '.join(pending)}" if pending else ""))
+    if status and status != "검수 완료" and not _is_only_system_input_date_pending(status, pending):
+        visible_pending = [item for item in pending if not _norm(item).startswith(_norm(SYSTEM_INPUT_DATE_REVIEW_LABEL))]
+        warnings.append(f"검수 시트 상태: {status}" + (f" — {', '.join(visible_pending)}" if visible_pending else ""))
     elif not status:
         warnings.append("검수 시트를 찾지 못했거나 검수 요약이 비어 있습니다.")
     runs = int(batting["runs"].sum())

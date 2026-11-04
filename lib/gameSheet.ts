@@ -44,8 +44,8 @@ export const PA_RESULTS = {
   포수방해: { ci: 1 },
 } as const satisfies Record<string, Partial<Record<"ab" | "hit" | "double" | "triple" | "hr" | "so" | "bb" | "hbp" | "sf" | "sh" | "ci", 1>>>;
 
-export type GameBattingEntry = LiveGameBattingEntry & { sf: number | null; sh: number | null; ci: number | null };
-export type GamePitchingEntry = LiveGamePitchingEntry & { pitches: number; outs: number | null };
+export type GameBattingEntry = LiveGameBattingEntry & { number: number | null; sf: number | null; sh: number | null; ci: number | null };
+export type GamePitchingEntry = LiveGamePitchingEntry & { number: number | null; pitches: number; outs: number | null };
 
 export type GameSheetInfo = {
   date: string | null;
@@ -72,6 +72,8 @@ export type GameSheetParse = {
 
 const norm = (v: unknown) => String(v ?? "").replace(/\s+/g, "").trim().toLowerCase();
 const text = (v: unknown) => String(v ?? "").trim();
+/** 경기 정보 C22는 업로드 뒤 기록원에게 남기는 값이라 업로드 검수에서만 제외한다. */
+export const SYSTEM_INPUT_DATE_REVIEW_LABEL = "3일 이내 검수·시스템 입력";
 
 function toInt(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -164,6 +166,12 @@ function parseReview(sheet: XLSX.WorkSheet | undefined) {
   return review;
 }
 
+function isOnlySystemInputDatePending(review: { status: string | null; pending: string[] }) {
+  return review.status !== "검수 완료"
+    && review.pending.length === 1
+    && norm(review.pending[0]).startsWith(norm(SYSTEM_INPUT_DATE_REVIEW_LABEL));
+}
+
 // ── 타자 ──────────────────────────────────────────────────────────────────────
 function parseBattingV3(rows: Row[], warnings: string[]): GameBattingEntry[] | null {
   const header = rows[0] ?? [];
@@ -175,7 +183,7 @@ function parseBattingV3(rows: Row[], warnings: string[]): GameBattingEntry[] | n
 
   const col = (...names: string[]) => header.findIndex((h) => names.map(norm).includes(norm(h)));
   const c = {
-    order: col("타순"), name: col("이름"), position: col("포지션"),
+    order: col("타순"), number: col("배번"), name: col("이름"), position: col("포지션"),
     runs: col("득점"), rbi: col("타점"), sb: col("도루"),
     // 대조용 수식 결과 칸
     ab: col("타수"), hits: col("안타"), so: col("삼진"), bb: col("볼넷"), pa: col("타석 PA", "타석"),
@@ -226,6 +234,7 @@ function parseBattingV3(rows: Row[], warnings: string[]): GameBattingEntry[] | n
     const [runs, rbi, sb] = extras;
     out.push({
       order: c.order >= 0 ? toInt(row[c.order]) ?? out.length + 1 : out.length + 1,
+      number: c.number >= 0 ? toInt(row[c.number]) : null,
       position: c.position >= 0 ? text(row[c.position]) : "",
       name,
       pa: t.pa, ab: t.ab, runs, hits: t.hit, doubles: t.double, triples: t.triple, hr: t.hr, rbi,
@@ -241,7 +250,7 @@ function parsePitchingV3(rows: Row[], warnings: string[]): GamePitchingEntry[] |
   const header = rows[0] ?? [];
   const col = (...names: string[]) => header.findIndex((h) => names.map(norm).includes(norm(h)));
   const c = {
-    name: col("이름"), decision: col("결과"), outs: col("아웃"), pitches: col("투구수"), ha: col("피안타"),
+    number: col("배번"), name: col("이름"), decision: col("결과"), outs: col("아웃"), pitches: col("투구수"), ha: col("피안타"),
     runs: col("실점"), er: col("자책"), bb: col("볼넷"), hbp: col("사구"), so: col("삼진"), hr: col("피홈런"),
   };
   if (c.outs < 0) return null; // 이전 형식 (이닝 칸 사용)
@@ -264,6 +273,7 @@ function parsePitchingV3(rows: Row[], warnings: string[]): GamePitchingEntry[] |
     const decision = text(row[c.decision]);
     const ip = Number(formatIP((outs ?? 0) / 3));
     out.push({
+      number: c.number >= 0 ? toInt(row[c.number]) : null,
       name, decision, ip, outs,
       ha: toInt(row[c.ha]) ?? 0,
       runs_allowed: toInt(row[c.runs]) ?? 0,
@@ -315,14 +325,15 @@ export function parseGameWorkbook(workbook: XLSX.WorkBook, fileName: string, fal
   const format = v3Batting || v3Pitching ? "v3" : "legacy";
 
   const batting: GameBattingEntry[] =
-    v3Batting ?? (battingSheet ? parseOfficialGameBattingSheet(battingSheet) : []).map((b) => ({ ...b, sf: null, sh: null, ci: null }));
+    v3Batting ?? (battingSheet ? parseOfficialGameBattingSheet(battingSheet) : []).map((b) => ({ ...b, number: null, sf: null, sh: null, ci: null }));
   const pitching: GamePitchingEntry[] =
-    v3Pitching ?? (pitchingSheet ? parseOfficialGamePitchingSheet(pitchingSheet) : []).map((p) => ({ ...p, outs: null }));
+    v3Pitching ?? (pitchingSheet ? parseOfficialGamePitchingSheet(pitchingSheet) : []).map((p) => ({ ...p, number: null, outs: null }));
 
   // 기록지 검수와 같은 대조 (검수 시트를 안 채웠어도 확인되도록)
   if (format === "v3") {
-    if (review.status && review.status !== "검수 완료") {
-      warnings.push(`검수 시트 상태: ${review.status}${review.pending.length ? ` — ${review.pending.join(", ")}` : ""}`);
+    if (review.status && review.status !== "검수 완료" && !isOnlySystemInputDatePending(review)) {
+      const visiblePending = review.pending.filter((item) => !norm(item).startsWith(norm(SYSTEM_INPUT_DATE_REVIEW_LABEL)));
+      warnings.push(`검수 시트 상태: ${review.status}${visiblePending.length ? ` — ${visiblePending.join(", ")}` : ""}`);
     } else if (!review.status) {
       warnings.push("검수 시트를 찾지 못했거나 검수 요약이 비어 있습니다.");
     }
