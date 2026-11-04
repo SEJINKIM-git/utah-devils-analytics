@@ -5,6 +5,7 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 import { parseIP, formatIP } from "@/lib/statFormatting";
+import { eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -84,8 +85,8 @@ function computePitRow(
   xLabel: string,
   lang: string
 ): ChartRow {
-  const era  = ipDec > 0 ? parseFloat(((er / ipDec) * 5).toFixed(2)) : 0;
-  const whip = ipDec > 0 ? parseFloat(((ha + bb) / ipDec).toFixed(2)) : 0;
+  const era  = parseFloat(formatRate(eraFromInnings(er, ipDec), 2, "0"));
+  const whip = parseFloat(formatRate(whipFromInnings(ha, bb, ipDec), 2, "0"));
   return {
     season: xLabel,
     ERA:  era,

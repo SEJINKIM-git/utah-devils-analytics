@@ -19,6 +19,7 @@ import { useState, useEffect, useRef } from 'react';
 import { getPlayerDisplayName, getPlayerNameVariants } from '@/lib/playerDisplay';
 import { inferRosterSnapshotSeasons, parseRosterSnapshot, type RosterSnapshotPlayer } from '@/lib/rosterSnapshot';
 import type { Lang } from '@/lib/translations';
+import { eraFromInnings, inningsDecimal } from "@/lib/statFormulas";
 
 // ─── 타입 정의 ───────────────────────────────────────────────────────────────
 
@@ -271,7 +272,7 @@ async function fetchPlayers(): Promise<ComparePayload> {
     };
     pitchingByPlayerSeason.set(key, {
       season,
-      innings: current.innings + (parseFloat(String(row.ip || 0)) || 0),
+      innings: current.innings + inningsDecimal(row.ip),
       hits: current.hits + Number(row.ha || 0),
       runs: current.runs + Number(row.runs_allowed || 0),
       earned_runs: current.earned_runs + Number(row.er || 0),
@@ -411,7 +412,7 @@ function calcPitching(stats: PitchingStat[], season?: number): CalcPitching | nu
     strikeouts:   (acc.strikeouts   || 0) + (s.strikeouts   || 0),
   }), { ...seasonStats[0], innings:0, hits:0, runs:0, earned_runs:0, walks:0, strikeouts:0 });
   const inn  = merged.innings || 0;
-  const era  = inn > 0 ? ((merged.earned_runs || 0) * 9) / inn : null;
+  const era  = eraFromInnings(merged.earned_runs || 0, inn);
   const whip = inn > 0 ? ((merged.walks || 0) + (merged.hits || 0)) / inn : null;
   return { ...merged, era, whip };
 }

@@ -20,6 +20,8 @@ import {
 } from "@/lib/seasonTerms";
 import { t, Lang } from "@/lib/translations";
 import { formatIP, parseIP } from "@/lib/statFormatting";
+import { selectEffectiveStatRows } from "@/lib/statRows";
+import { computeEra, computeWhip, eraFromInnings, formatRate, whipFromInnings } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -58,7 +60,7 @@ export default async function PlayerDetail({
   );
   const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
 
-  const [{ data: allBatting }, { data: allPitching }, { data: reports }, { data: allGames }, { data: rosterUploads }, { data: allPlayers }] = await Promise.all([
+  const [{ data: allBattingRaw }, { data: allPitchingRaw }, { data: reports }, { data: allGames }, { data: rosterUploads }, { data: allPlayers }] = await Promise.all([
     supabase.from("batting_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
     supabase.from("pitching_stats").select("*, games(date, opponent)").in("player_id", relatedPlayerIds),
     supabase.from("ai_reports").select("*").in("player_id", relatedPlayerIds).order("generated_at", { ascending: false }).limit(1),
@@ -66,6 +68,8 @@ export default async function PlayerDetail({
     supabase.from("roster_uploads").select("filename, players_snapshot, source, uploaded_at").order("uploaded_at", { ascending: false }),
     supabase.from("players").select("id, name, number"),
   ]);
+  const allBatting = selectEffectiveStatRows(allBattingRaw);
+  const allPitching = selectEffectiveStatRows(allPitchingRaw);
 
   const seasonValues = Array.from(new Set([
     ...((allBatting || []).map((record) => record.season)),
@@ -157,8 +161,8 @@ export default async function PlayerDetail({
   const slg = bat && bat.ab > 0 ? ((bat.hits - bat.doubles - bat.triples - bat.hr + bat.doubles * 2 + bat.triples * 3 + bat.hr * 4) / bat.ab).toFixed(3) : "---";
   const ops = obp !== "---" && slg !== "---" ? (parseFloat(obp) + parseFloat(slg)).toFixed(3) : "---";
   const opsNum = parseFloat(ops) || 0;
-  const era = pitch && pitch.ip > 0 ? ((pitch.er / pitch.ip) * 5).toFixed(2) : null;
-  const whip = pitch && pitch.ip > 0 ? ((pitch.ha + pitch.bb) / pitch.ip).toFixed(2) : null;
+  const era = pitch && pitch.ip > 0 ? formatRate(eraFromInnings(pitch.er, pitch.ip)) : null;
+  const whip = pitch && pitch.ip > 0 ? formatRate(whipFromInnings(pitch.ha, pitch.bb, pitch.ip)) : null;
 
   const currentStats = {
     avg: avg !== "---" ? parseFloat(avg) : 0,
@@ -240,8 +244,8 @@ export default async function PlayerDetail({
       const l = pArr.reduce((s, p) => s + (p.l || 0), 0);
       row.ip = totalIp; row.ha = ha; row.er = er; row.bb_p = bbP; row.so = so;
       row.w = w; row.l = l;
-      row.era = totalIp > 0 ? (er / totalIp) * 5 : 0;
-      row.whip = totalIp > 0 ? (ha + bbP) / totalIp : 0;
+      row.era = eraFromInnings(er, totalIp) ?? 0;
+      row.whip = whipFromInnings(ha, bbP, totalIp) ?? 0;
     }
 
     return row;
@@ -277,8 +281,8 @@ export default async function PlayerDetail({
     careerTotals.ip = tIp; careerTotals.ha = tHa; careerTotals.er = tEr;
     careerTotals.bb_p = tBbP; careerTotals.so = tSo;
     careerTotals.w = tW; careerTotals.l = tL;
-    careerTotals.era = tIp > 0 ? (tEr / tIp) * 5 : 0;
-    careerTotals.whip = tIp > 0 ? (tHa + tBbP) / tIp : 0;
+    careerTotals.era = eraFromInnings(tEr, tIp) ?? 0;
+    careerTotals.whip = whipFromInnings(tHa, tBbP, tIp) ?? 0;
   }
 
   const showCareerBat = careerRows.some((r) => r.ab !== undefined);
@@ -582,12 +586,12 @@ export default async function PlayerDetail({
                               <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.l}</td>
                               <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.sv}</td>
                               <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{formatIP(p.ip)}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{p.ip > 0 ? ((p.er / p.ip) * 5).toFixed(2) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{formatRate(computeEra(p.er, p.ip), 2, "-")}</td>
                               <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.ha}</td>
                               <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.er}</td>
                               <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.bb}</td>
                               <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.so}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{p.ip > 0 ? ((p.ha + p.bb) / p.ip).toFixed(2) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{formatRate(computeWhip(p.ha, p.bb, p.ip), 2, "-")}</td>
                             </tr>
                           );
                         })}

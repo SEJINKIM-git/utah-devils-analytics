@@ -201,7 +201,24 @@ npm run dev
 npx tsc --noEmit
 ```
 
-### 10-4. 배포 전 빌드 확인
+### 10-4. 테스트
+
+```bash
+npm test            # 단위 테스트 + DB 마이그레이션 테스트 (운영 DB에 접속하지 않음)
+```
+
+배포 전 로그인 보호를 실제 서버로 확인하려면 (가짜 Supabase 주소로 실행하므로 운영 DB와 무관):
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://example.invalid NEXT_PUBLIC_SUPABASE_ANON_KEY=x SUPABASE_SERVICE_KEY=x \
+OPENAI_API_KEY=x ADMIN_SESSION_SECRET=e2e-secret npm run build && \
+NEXT_PUBLIC_SUPABASE_URL=https://example.invalid NEXT_PUBLIC_SUPABASE_ANON_KEY=x SUPABASE_SERVICE_KEY=x \
+OPENAI_API_KEY=x ADMIN_SESSION_SECRET=e2e-secret npx next start -p 3100
+# 다른 터미널
+node tests/e2e/auth-smoke.mjs
+```
+
+### 10-5. 배포 전 빌드 확인
 
 ```bash
 npm run build
@@ -214,13 +231,33 @@ npm run build
 
 ## 11. 환경 변수
 
-`.env.local` 또는 Vercel 환경 변수에 아래 3개가 필요합니다.
+`.env.local` 또는 Vercel 환경 변수에 아래 값이 필요합니다.
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_KEY=        # 서버 전용. 모든 API·서버 화면이 이 키로 DB에 접속 (브라우저로 나가지 않음)
 OPENAI_API_KEY=
+ADMIN_SESSION_SECRET=        # 선택. 운영진 로그인 쿠키 서명용. 없으면 SUPABASE_SERVICE_KEY로 서명
 ```
+
+`ADMIN_SESSION_SECRET`을 바꾸면 로그인된 모든 운영진이 로그아웃됩니다.
+
+## 11-1. 운영진 로그인
+
+- 조회 화면은 누구나 볼 수 있습니다.
+- 기록 업로드·수정·삭제, 선수 등록, 경기·상황 기록, AI 분석 생성은 **운영진 로그인**이 필요합니다.
+- 홈페이지 `/admin`과 같은 계정을 씁니다 (Supabase Auth + `admin_members` 승인).
+- 사이드바 하단 `운영진 로그인` 또는 `/login`. 로그인은 12시간 유지됩니다.
+- 새 운영진 추가: 홈페이지 `/admin`에서 가입 → 기존 운영진이 승인.
+
+## 11-2. 기록 계산 규칙 (숫자가 이상할 때 먼저 볼 것)
+
+- ERA·WHIP 공식은 `lib/statFormulas.ts` 한 곳에만 있습니다. ERA는 5이닝 기준, 이닝은 3.1 = 3⅓로 계산합니다.
+- 같은 선수·시즌에 경기별 기록과 시즌 요약 기록이 함께 있으면 경기별 기록만 씁니다 (`lib/statRows.ts`).
+- 선수는 (배번, 이름)이 모두 같을 때만 같은 선수로 봅니다. 배번이 같아도 이름이 다르면 다른 선수입니다 (`lib/playerMatching.ts`).
+- 판단 유형 목록은 `lib/decisionTypes.ts` 하나뿐이며 DB enum과 같아야 합니다 (테스트가 확인).
+- DB 구조 변경은 `sql/` 폴더에 번호를 붙여 추가합니다 (`sql/README.md`).
 
 ## 12. 배포 방식
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DECISION_LABEL } from "@/lib/decisionTypes";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,19 +37,6 @@ export type SituationRow = {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DECISION_LABEL: Record<string, string> = {
-  pitching_change:  "투수 교체",
-  steal_attempt:    "도루 시도",
-  bunt:             "번트",
-  hit_and_run:      "히트앤런",
-  intentional_walk: "고의사구",
-  defensive_shift:  "수비 시프트",
-  pinch_hit:        "대타",
-  pinch_run:        "대주자",
-  infield_in:       "내야 전진",
-  no_doubles:       "노더블 얼라인",
-  other:            "기타",
-};
 
 const LEV_COLOR: Record<string, { bg: string; text: string; label: string }> = {
   high:   { bg: "rgba(239,68,68,0.13)",  text: "#ef4444", label: "HIGH" },

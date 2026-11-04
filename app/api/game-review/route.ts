@@ -32,6 +32,7 @@ import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import { getActivatedPlaceholderSeasons, isLockedSeason } from "@/lib/seasonVisibility";
 import { formatRateStat } from "@/lib/statFormatting";
 import type { Lang } from "@/lib/translations";
+import { computeEra, formatRate } from "@/lib/statFormulas";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -280,7 +281,7 @@ export async function POST(request: NextRequest) {
           l: 0,
           sv: 0,
           hld: 0,
-          era: ip > 0 ? ((er / ip) * 9).toFixed(2) : "0",
+          era: formatRate(computeEra(er, ip), 2, "0"),
         });
       }
 

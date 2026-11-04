@@ -6,12 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import DecisionCard, { type SituationRow } from "@/app/components/DecisionCard";
 import SituationsSubNav from "@/app/components/SituationsSubNav";
+import { OFFENSE_DECISION_TYPES } from "@/lib/decisionTypes";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const OFFENSE_TYPES = new Set([
-  "steal_attempt", "bunt", "hit_and_run", "pinch_hit", "pinch_run", "other",
-]);
+const OFFENSE_TYPES = OFFENSE_DECISION_TYPES;
 
 const LEVERAGE_OPTIONS = [
   { value: "",       label: "전체 레버리지" },

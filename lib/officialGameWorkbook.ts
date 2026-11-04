@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { sanitizeImportedPlayerName } from "@/lib/playerNameValidation";
 import { formatRateStat } from "@/lib/statFormatting";
+import { computeEra, formatRate } from "@/lib/statFormulas";
 
 type Row = unknown[];
 
@@ -281,8 +282,8 @@ export function parseOfficialGamePitchingSheet(sheet: XLSX.WorkSheet): LiveGameP
       sv: cols.sv >= 0 ? toFlag(row[cols.sv], ["세", "세이브", "sv"]) : toFlag(decision, ["세", "sv"]),
       hld: cols.hld >= 0 ? toNumber(row[cols.hld]) : 0,
       era: cols.era >= 0
-        ? String(row[cols.era] ?? "").trim() || (ip > 0 ? ((er / ip) * 9).toFixed(2) : "0")
-        : (ip > 0 ? ((er / ip) * 9).toFixed(2) : "0"),
+        ? String(row[cols.era] ?? "").trim() || formatRate(computeEra(er, ip), 2, "0")
+        : formatRate(computeEra(er, ip), 2, "0"),
     });
   }
 

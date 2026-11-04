@@ -87,8 +87,7 @@ async function registerPlayers(players: RosterPlayer[]) {
       .insert({
         number: p.number,
         name: p.name,
-        is_pitcher: p.is_pitcher ?? false,
-        position: p.position ?? null,
+        is_pitcher: p.is_pitcher ?? p.position === "P",
       })
       .select("id")
       .single();

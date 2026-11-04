@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getPlayerDisplayName, getPlayerNameVariants } from "@/lib/playerDisplay";
 import type { Lang } from "@/lib/translations";
+import { eraFromInnings, formatRate } from "@/lib/statFormulas";
 
 type Player = {
   id: number | string;
@@ -115,7 +116,7 @@ export default function SearchBar({
     }
 
     if (pitch && pitch.ip > 0) {
-      era = ((pitch.er / pitch.ip) * 5).toFixed(2);
+      era = formatRate(eraFromInnings(pitch.er, pitch.ip));
     }
 
     return { bat, pitch, avg, ops, era };

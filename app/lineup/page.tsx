@@ -17,6 +17,7 @@ import {
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
 import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { Lang } from "@/lib/translations";
+import { selectEffectiveStatRows } from "@/lib/statRows";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -227,7 +228,7 @@ export default async function LineupPage({
   const playersWithStats = playerEntries
     .map(({ player, relatedPlayers, canonicalName, canonicalNumber }) => {
       const relatedIds = new Set(relatedPlayers.map((entry) => entry.id));
-      const relatedBattingRows = (batting || []).filter((row) => relatedIds.has(row.player_id));
+      const relatedBattingRows = selectEffectiveStatRows(batting).filter((row) => relatedIds.has(row.player_id));
       const merged = relatedBattingRows.reduce(
         (acc, row) => {
           return {

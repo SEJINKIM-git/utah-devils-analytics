@@ -6,12 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 import DecisionCard, { type SituationRow } from "@/app/components/DecisionCard";
 import SituationsSubNav from "@/app/components/SituationsSubNav";
+import { DECISION_TYPES, DEFENSE_DECISION_TYPES } from "@/lib/decisionTypes";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DEFENSE_TYPES = new Set([
-  "pitching_change", "intentional_walk", "defensive_shift", "infield_in", "no_doubles",
-]);
+const DEFENSE_TYPES = DEFENSE_DECISION_TYPES;
 
 const LEVERAGE_OPTIONS = [
   { value: "",       label: "전체 레버리지" },
@@ -22,11 +21,7 @@ const LEVERAGE_OPTIONS = [
 
 const DEFENSE_TYPE_OPTIONS = [
   { value: "", label: "전체 결정 유형" },
-  { value: "pitching_change",  label: "투수 교체"      },
-  { value: "intentional_walk", label: "고의사구"       },
-  { value: "defensive_shift",  label: "수비 시프트"    },
-  { value: "infield_in",       label: "내야 전진"      },
-  { value: "no_doubles",       label: "노더블 얼라인"  },
+  ...DECISION_TYPES.filter((t) => t.side === "defense").map(({ value, label }) => ({ value, label })),
 ];
 
 function getCookie(name: string) {

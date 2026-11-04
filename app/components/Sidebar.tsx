@@ -15,6 +15,7 @@ import {
   BarChart2,
 } from "lucide-react";
 import type { Lang } from "@/lib/translations";
+import AdminStatus from "@/app/components/AdminStatus";
 
 const NAV_ITEMS = [
   { href: "/",               icon: LayoutDashboard, labelKo: "대시보드",  labelEn: "Dashboard"  },
@@ -84,6 +85,7 @@ export default function Sidebar({ lang }: { lang: Lang }) {
           <Sparkles size={15} strokeWidth={1.8} />
           {isKo ? "시즌 리포트 생성" : "Generate Report"}
         </Link>
+        <AdminStatus isKo={isKo} />
       </div>
     </aside>
   );

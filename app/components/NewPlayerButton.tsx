@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { Lang } from '@/lib/translations';
 
 const POSITIONS = ['P', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
@@ -31,25 +30,32 @@ export default function NewPlayerButton({ lang }: { lang: Lang }) {
       setError(isKo ? '선수 이름을 입력해주세요.' : 'Player name is required.');
       return;
     }
+    if (!number || Number(number) <= 0) {
+      setError(isKo ? '배번을 입력해주세요.' : 'Jersey number is required.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      const supabase = createClient();
-      const { error: insertError } = await supabase.from('players').insert([
-        {
+      // 브라우저에서 DB에 직접 쓰지 않고 서버 API를 거친다 (운영진 로그인 + RLS 강화 대비)
+      const res = await fetch('/api/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           name: name.trim(),
-          number: number ? parseInt(number) : null,
-          position,
-        },
-      ]);
-      if (insertError) throw insertError;
+          number: parseInt(number, 10),
+          is_pitcher: position === 'P',
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
       setSuccess(true);
       setTimeout(() => {
         close();
         window.location.reload();
       }, 1200);
-    } catch (e: any) {
-      setError(e?.message || (isKo ? '등록 중 오류가 발생했습니다.' : 'An error occurred.'));
+    } catch (e: unknown) {
+      setError((e instanceof Error && e.message) || (isKo ? '등록 중 오류가 발생했습니다.' : 'An error occurred.'));
     } finally {
       setLoading(false);
     }

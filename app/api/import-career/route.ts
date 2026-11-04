@@ -3,6 +3,8 @@ export const runtime = "nodejs";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { type PlayerCandidate, resolvePlayerMatch } from "@/lib/playerMatching";
+import { normalizeInningsForStorage } from "@/lib/statFormulas";
 import * as XLSX from "xlsx";
 import {
   COLUMN_ALIASES,
@@ -92,39 +94,22 @@ async function getOrCreatePlayer(
   const numericValue = Number(rawNumber);
   const playerNumber = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
 
-  let player = null as { id: string } | null;
-
-  if (playerNumber) {
-    const { data: byNumberAndName } = await supabase
-      .from("players")
-      .select("id")
-      .eq("number", playerNumber)
-      .eq("name", name)
-      .maybeSingle();
-
-    player = byNumberAndName;
-  }
-
-  if (!player && playerNumber) {
-    const { data: byNumber } = await supabase
-      .from("players")
-      .select("id")
-      .eq("number", playerNumber)
-      .maybeSingle();
-
-    player = byNumber;
-  }
-
-  if (!player) {
-    const { data: byName } = await supabase
-      .from("players")
-      .select("id,is_pitcher")
-      .eq("name", name)
-      .maybeSingle();
-
-    player = byName ? { id: byName.id } : null;
-    if (byName && isPitcher && !byName.is_pitcher) {
-      await supabase.from("players").update({ is_pitcher: true }).eq("id", byName.id);
+  // 배번은 해마다 주인이 바뀌므로 (배번, 이름)이 같을 때만 같은 선수로 본다 (lib/playerMatching)
+  const [{ data: byName }, { data: byNumber }] = await Promise.all([
+    supabase.from("players").select("id,name,number,is_pitcher").eq("name", name).limit(20),
+    playerNumber
+      ? supabase.from("players").select("id,name,number,is_pitcher").eq("number", playerNumber).limit(50)
+      : Promise.resolve({ data: [] as PlayerCandidate[] }),
+  ]);
+  const candidates = Array.from(
+    new Map([...(byName ?? []), ...(byNumber ?? [])].map((p) => [p.id, p as PlayerCandidate])).values()
+  );
+  const match = resolvePlayerMatch(candidates, playerNumber, name, isPitcher);
+  let player = null as { id: number } | null;
+  if (match.action === "use") {
+    player = { id: match.player.id };
+    if (match.updates.is_pitcher) {
+      await supabase.from("players").update({ is_pitcher: true }).eq("id", match.player.id);
     }
   }
 
@@ -242,7 +227,7 @@ export async function POST(request: NextRequest) {
           const player = await getOrCreatePlayer(cols.number !== -1 ? row[cols.number] : null, name, true, results);
           if (!player) continue;
 
-          const ip = Number(row[cols.ip]) || 0;
+          const ip = normalizeInningsForStorage(row[cols.ip] as number | string);
           const er = Number(row[cols.er]) || 0;
           const so = Number(row[cols.so]) || 0;
           if (ip === 0) continue;
