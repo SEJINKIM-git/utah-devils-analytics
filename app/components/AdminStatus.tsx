@@ -2,26 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { LogIn, LogOut } from "lucide-react";
-
-type Session = { loggedIn: boolean; email?: string };
+import { useAdminSession } from "@/app/components/useAdminSession";
 
 /** 사이드바 하단: 운영진 로그인 상태 */
 export default function AdminStatus({ isKo }: { isKo: boolean }) {
   const pathname = usePathname();
-  const [session, setSession] = useState<Session | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/auth/session", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((s: Session) => alive && setSession(s))
-      .catch(() => alive && setSession({ loggedIn: false }));
-    return () => {
-      alive = false;
-    };
-  }, [pathname]);
+  const session = useAdminSession();
 
   if (!session) return null;
 

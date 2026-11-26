@@ -2,6 +2,12 @@ import AIButton from "@/app/components/AIButton";
 import SeasonChart from "@/app/components/SeasonChart";
 import PlayerGoals from "@/app/components/PlayerGoals";
 import MetricValue from "@/app/components/metrics/MetricValue";
+import CrumbLeaf from "@/app/components/CrumbLeaf";
+import FavoriteButton from "@/app/components/player/FavoriteButton";
+import PlayerCards from "@/app/components/player/PlayerCards";
+import Link from "next/link";
+import { metricShortName } from "@/lib/metrics";
+import { getPlayerDisplayName } from "@/lib/playerDisplay";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
@@ -36,7 +42,7 @@ export default async function PlayerDetail({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ season?: string; term?: string }>;
+  searchParams: Promise<{ season?: string; term?: string; view?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -338,17 +344,15 @@ export default async function PlayerDetail({
   ).filter((row) => selectedSeason !== "Career" || row.onRoster || row.bat || row.pit);
   const showTermPit = termRows.some((row) => row.pit);
 
-  // 4 hero metric cards
+  // 큰 숫자 3개: 타자는 타율·출루율·OPS, 투수는 ERA·WHIP·이닝 (값은 위에서 계산한 그대로)
   const metricCards = bat ? [
-    { label: "OPS", value: ops, color: "var(--coral)", code: "OPS" },
-    { label: "타율 AVG", value: avg, color: "var(--green)", code: "AVG" },
-    { label: "출루율 OBP", value: obp, color: "var(--blue)", code: "OBP" },
-    { label: "도루 SB", value: String(bat.sb || 0), color: "#a78bfa", code: "SB" },
+    { value: avg, color: "var(--green)", code: "AVG" },
+    { value: obp, color: "var(--blue)", code: "OBP" },
+    { value: ops, color: "var(--coral)", code: "OPS" },
   ] : pitch && pitch.ip > 0 ? [
-    { label: "ERA", value: era || "---", color: era && parseFloat(era) <= 3.5 ? "var(--green)" : "var(--coral)", code: "ERA" },
-    { label: "WHIP", value: whip || "---", color: "var(--blue)", code: "WHIP" },
-    { label: `K/${ERA_BASE_INNINGS}이닝`, value: formatRate(perBaseInnings(pitch.so, pitch.ip), 1), color: "#a78bfa", code: `K${ERA_BASE_INNINGS}` },
-    { label: "이닝 IP", value: formatIP(pitch.ip), color: "#f59e0b", code: "IP" },
+    { value: era || "---", color: era && parseFloat(era) <= 3.5 ? "var(--green)" : "var(--coral)", code: "ERA" },
+    { value: whip || "---", color: "var(--blue)", code: "WHIP" },
+    { value: formatIP(pitch.ip), color: "var(--text-strong)", code: "IP" },
   ] : [];
 
   const getOpsGrade = (v: number) => {
@@ -373,57 +377,97 @@ export default async function PlayerDetail({
   };
   const currentSeason = selectedSeason || fallbackSeason || preferredSeason || "2025";
 
+  const ko = lang === "ko";
+  const view = typeof query.view === "string" ? query.view : "";
+  const compareHref = `/compare?a=${player.id}&season=${encodeURIComponent(currentSeason)}`;
+
   return (
     <div style={{ minHeight: "100vh", color: "var(--text)", fontFamily: "var(--font-body)" }}>
-      <div style={{ padding: "32px 32px 60px" }}>
+      <CrumbLeaf label={getPlayerDisplayName(player.name, lang)} />
+      <div className="player-page" data-view={view || undefined}>
 
-        {/* Hero: player card + 4 metric cards */}
-        <div style={{ display: "flex", gap: 24, marginBottom: 32, alignItems: "flex-start" }}>
-          {/* Player card */}
-          <div style={{ flexShrink: 0 }}>
+        {/* 요약 먼저: 선수, 큰 숫자 3개, 가장 중요한 버튼 하나 */}
+        <section className="player-hero">
+          <div className="player-hero-id">
             <div style={{
-              width: 108, height: 108, borderRadius: 24,
+              width: 64, height: 64, borderRadius: 18, flexShrink: 0,
               background: "linear-gradient(135deg, var(--coral) 0%, #991b1b 100%)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 16px 40px rgba(242,161,150,0.2)",
             }}>
-              <span className="num" style={{ fontSize: 52, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{player.number}</span>
+              <span className="num" style={{ fontSize: 30, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{player.number}</span>
             </div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, margin: "14px 0 8px", letterSpacing: "-0.02em" }}>{player.name}</h1>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-              <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, background: "var(--blue-dim)", color: "var(--blue)", fontWeight: 700 }}>#{player.number}</span>
-              {player.is_pitcher && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, background: "rgba(234,179,8,0.12)", color: "#eab308", fontWeight: 700 }}>{t("player.pitcher", lang)}</span>}
-              <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, background: "rgba(255,255,255,0.06)", color: "var(--text-faint)", fontWeight: 600 }}>{currentSeason}</span>
+            <div className="player-hero-id-text">
+              <h1 className="player-hero-name">{player.name}</h1>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
+                <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, background: "var(--blue-dim)", color: "var(--blue)", fontWeight: 700 }}>#{player.number}</span>
+                {player.is_pitcher && <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, background: "rgba(234,179,8,0.12)", color: "#eab308", fontWeight: 700 }}>{t("player.pitcher", lang)}</span>}
+                <span style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, background: "rgba(255,255,255,0.06)", color: "var(--text-faint)", fontWeight: 600 }}>{currentSeason}</span>
+              </div>
             </div>
+            <FavoriteButton player={{ id: player.id, name: player.name, number: player.number ?? null, isPitcher: Boolean(player.is_pitcher) }} lang={lang} />
           </div>
 
-          {/* 4 metric cards */}
           {metricCards.length > 0 && (
-            <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-              {metricCards.map(({ label, value, color, code }) => (
-                <div key={label} style={{
-                  background: "var(--surface-raised)", borderRadius: "var(--radius-sm)",
-                  padding: "20px 22px", position: "relative", overflow: "hidden",
-                }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" as const, color: "var(--text-faint)", marginBottom: 10 }}>
-                    {label}
+            <div className="player-hero-numbers">
+              {metricCards.map(({ value, color, code }) => (
+                <div key={code} className="player-hero-number">
+                  <div className="player-hero-number-label">
+                    {metricShortName(code, lang) !== code && <span>{metricShortName(code, lang)}</span>}
+                    <span className={metricShortName(code, lang) !== code ? "player-hero-number-code" : undefined}>{code}</span>
                   </div>
-                  <div className="num" style={{ fontSize: 44, fontWeight: 800, color, lineHeight: 1 }}>
+                  <div className="num player-hero-number-value" style={{ color }}>
                     <MetricValue code={code} value={value} target={{ player: player.id }} season={currentSeason} />
                   </div>
-                  <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3, background: color, opacity: 0.7 }} />
+                  <div className="player-hero-number-bar" style={{ background: color }} />
                 </div>
               ))}
             </div>
           )}
-        </div>
 
-        {/* 2-column grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 24, alignItems: "start" }}>
+          <Link href={compareHref} className="player-hero-cta" data-testid="compare-cta">
+            {ko ? "다른 선수와 비교하기" : "Compare with another player"}
+          </Link>
+        </section>
 
-          {/* Left column: stats + career table */}
-          <div style={{ display: "flex", flexDirection: "column" as const, gap: 24 }}>
-
+        {/* 기능 카드: 표와 차트는 눌렀을 때 펼친다. ?view= 로 바로 열 수 있다 */}
+        <PlayerCards
+          cards={[
+            {
+              id: "gamelog",
+              title: ko ? "경기별 추이" : "Game by game",
+              hint: ko ? "경기마다 기록이 어떻게 달라졌는지" : "How the numbers moved from game to game",
+              content: (
+                <>
+            {/* Season chart */}
+            <SeasonChart batting={(() => {
+              const m = new Map<number, any>();
+              for (const b of allBatting || []) {
+                if (!b.game_id) continue;
+                const p = m.get(b.game_id);
+                if (!p || (b.pa || 0) >= (p.pa || 0)) m.set(b.game_id, b);
+              }
+              return Array.from(m.values());
+            })()} pitching={(() => {
+              const m = new Map<number, any>();
+              for (const p of allPitching || []) {
+                if (!p.game_id) continue;
+                const prev = m.get(p.game_id);
+                if (!prev || parseIP(p.ip) >= parseIP(prev.ip)) m.set(p.game_id, p);
+              }
+              return Array.from(m.values());
+            })()} lang={lang} />
+                </>
+              ),
+            },
+            {
+              id: "season",
+              title: ko ? "시즌 기록" : "Season record",
+              hint: ko ? "타격·투구 합계와 시즌별 기록" : "Batting and pitching totals, season by season",
+              content: (
+                <div className="pcard-stack">
+                  {!bat && !(pitch && pitch.ip > 0) && careerRows.length <= 1 && (
+                    <p className="pcard-empty">{ko ? "이 시즌에는 기록이 없어요." : "No records for this season."}</p>
+                  )}
             {/* Batting stats */}
             {bat && (
               <div style={{ background: "var(--surface-raised)", borderRadius: "var(--radius)", padding: "var(--pad-card)" }}>
@@ -459,7 +503,6 @@ export default async function PlayerDetail({
                 </div>
               </div>
             )}
-
             {/* Pitching stats */}
             {pitch && pitch.ip > 0 && (() => {
               const eraNum = parseFloat(era || "0");
@@ -482,6 +525,7 @@ export default async function PlayerDetail({
                       { code: "BBA", label: t("pitching.bb", lang), value: pitch.bb, color: pitch.bb >= 10 ? "var(--red)" : undefined },
                       { code: "K", label: t("pitching.so", lang), value: pitch.so, color: pitch.so >= 10 ? "var(--green)" : undefined },
                       { code: "HRA", label: t("pitching.hra", lang), value: pitch.hr_allowed },
+                      { code: `K${ERA_BASE_INNINGS}`, label: `K/${ERA_BASE_INNINGS}`, value: formatRate(perBaseInnings(pitch.so, pitch.ip), 1) },
                     ].map((stat, i) => (
                       <div key={i} style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "12px 10px", textAlign: "center" as const }}>
                         <div style={{ fontSize: 10, color: "var(--text-faint)", textTransform: "uppercase" as const, letterSpacing: 0.8, marginBottom: 5 }}>{stat.label}</div>
@@ -494,26 +538,92 @@ export default async function PlayerDetail({
                 </div>
               );
             })()}
+            {/* Career overview table */}
+            {careerRows.length > 1 && (
+              <div style={{ background: "var(--surface-raised)", borderRadius: "var(--radius)", padding: "var(--pad-card)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" as const, color: "var(--text-faint)", marginBottom: 18 }}>
+                  Career Overview
+                </div>
 
-            {/* Season chart */}
-            <SeasonChart batting={(() => {
-              const m = new Map<number, any>();
-              for (const b of allBatting || []) {
-                if (!b.game_id) continue;
-                const p = m.get(b.game_id);
-                if (!p || (b.pa || 0) >= (p.pa || 0)) m.set(b.game_id, b);
-              }
-              return Array.from(m.values());
-            })()} pitching={(() => {
-              const m = new Map<number, any>();
-              for (const p of allPitching || []) {
-                if (!p.game_id) continue;
-                const prev = m.get(p.game_id);
-                if (!prev || parseIP(p.ip) >= parseIP(prev.ip)) m.set(p.game_id, p);
-              }
-              return Array.from(m.values());
-            })()} lang={lang} />
+                {showCareerBat && (
+                  <div style={{ overflowX: "auto" as const, marginBottom: showCareerPit ? 24 : 0 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ color: "var(--text-faint)", fontSize: 11, letterSpacing: 0.5 }}>
+                          {["시즌", "타수", "안타", "홈런", "타점", "도루", "타율", "출루율", "장타율", "OPS"].map((h, i) => (
+                            <th key={h} style={{ textAlign: (i === 0 ? "left" : "center") as "left" | "center", padding: "6px 8px", fontWeight: 600 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...careerRows.filter((r) => r.ab !== undefined), ...(careerTotals.ab !== undefined ? [careerTotals] : [])].map((r) => {
+                          const isCareer = r.season === "Career";
+                          return (
+                            <tr key={r.season} style={{ boxShadow: "inset 0 1px 0 rgba(148,163,184,.06)", fontStyle: isCareer ? "italic" : undefined }}>
+                              <td style={{ padding: "8px 8px", fontWeight: 700, color: isCareer ? "var(--text-faint)" : "var(--text)" }}>{r.season}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.ab ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.hits ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.hr ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.rbi ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.sb ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.avg !== undefined ? r.avg.toFixed(3) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.obp !== undefined ? r.obp.toFixed(3) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.slg !== undefined ? r.slg.toFixed(3) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{r.ops !== undefined ? r.ops.toFixed(3) : "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
+                {showCareerPit && (
+                  <div style={{ overflowX: "auto" as const }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ color: "var(--text-faint)", fontSize: 11, letterSpacing: 0.5 }}>
+                          {["시즌", "승", "패", "이닝", "ERA", "피안타", "자책", "볼넷", "삼진", "WHIP"].map((h, i) => (
+                            <th key={h} style={{ textAlign: (i === 0 ? "left" : "center") as "left" | "center", padding: "6px 8px", fontWeight: 600 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...careerRows.filter((r) => r.ip !== undefined), ...(careerTotals.ip !== undefined ? [careerTotals] : [])].map((r) => {
+                          const isCareer = r.season === "Career";
+                          return (
+                            <tr key={r.season} style={{ boxShadow: "inset 0 1px 0 rgba(148,163,184,.06)", fontStyle: isCareer ? "italic" : undefined }}>
+                              <td style={{ padding: "8px 8px", fontWeight: 700, color: isCareer ? "var(--text-faint)" : "var(--text)" }}>{r.season}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.w ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.l ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.ip !== undefined ? formatIP(r.ip) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{r.era !== undefined ? r.era.toFixed(2) : "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.ha ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.er ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.bb_p ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.so ?? "-"}</td>
+                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.whip !== undefined ? r.whip.toFixed(2) : "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+                </div>
+              ),
+            },
+            {
+              id: "splits",
+              title: ko ? "상황별 성적" : "Splits",
+              hint: ko ? "학기(Spring / Fall)별 명단과 기록" : "Roster and stats by term (Spring / Fall)",
+              content: (
+                <>
+                  {termRows.length === 0 && (
+                    <p className="pcard-empty">{ko ? "나눠 볼 학기 기록이 아직 없어요." : "No term records to split yet."}</p>
+                  )}
             {/* 학기별 명단 · 기록 (Spring / Fall) */}
             {termRows.length > 0 && (
               <div style={{ background: "var(--surface-raised)", borderRadius: "var(--radius)", padding: "var(--pad-card)" }}>
@@ -606,86 +716,15 @@ export default async function PlayerDetail({
                 )}
               </div>
             )}
-
-            {/* Career overview table */}
-            {careerRows.length > 1 && (
-              <div style={{ background: "var(--surface-raised)", borderRadius: "var(--radius)", padding: "var(--pad-card)" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase" as const, color: "var(--text-faint)", marginBottom: 18 }}>
-                  Career Overview
-                </div>
-
-                {showCareerBat && (
-                  <div style={{ overflowX: "auto" as const, marginBottom: showCareerPit ? 24 : 0 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ color: "var(--text-faint)", fontSize: 11, letterSpacing: 0.5 }}>
-                          {["시즌", "타수", "안타", "홈런", "타점", "도루", "타율", "출루율", "장타율", "OPS"].map((h, i) => (
-                            <th key={h} style={{ textAlign: (i === 0 ? "left" : "center") as "left" | "center", padding: "6px 8px", fontWeight: 600 }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...careerRows.filter((r) => r.ab !== undefined), ...(careerTotals.ab !== undefined ? [careerTotals] : [])].map((r) => {
-                          const isCareer = r.season === "Career";
-                          return (
-                            <tr key={r.season} style={{ boxShadow: "inset 0 1px 0 rgba(148,163,184,.06)", fontStyle: isCareer ? "italic" : undefined }}>
-                              <td style={{ padding: "8px 8px", fontWeight: 700, color: isCareer ? "var(--text-faint)" : "var(--text)" }}>{r.season}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.ab ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.hits ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.hr ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.rbi ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.sb ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.avg !== undefined ? r.avg.toFixed(3) : "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.obp !== undefined ? r.obp.toFixed(3) : "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.slg !== undefined ? r.slg.toFixed(3) : "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{r.ops !== undefined ? r.ops.toFixed(3) : "-"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {showCareerPit && (
-                  <div style={{ overflowX: "auto" as const }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ color: "var(--text-faint)", fontSize: 11, letterSpacing: 0.5 }}>
-                          {["시즌", "승", "패", "이닝", "ERA", "피안타", "자책", "볼넷", "삼진", "WHIP"].map((h, i) => (
-                            <th key={h} style={{ textAlign: (i === 0 ? "left" : "center") as "left" | "center", padding: "6px 8px", fontWeight: 600 }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...careerRows.filter((r) => r.ip !== undefined), ...(careerTotals.ip !== undefined ? [careerTotals] : [])].map((r) => {
-                          const isCareer = r.season === "Career";
-                          return (
-                            <tr key={r.season} style={{ boxShadow: "inset 0 1px 0 rgba(148,163,184,.06)", fontStyle: isCareer ? "italic" : undefined }}>
-                              <td style={{ padding: "8px 8px", fontWeight: 700, color: isCareer ? "var(--text-faint)" : "var(--text)" }}>{r.season}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.w ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.l ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.ip !== undefined ? formatIP(r.ip) : "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const, fontWeight: 700, color: "var(--coral)" }}>{r.era !== undefined ? r.era.toFixed(2) : "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.ha ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.er ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.bb_p ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.so ?? "-"}</td>
-                              <td className="num" style={{ padding: "8px 8px", textAlign: "center" as const }}>{r.whip !== undefined ? r.whip.toFixed(2) : "-"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Right column: AI report + PlayerGoals */}
-          <div style={{ display: "flex", flexDirection: "column" as const, gap: 20 }}>
-
+                </>
+              ),
+            },
+            {
+              id: "ai",
+              title: ko ? "AI 분석" : "AI analysis",
+              hint: ko ? "강점, 개선 포인트, 훈련 방향" : "Strengths, areas to improve, training plan",
+              content: (
+                <>
             {/* AI 분석 리포트 */}
             <div style={{ background: "var(--surface-raised)", borderRadius: "var(--radius)", padding: "var(--pad-card)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
@@ -731,11 +770,22 @@ export default async function PlayerDetail({
                 <AIButton playerId={player.id} lang={lang} />
               )}
             </div>
-
+                </>
+              ),
+            },
+            {
+              id: "goals",
+              title: ko ? "목표" : "Goals",
+              hint: ko ? "개인 목표와 달성도" : "Personal goals and progress",
+              content: (
+                <>
             {/* 개인 목표 달성도 */}
             <PlayerGoals playerId={player.id} isPitcher={player.is_pitcher} lang={lang} season={currentSeason} currentStats={currentStats} />
-          </div>
-        </div>
+                </>
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   );

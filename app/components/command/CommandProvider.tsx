@@ -13,6 +13,9 @@ type CommandContextValue = {
   season: string | null;
   openPalette: () => void;
   openMetric: (request: MetricSheetRequest) => void;
+  /** 현재 위치의 마지막 칸 (선수 이름). 화면이 CrumbLeaf로 알려 준다 */
+  crumbLeaf: string | null;
+  setCrumbLeaf: (label: string | null) => void;
 };
 
 const CommandContext = createContext<CommandContextValue | null>(null);
@@ -47,6 +50,7 @@ export default function CommandProvider({ lang, children }: { lang: Lang; childr
   const [metric, setMetric] = useState<MetricSheetRequest | null>(null);
   const [cookieSeason, setCookieSeason] = useState<string | null>(null);
   const handledParam = useRef<string | null>(null);
+  const [crumbLeaf, setCrumbLeaf] = useState<string | null>(null);
 
   useEffect(() => setCookieSeason(readSeasonCookie()), [pathname, searchParams]);
   const season = searchParams.get("season") || cookieSeason;
@@ -98,7 +102,10 @@ export default function CommandProvider({ lang, children }: { lang: Lang; childr
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [metricParam, pathname, router, searchParams]);
 
-  const value = useMemo(() => ({ lang, season, openPalette, openMetric }), [lang, season, openPalette, openMetric]);
+  const value = useMemo(
+    () => ({ lang, season, openPalette, openMetric, crumbLeaf, setCrumbLeaf }),
+    [lang, season, openPalette, openMetric, crumbLeaf]
+  );
 
   return (
     <CommandContext.Provider value={value}>

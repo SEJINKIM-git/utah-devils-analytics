@@ -13,31 +13,40 @@ import {
   CalendarDays,
   Sparkles,
   BarChart2,
+  ClipboardList,
+  type LucideIcon,
 } from "lucide-react";
 import type { Lang } from "@/lib/translations";
 import AdminStatus from "@/app/components/AdminStatus";
+import { useAdminSession } from "@/app/components/useAdminSession";
+import { NAV_GROUPS, locateNav, type NavIcon } from "@/lib/nav";
 
-const NAV_ITEMS = [
-  { href: "/",               icon: LayoutDashboard, labelKo: "대시보드",  labelEn: "Dashboard"  },
-  { href: "/records",        icon: BarChart2,        labelKo: "기록",      labelEn: "Records"    },
-  { href: "/lineup",         icon: Users,           labelKo: "선수단",    labelEn: "Roster"     },
-  { href: "/compare",        icon: ArrowLeftRight,  labelKo: "선수 비교", labelEn: "Compare"    },
-  { href: "/team-analysis",  icon: Brain,           labelKo: "AI 분석",   labelEn: "AI Analysis"},
-  { href: "/situations/hub", icon: Zap,             labelKo: "상황 센터", labelEn: "Situations" },
-  { href: "/upload",         icon: Upload,          labelKo: "업로드",    labelEn: "Upload"     },
-  { href: "/schedule",       icon: CalendarDays,    labelKo: "일정",      labelEn: "Schedule"   },
-] as const;
+export const NAV_ICONS: Record<NavIcon, LucideIcon> = {
+  users: Users,
+  compare: ArrowLeftRight,
+  calendar: CalendarDays,
+  zap: Zap,
+  review: ClipboardList,
+  dashboard: LayoutDashboard,
+  records: BarChart2,
+  brain: Brain,
+  upload: Upload,
+};
 
 function buildHref(path: string, season: string | null): string {
   if (!season) return path;
   return `${path}?season=${encodeURIComponent(season)}`;
 }
 
+/** PC 메뉴: 선수 · 경기 · 팀 묶음 제목 아래 화면을 나열한다. 관리 묶음은 로그인한 운영진에게만 보인다. */
 export default function Sidebar({ lang }: { lang: Lang }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const season = searchParams.get("season");
   const isKo = lang === "ko";
+  const session = useAdminSession();
+  const current = locateNav(pathname);
+  const groups = NAV_GROUPS.filter((group) => !group.adminOnly || session?.loggedIn);
 
   return (
     <aside className="sidebar">
@@ -60,20 +69,28 @@ export default function Sidebar({ lang }: { lang: Lang }) {
 
       {/* 내비게이션 */}
       <nav className="sidebar-nav" aria-label={isKo ? "메인 네비게이션" : "Main navigation"}>
-        <p className="sidebar-section-label">{isKo ? "메뉴" : "MENU"}</p>
-        {NAV_ITEMS.map(({ href, icon: Icon, labelKo, labelEn }) => {
-          const active = pathname === href;
-          return (
-            <Link
-              key={href}
-              href={buildHref(href, season)}
-              className={`sidebar-nav-item${active ? " active" : ""}`}
-            >
-              <Icon size={18} strokeWidth={1.8} />
-              <span>{isKo ? labelKo : labelEn}</span>
-            </Link>
-          );
-        })}
+        {groups.map((group) => (
+          <div key={group.id} role="group" aria-labelledby={`sidebar-group-${group.id}`} className="sidebar-group">
+            <p id={`sidebar-group-${group.id}`} className="sidebar-section-label">
+              {isKo ? group.labelKo : group.labelEn}
+            </p>
+            {group.items.map((item) => {
+              const Icon = NAV_ICONS[item.icon];
+              const active = current?.item?.href === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={buildHref(item.href, season)}
+                  className={`sidebar-nav-item${active ? " active" : ""}`}
+                  aria-current={active ? "page" : undefined}
+                >
+                  <Icon size={18} strokeWidth={1.8} />
+                  <span>{isKo ? item.labelKo : item.labelEn}</span>
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* CTA */}

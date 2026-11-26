@@ -11,6 +11,9 @@
  *  - combobox 역할, aria-activedescendant
  *  - 숫자를 눌러 시트 열기, 시트의 값이 화면 값과 같은지
  *  - 누르는 영역 44px, 글자 대비 4.5:1 (다크·라이트)
+ *  - 메뉴: 하단 네 칸(선수 · 경기 · 팀 · 검색), 사이드바 묶음, 현재 위치 표시
+ *  - 선수 페이지: 큰 숫자 3개, 기능 카드 전환(?view=), 비교 버튼, 즐겨찾기 → 대시보드 카드
+ *  - 기존 주소가 그대로 열리고 ?season= 이 유지되는지
  * 390px(휴대폰)과 1280px(PC), 한·영, 다크·라이트에서 돌린다.
  */
 import { mkdirSync } from "node:fs";
@@ -214,6 +217,75 @@ for (const width of [390, 1280]) {
       }
       await shot(page, `player-${tag}`);
 
+      // ── 메뉴 재편 ──
+      const crumbs = (await page.locator(".crumb-item").allTextContents()).map((text) => text.replace("›", "").trim());
+      check(`[${tag}] 현재 위치: 팀 › 선수 › 이름`, crumbs.length === 3 && crumbs[0] === (lang === "ko" ? "팀" : "Team") && crumbs[1] === (lang === "ko" ? "선수" : "Players") && crumbs[2].length > 0, crumbs.join(" > "));
+      if (mobile) {
+        const slots = (await page.locator(".mobile-nav-item").allTextContents()).map((text) => text.trim());
+        check(`[${tag}] 하단 메뉴 네 칸`, JSON.stringify(slots) === JSON.stringify(lang === "ko" ? ["선수", "경기", "팀", "검색"] : ["Players", "Games", "Team", "Search"]), slots.join(","));
+        check(`[${tag}] 지금 묶음(선수) 표시`, (await page.locator('[data-testid="mobile-nav-player"]').getAttribute("aria-current")) === "true");
+        const slot = await sizeOf(page, ".mobile-nav-item");
+        check(`[${tag}] 하단 메뉴 누르는 영역 44px`, slot !== null && slot.h >= 44 && slot.w >= 44, JSON.stringify(slot));
+        check(`[${tag}] 가로 스크롤 없음 (선수 페이지)`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+      } else {
+        const groups = (await page.locator(".sidebar-section-label").allTextContents()).map((text) => text.trim());
+        check(`[${tag}] 사이드바 묶음: 선수 · 경기 · 팀 (관리는 로그인 전 숨김)`, JSON.stringify(groups) === JSON.stringify(lang === "ko" ? ["선수", "경기", "팀"] : ["Players", "Games", "Team"]), groups.join(","));
+        check(`[${tag}] 사이드바 항목 8개 중 업로드만 숨김`, (await page.locator(".sidebar-nav-item").count()) === 8);
+      }
+
+      // ── 선수 페이지: 요약 먼저 ──
+      check(`[${tag}] 큰 숫자 3개`, (await page.locator(".player-hero-number").count()) === 3);
+      const heroCodes = (await page.locator(".player-hero-number-label").allTextContents()).join(" ");
+      check(`[${tag}] 큰 숫자는 타율·출루율·OPS`, ["AVG", "OBP", "OPS"].every((code) => heroCodes.includes(code)), heroCodes);
+      if (lang === "ko") check(`[${tag}] 쉬운 말이 먼저 (출루율 + 작은 OBP)`, heroCodes.includes("출루율") && heroCodes.includes("타율"), heroCodes);
+      const cards = page.locator(".pcard");
+      check(`[${tag}] 기능 카드 5개`, (await cards.count()) === 5);
+      check(`[${tag}] 처음에는 모두 접혀 있음`, (await page.locator('.pcard-head[aria-expanded="true"]').count()) === 0);
+      const cta = page.locator('[data-testid="compare-cta"]');
+      check(`[${tag}] 비교 버튼 → /compare?a=`, ((await cta.getAttribute("href")) || "").startsWith(`/compare?a=${PLAYER_ID}&season=${SEASON}`), await cta.getAttribute("href"));
+      const ctaSize = await sizeOf(page, '[data-testid="compare-cta"]');
+      check(`[${tag}] 비교 버튼 누르는 영역 44px`, ctaSize !== null && ctaSize.h >= 44, JSON.stringify(ctaSize));
+
+      // 카드 전환: 키보드로 열기 → 주소에 ?view= → 다른 카드 → 닫기
+      await page.locator('.pcard[data-view="season"] .pcard-head').focus();
+      await page.keyboard.press("Enter");
+      await page.waitForURL(/view=season/);
+      check(`[${tag}] 시즌 기록 카드 열림 (?view=season, season 유지)`, (await page.locator("#pcard-body-season").isVisible()) && page.url().includes(`season=${SEASON}`), page.url());
+      await shot(page, `player-season-${tag}`);
+      await page.locator('.pcard[data-view="gamelog"] .pcard-head').click();
+      await page.waitForURL(/view=gamelog/);
+      check(`[${tag}] 카드는 하나만 열림`, (await page.locator("#pcard-body-gamelog").isVisible()) && !(await page.locator("#pcard-body-season").isVisible()));
+      await page.locator('.pcard[data-view="gamelog"] .pcard-head').click();
+      await page.waitForURL((url) => !url.search.includes("view="));
+      check(`[${tag}] 다시 누르면 접힘`, (await page.locator('.pcard-head[aria-expanded="true"]').count()) === 0);
+
+      // 주소로 바로 열기
+      for (const viewId of ["gamelog", "season", "splits", "ai", "goals"]) {
+        await page.goto(`${BASE}/players/${PLAYER_ID}?season=${SEASON}&view=${viewId}`, { waitUntil: "networkidle" });
+        check(`[${tag}] ?view=${viewId} 로 바로 열림`, await page.locator(`#pcard-body-${viewId}`).isVisible());
+      }
+
+      // ── 즐겨찾기: 별 → 대시보드 카드 → 다시 누르면 사라짐 ──
+      await page.goto(`${BASE}/?season=${SEASON}`, { waitUntil: "networkidle" });
+      check(`[${tag}] 즐겨찾기가 없으면 영역 숨김`, (await page.locator('[data-testid="favorite-players"]').count()) === 0);
+      await page.goto(`${BASE}/players/${PLAYER_ID}?season=${SEASON}`, { waitUntil: "networkidle" });
+      const star = page.locator('[data-testid="favorite-toggle"]');
+      await star.focus();
+      await page.keyboard.press("Enter");
+      check(`[${tag}] 별 버튼 켜짐`, (await star.getAttribute("aria-pressed")) === "true");
+      await page.goto(`${BASE}/?season=${SEASON}`, { waitUntil: "networkidle" });
+      const favCard = page.locator(".fav-card");
+      check(`[${tag}] 대시보드에 즐겨찾기 선수 카드`, (await favCard.count()) === 1);
+      await page.locator(".fav-card-value").filter({ hasText: /\d|---/ }).waitFor({ timeout: 10_000 }).catch(() => {});
+      check(`[${tag}] 카드에 대표 지표 하나`, /^(\d\.\d{2,3}|---)$/.test(((await page.locator(".fav-card-value").textContent()) || "").trim()), await page.locator(".fav-card-value").textContent());
+      await shot(page, `home-favorites-${tag}`);
+      await favCard.click();
+      await page.waitForURL(new RegExp(`/players/${PLAYER_ID}\\?season=${SEASON}`));
+      await star.click();
+      check(`[${tag}] 별 버튼 꺼짐`, (await star.getAttribute("aria-pressed")) === "false");
+      await page.goto(`${BASE}/?season=${SEASON}`, { waitUntil: "networkidle" });
+      check(`[${tag}] 즐겨찾기를 빼면 영역이 다시 숨겨짐`, (await page.locator('[data-testid="favorite-players"]').count()) === 0);
+
       // ── AI에게 물어보기 ──
       await page.goto(`${BASE}/records?season=${SEASON}`, { waitUntil: "networkidle" });
       if (mobile) await page.click('[data-testid="open-search-mobile"]');
@@ -231,6 +303,27 @@ for (const width of [390, 1280]) {
       await context.close();
     }
   }
+}
+
+// ── 기존 주소: 그대로 열리고 ?season= 이 유지된다 (주소를 옮기지 않았으므로 리다이렉트도 없다) ──
+{
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  for (const route of ["/", "/records", "/lineup", "/compare", "/team-analysis", "/situations/hub", "/situations/offense", "/situations/defense", "/situations/game-notes", "/situations/post-game", "/schedule", "/calendar", "/game-review", `/players/${PLAYER_ID}`]) {
+    const response = await page.goto(`${BASE}${route}?season=${SEASON}`, { waitUntil: "domcontentloaded" });
+    const url = new URL(page.url());
+    check(`[기존 주소] ${route}`, response?.status() === 200 && url.pathname === route && url.searchParams.get("season") === SEASON, `${response?.status()} ${page.url()}`);
+  }
+  // 운영 화면은 여전히 로그인으로 보낸다 (인증 범위 그대로)
+  for (const route of ["/upload", "/files", "/import"]) {
+    await page.goto(`${BASE}${route}?season=${SEASON}`, { waitUntil: "domcontentloaded" });
+    const url = new URL(page.url());
+    check(`[기존 주소] ${route} → 로그인 (돌아올 주소에 season 유지)`, url.pathname === "/login" && (url.searchParams.get("next") || "").includes(`season=${SEASON}`), page.url());
+  }
+  // 비교 화면은 ?a= 로 첫 선수를 미리 고른다
+  await page.goto(`${BASE}/compare?a=${PLAYER_ID}&season=${SEASON}`, { waitUntil: "networkidle" });
+  check("[비교] ?a= 로 넘어온 주소가 열린다", new URL(page.url()).searchParams.get("a") === PLAYER_ID);
+  await context.close();
 }
 
 await browser.close();

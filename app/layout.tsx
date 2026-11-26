@@ -1,4 +1,5 @@
 import { ThemeProvider } from '@/app/components/ThemeProvider';
+import Breadcrumb from '@/app/components/Breadcrumb';
 import CommandProvider from '@/app/components/command/CommandProvider';
 import MobileNav from '@/app/components/MobileNav';
 import Sidebar from '@/app/components/Sidebar';
@@ -67,6 +68,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <Sidebar lang={lang} />
               <div className="layout-content">
                 <Topbar lang={lang} />
+                <Breadcrumb lang={lang} />
                 <main className="layout-main">{children}</main>
               </div>
             </div>
