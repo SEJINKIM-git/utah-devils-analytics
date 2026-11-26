@@ -4,18 +4,21 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from .metrics import metric_short_name
 from .stats import ERA_BASE_INNINGS, fmt_rate
 
 PRIMARY = "#0058bc"
 PALETTE = ["#0058bc", "#e8590c", "#2b8a3e", "#7048e8", "#c2255c", "#1098ad"]
 
-BAT_LABELS = {"number": "배번", "name": "이름", "g": "경기", "pa": "타석", "ab": "타수", "runs": "득점", "hits": "안타",
-              "doubles": "2루타", "triples": "3루타", "hr": "홈런", "rbi": "타점", "bb": "볼넷", "hbp": "사구",
-              "so": "삼진", "sb": "도루", "avg": "타율", "obp": "출루율", "slg": "장타율", "ops": "OPS", "season": "시즌"}
-PIT_LABELS = {"number": "배번", "name": "이름", "w": "승", "l": "패", "sv": "세", "hld": "홀", "ip": "이닝",
-              "ha": "피안타", "runs_allowed": "실점", "er": "자책", "bb": "볼넷", "hbp": "사구", "so": "삼진",
-              "hr_allowed": "피홈런", "era": "ERA", "whip": "WHIP", f"k_{ERA_BASE_INNINGS}": f"K/{ERA_BASE_INNINGS}",
-              f"bb_{ERA_BASE_INNINGS}": f"BB/{ERA_BASE_INNINGS}", "season": "시즌"}
+# 지표 이름은 지표 사전(lib/metrics/registry.json)이 원본이다. 여기서는 표의 칸 이름 → 지표 코드만 잇는다.
+_BAT_CODES = {"g": "G", "pa": "PA", "ab": "AB", "runs": "R", "hits": "H", "doubles": "2B", "triples": "3B", "hr": "HR",
+              "rbi": "RBI", "bb": "BB", "hbp": "HBP", "so": "SO", "sb": "SB", "avg": "AVG", "obp": "OBP", "slg": "SLG", "ops": "OPS"}
+_PIT_CODES = {"w": "W", "l": "L", "sv": "SV", "hld": "HLD", "ip": "IP", "ha": "HA", "runs_allowed": "RA", "er": "ER",
+              "bb": "BBA", "hbp": "HBA", "so": "K", "hr_allowed": "HRA", "era": "ERA", "whip": "WHIP",
+              f"k_{ERA_BASE_INNINGS}": f"K{ERA_BASE_INNINGS}", f"bb_{ERA_BASE_INNINGS}": f"BB{ERA_BASE_INNINGS}"}
+
+BAT_LABELS = {"number": "배번", "name": "이름", "season": "시즌", **{col: metric_short_name(code) for col, code in _BAT_CODES.items()}}
+PIT_LABELS = {"number": "배번", "name": "이름", "season": "시즌", **{col: metric_short_name(code) for col, code in _PIT_CODES.items()}}
 
 BAT_VIEW = ["number", "name", "g", "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "bb", "hbp", "so", "sb",
             "avg", "obp", "slg", "ops"]
