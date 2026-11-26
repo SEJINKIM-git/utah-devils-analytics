@@ -33,6 +33,7 @@
     "@electric-sql/pglite": "^0.3.16",
     "eslint": "^9.39.4",
     "eslint-config-next": "^15.3.9",
+    "playwright": "^1.56.1",
     "vitest": "^3.2.7"
   }
 }
