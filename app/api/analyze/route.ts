@@ -5,10 +5,9 @@ import OpenAI from "openai";
 import { NextRequest } from "next/server";
 import { findRelatedPlayersByIdentity } from "@/lib/playerIdentity";
 import { getTrainingPlanGuidance } from "@/lib/trainingPlanGuidance";
-import { parseIP } from "@/lib/statFormatting";
-import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
-import { isSeasonValue } from "@/lib/season";
-import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
+import type { PitchingTotals } from "@/lib/metrics";
+import { createEvidenceCollector } from "@/lib/metrics/evidence";
+import { createMetricQuery, loadMetricDataset } from "@/lib/metrics/query";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,102 +35,32 @@ export async function POST(request: NextRequest) {
     );
     const relatedPlayerIds = Array.from(new Set(relatedPlayers.map((entry) => entry.id)));
 
-    const [{ data: rawBatting }, { data: rawPitching }] = await Promise.all([
-      supabase.from("batting_stats").select("*").in("player_id", relatedPlayerIds).order("season"),
-      supabase.from("pitching_stats").select("*").in("player_id", relatedPlayerIds).order("season"),
-    ]);
-
-    // game_id 기준 중복 제거: 여러 player_id가 동일 경기 기록을 가질 때 부풀림 방지
-    // 시즌 요약 행(game_id 없음)도 포함한다. 이전에는 game_id 없는 행을 모두 건너뛰어
-    // 시즌 누적 파일만 있는 2022~2025 시즌은 AI 분석에 기록이 하나도 전달되지 않았다.
-    const isRealSeason = (row: { season?: string | null }) =>
-      isSeasonValue(row.season) && String(row.season) !== "Career";
-    const batByGame = new Map<number | string, any>();
-    for (const row of selectEffectiveBattingRows(rawBatting).filter(isRealSeason)) {
-      const key = row.game_id ?? `summary:${row.id}`;
-      const prev = batByGame.get(key);
-      if (!prev || (row.pa || 0) >= (prev.pa || 0)) batByGame.set(key, row);
-    }
-    const pitByGame = new Map<number | string, any>();
-    for (const row of selectEffectiveStatRows(rawPitching).filter(isRealSeason)) {
-      const key = row.game_id ?? `summary:${row.id}`;
-      const prev = pitByGame.get(key);
-      if (!prev || parseIP(row.ip) >= parseIP(prev.ip)) pitByGame.set(key, row);
-    }
-
-    const battingBySeason = new Map<string, any>();
-    for (const row of batByGame.values()) {
-      const key = String(row.season || "2025");
-      const current = battingBySeason.get(key) || {
-        season: key,
-        pa: 0, obp_den: 0, ab: 0, runs: 0, hits: 0, doubles: 0, triples: 0,
-        hr: 0, rbi: 0, bb: 0, hbp: 0, so: 0, sb: 0,
-      };
-      battingBySeason.set(key, {
-        ...current,
-        pa: current.pa + (row.pa || 0),
-        obp_den: current.obp_den + obpDenominator(row),
-        ab: current.ab + (row.ab || 0),
-        runs: current.runs + (row.runs || 0),
-        hits: current.hits + (row.hits || 0),
-        doubles: current.doubles + (row.doubles || 0),
-        triples: current.triples + (row.triples || 0),
-        hr: current.hr + (row.hr || 0),
-        rbi: current.rbi + (row.rbi || 0),
-        bb: current.bb + (row.bb || 0),
-        hbp: current.hbp + (row.hbp || 0),
-        so: current.so + (row.so || 0),
-        sb: current.sb + (row.sb || 0),
-      });
-    }
-
-    const pitchingBySeason = new Map<string, any>();
-    for (const row of pitByGame.values()) {
-      const key = String(row.season || "2025");
-      const current = pitchingBySeason.get(key) || {
-        season: key,
-        w: 0, l: 0, sv: 0, ip: 0, ha: 0, runs_allowed: 0, er: 0, bb: 0, so: 0, hr_allowed: 0,
-      };
-      pitchingBySeason.set(key, {
-        ...current,
-        w: current.w + (row.w || 0),
-        l: current.l + (row.l || 0),
-        sv: current.sv + (row.sv || 0),
-        ip: current.ip + parseIP(row.ip),
-        ha: current.ha + (row.ha || 0),
-        runs_allowed: current.runs_allowed + (row.runs_allowed || 0),
-        er: current.er + (row.er || 0),
-        bb: current.bb + (row.bb || 0),
-        so: current.so + (row.so || 0),
-        hr_allowed: current.hr_allowed + (row.hr_allowed || 0),
-      });
-    }
-
-    const allBatting = Array.from(battingBySeason.values()).sort((a, b) => String(a.season).localeCompare(String(b.season)));
-    const allPitching = Array.from(pitchingBySeason.values()).sort((a, b) => String(a.season).localeCompare(String(b.season)));
+    // 숫자는 조회 함수에서 받는다 (이 파일에서 계산하지 않는다).
+    // 범위 "all": 명단 기준을 적용하지 않고 모든 시즌의 유효 행을 쓴다 — 이전 분석과 같은 범위.
+    const { dataset } = await loadMetricDataset(supabase);
+    const query = createMetricQuery(dataset);
+    const target = { player: player.id };
+    const evidence = createEvidenceCollector(query, lang === "en" ? "en" : "ko");
+    const cite = (code: string, season: string, fallback?: string) => evidence.cite(target, code, season, { scope: "all", fallback });
 
     let statsText = `[Player Info]\nName: ${player.name} (#${player.number})\n`;
 
-    if (allBatting && allBatting.length > 0) {
+    const battingSeasons = query.seasons().filter((season) => query.totals(target, "batting", season, { scope: "all" }));
+    if (battingSeasons.length > 0) {
       statsText += `\n[Batting Stats]\n`;
-      for (const bat of allBatting) {
-        const season = bat.season || "2025";
-        const avg = bat.ab > 0 ? (bat.hits / bat.ab).toFixed(3) : "0";
-        const obp = formatRate(computeObp(bat), 3, "0");
-        const slg = bat.ab > 0 ? ((bat.hits - bat.doubles - bat.triples - bat.hr + bat.doubles * 2 + bat.triples * 3 + bat.hr * 4) / bat.ab).toFixed(3) : "0";
-        const ops = (parseFloat(obp) + parseFloat(slg)).toFixed(3);
-        statsText += `\n● ${season}:\nPA: ${bat.pa} | AB: ${bat.ab} | H: ${bat.hits}\n2B: ${bat.doubles} | 3B: ${bat.triples} | HR: ${bat.hr}\nRBI: ${bat.rbi} | R: ${bat.runs}\nBB: ${bat.bb} | HBP: ${bat.hbp} | SO: ${bat.so}\nSB: ${bat.sb}\nAVG: ${avg} | OBP: ${obp} | SLG: ${slg} | OPS: ${ops}\n`;
+      for (const season of battingSeasons) {
+        statsText += `\n● ${season}:\nPA: ${cite("PA", season)} | AB: ${cite("AB", season)} | H: ${cite("H", season)}\n2B: ${cite("2B", season)} | 3B: ${cite("3B", season)} | HR: ${cite("HR", season)}\nRBI: ${cite("RBI", season)} | R: ${cite("R", season)}\nBB: ${cite("BB", season)} | HBP: ${cite("HBP", season)} | SO: ${cite("SO", season)}\nSB: ${cite("SB", season)}\nAVG: ${cite("AVG", season, "0")} | OBP: ${cite("OBP", season, "0")} | SLG: ${cite("SLG", season, "0")} | OPS: ${cite("OPS", season, "0")}\n`;
       }
     }
 
-    if (allPitching && allPitching.length > 0) {
+    const pitchingSeasons = query.seasons().filter((season) => {
+      const totals = query.totals(target, "pitching", season, { scope: "all" }) as PitchingTotals | null;
+      return Boolean(totals && totals.innings > 0);
+    });
+    if (pitchingSeasons.length > 0) {
       statsText += `\n[Pitching Stats]\n`;
-      for (const pitch of allPitching) {
-        if (!pitch.ip || pitch.ip === 0) continue;
-        const season = pitch.season || "2025";
-        const era = formatRate(eraFromInnings(pitch.er, pitch.ip), 2, "0.00");
-        const whip = formatRate(whipFromInnings(pitch.ha, pitch.bb, pitch.ip), 2, "0.00");
-        statsText += `\n● ${season}:\nW: ${pitch.w} | L: ${pitch.l} | SV: ${pitch.sv}\nIP: ${pitch.ip} | HA: ${pitch.ha}\nRA: ${pitch.runs_allowed} | ER: ${pitch.er}\nBB: ${pitch.bb} | SO: ${pitch.so} | HRA: ${pitch.hr_allowed}\nERA: ${era} | WHIP: ${whip}\n`;
+      for (const season of pitchingSeasons) {
+        statsText += `\n● ${season}:\nW: ${cite("W", season)} | L: ${cite("L", season)} | SV: ${cite("SV", season)}\nIP: ${cite("IP", season)} | HA: ${cite("HA", season)}\nRA: ${cite("RA", season)} | ER: ${cite("ER", season)}\nBB: ${cite("BBA", season)} | SO: ${cite("K", season)} | HRA: ${cite("HRA", season)}\nERA: ${cite("ERA", season, "0.00")} | WHIP: ${cite("WHIP", season, "0.00")}\n`;
       }
     }
 
@@ -171,7 +100,8 @@ export async function POST(request: NextRequest) {
       training_plan: analysis.training_plan,
     });
 
-    return Response.json(analysis);
+    // evidence: 이 리포트에 쓴 지표 코드와 값 (근거 표시용. DB에는 저장하지 않는다 — 저장하려면 ai_reports에 칸이 필요하다)
+    return Response.json({ ...analysis, evidence: evidence.list });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "알 수 없는 에러";
     console.error("AI 분석 에러:", message);
