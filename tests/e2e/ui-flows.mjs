@@ -73,7 +73,8 @@ async function sizeOf(page, selector) {
   return box ? { w: Math.round(box.width), h: Math.round(box.height) } : null;
 }
 
-const browser = await chromium.launch();
+// PW_CHANNEL=chrome 이면 설치돼 있는 Chrome을 쓴다 (CI 러너는 Playwright 내장 브라우저를 설치할 수 없다)
+const browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
 
 for (const width of [390, 1280]) {
   for (const theme of ["dark", "light"]) {

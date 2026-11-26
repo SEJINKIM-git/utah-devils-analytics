@@ -31,12 +31,12 @@ jobs:
       - run: npm run lint
       - name: 인증 스모크 테스트 + 화면 흐름 (Playwright)
         run: |
-          npx playwright install --with-deps chromium
           node tests/e2e/mock-supabase.mjs &
           npx next start -p 3100 &
           npx --yes wait-on@8 http://localhost:3100/login http://127.0.0.1:54321/rest/v1/players
           BASE_URL=http://localhost:3100 node tests/e2e/auth-smoke.mjs
-          BASE_URL=http://localhost:3100 node tests/e2e/ui-flows.mjs
+          # 러너에 설치돼 있는 Chrome을 쓴다 (Playwright 내장 브라우저는 이 러너 OS를 지원하지 않는다)
+          BASE_URL=http://localhost:3100 PW_CHANNEL=chrome node tests/e2e/ui-flows.mjs
 
   console:
     name: 운영 콘솔 (Streamlit)
