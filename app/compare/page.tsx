@@ -666,6 +666,9 @@ export default function ComparePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
   const requestedSeason = Number(searchParams.get('season') || 0);
+  // 선수 페이지의 "다른 선수와 비교하기"에서 넘어온 첫 선수 (?a=<선수 id>)
+  const requestedA = searchParams.get('a');
+  const appliedA = useRef<string | null>(null);
 
   useEffect(() => {
     const syncLang = () => setLang(readLangCookie());
@@ -722,6 +725,15 @@ export default function ComparePage() {
   const errorMessage = error === 'compare-data-load-failed'
     ? (isKo ? '선수 비교 데이터를 불러오지 못했습니다.' : 'Failed to load comparison data.')
     : error;
+
+  useEffect(() => {
+    if (!requestedA || seasonPlayers.length === 0) return;
+    const key = `${season}:${requestedA}`;
+    if (appliedA.current === key) return;
+    appliedA.current = key;
+    const match = seasonPlayers.find((player) => String(player.id) === requestedA);
+    if (match) setP1(match);
+  }, [requestedA, season, seasonPlayers]);
 
   useEffect(() => {
     const seasonIds = new Set(seasonPlayers.map((player) => player.id));

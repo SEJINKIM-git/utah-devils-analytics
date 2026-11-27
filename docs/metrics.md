@@ -97,3 +97,11 @@ diff -r /tmp/snap-main /tmp/snap-branch   # 차이가 없어야 한다
 ```
 
 스냅숏에는 실제 선수 이름이 들어가므로 저장소에 올리지 않는다.
+
+## 6. 메뉴 묶음과 선수 페이지 주소
+
+- 메뉴 묶음(선수 · 경기 · 팀 · 관리)은 `lib/nav.ts` 한 곳에 있다. Sidebar, 하단 메뉴, 현재 위치 표시가 함께 쓴다. 주소는 옮기지 않았다.
+- 선수 페이지 카드는 주소로 바로 연다: `/players/12?view=gamelog|season|splits|ai|goals`
+- 지표 설명 시트도 주소로 연다: `/players/12?metric=OBP`
+- 선수 비교의 첫 선수: `/compare?a=12`
+- 즐겨찾기는 브라우저 `localStorage`(`ud-favorites-v1`)에만 저장한다. 로그인·DB와 무관하다.

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import Image from "next/image";
 import MetricValue from "@/app/components/metrics/MetricValue";
+import FavoritePlayers from "@/app/components/FavoritePlayers";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
@@ -555,6 +556,9 @@ export default async function Dashboard({
       }}
     >
       <div style={{ padding: "28px 32px 48px" }}>
+        {/* ── 즐겨찾기 선수 (없으면 보이지 않는다) ── */}
+        <FavoritePlayers season={season} lang={lang} />
+
         {/* ── Season filter (검색은 탑바의 전역 검색 팔레트) ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
           <SeasonFilter
