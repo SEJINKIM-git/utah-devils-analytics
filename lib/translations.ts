@@ -1,3 +1,5 @@
+import { metricLabel } from "@/lib/metrics";
+
 export type Lang = "ko" | "en";
 
 const translations = {
@@ -28,39 +30,39 @@ const translations = {
   "stats.wls": { ko: "승-패-세", en: "W-L-SV" },
   "stats.so": { ko: "삼진(타)", en: "SO(B)" },
 
-  // Batting Table
+  // Batting Table — 지표 이름은 지표 사전(lib/metrics/registry.json)이 원본이다
   "batting.title": { ko: "⚾ 타자 기록", en: "⚾ Batting Stats" },
   "batting.sortOps": { ko: "OPS 순", en: "by OPS" },
   "batting.name": { ko: "이름", en: "Name" },
-  "batting.pa": { ko: "타석", en: "PA" },
-  "batting.ab": { ko: "타수", en: "AB" },
-  "batting.h": { ko: "안타", en: "H" },
-  "batting.rbi": { ko: "타점", en: "RBI" },
-  "batting.bb": { ko: "볼넷", en: "BB" },
-  "batting.so": { ko: "삼진", en: "SO" },
-  "batting.sb": { ko: "도루", en: "SB" },
-  "batting.avg": { ko: "타율", en: "AVG" },
-  "batting.obp": { ko: "출루율", en: "OBP" },
-  "batting.slg": { ko: "장타율", en: "SLG" },
-  "batting.runs": { ko: "득점", en: "R" },
-  "batting.doubles": { ko: "2루타", en: "2B" },
-  "batting.triples": { ko: "3루타", en: "3B" },
-  "batting.hr": { ko: "홈런", en: "HR" },
-  "batting.hbp": { ko: "사구", en: "HBP" },
+  "batting.pa": metricLabel("PA"),
+  "batting.ab": metricLabel("AB"),
+  "batting.h": metricLabel("H"),
+  "batting.rbi": metricLabel("RBI"),
+  "batting.bb": metricLabel("BB"),
+  "batting.so": metricLabel("SO"),
+  "batting.sb": metricLabel("SB"),
+  "batting.avg": metricLabel("AVG"),
+  "batting.obp": metricLabel("OBP"),
+  "batting.slg": metricLabel("SLG"),
+  "batting.runs": metricLabel("R"),
+  "batting.doubles": metricLabel("2B"),
+  "batting.triples": metricLabel("3B"),
+  "batting.hr": metricLabel("HR"),
+  "batting.hbp": metricLabel("HBP"),
 
   // Pitching Table
   "pitching.title": { ko: "🏏 투수 기록", en: "🏏 Pitching Stats" },
   "pitching.sortEra": { ko: "ERA 순", en: "by ERA" },
-  "pitching.w": { ko: "승", en: "W" },
-  "pitching.l": { ko: "패", en: "L" },
-  "pitching.sv": { ko: "세", en: "SV" },
-  "pitching.ip": { ko: "이닝", en: "IP" },
-  "pitching.ha": { ko: "피안타", en: "HA" },
-  "pitching.er": { ko: "자책", en: "ER" },
-  "pitching.bb": { ko: "볼넷", en: "BB" },
-  "pitching.so": { ko: "삼진", en: "SO" },
-  "pitching.ra": { ko: "실점", en: "RA" },
-  "pitching.hra": { ko: "피홈런", en: "HRA" },
+  "pitching.w": metricLabel("W"),
+  "pitching.l": metricLabel("L"),
+  "pitching.sv": metricLabel("SV"),
+  "pitching.ip": metricLabel("IP"),
+  "pitching.ha": metricLabel("HA"),
+  "pitching.er": metricLabel("ER"),
+  "pitching.bb": metricLabel("BBA"),
+  "pitching.so": metricLabel("K"),
+  "pitching.ra": metricLabel("RA"),
+  "pitching.hra": metricLabel("HRA"),
   "pitching.wl": { ko: "승-패", en: "W-L" },
   "pitching.save": { ko: "세이브", en: "Save" },
 
@@ -122,7 +124,7 @@ const translations = {
 
   // Lang
   "lang.toggle": { ko: "EN", en: "KO" },
-} as const;
+} satisfies Record<string, { ko: string; en: string }>;
 
 export type TransKey = keyof typeof translations;
 

@@ -281,6 +281,7 @@ ADMIN_SESSION_SECRET=        # 선택. 운영진 로그인 쿠키 서명용. 없
 ## 11-2. 기록 계산 규칙 (숫자가 이상할 때 먼저 볼 것)
 
 - ERA·WHIP 공식은 `lib/statFormulas.ts` 한 곳에만 있습니다. ERA는 5이닝 기준, 이닝은 3.1 = 3⅓로 계산합니다.
+- 지표의 이름·공식 설명·자릿수는 `lib/metrics/registry.json`(지표 사전) 한 곳에 있고, 기록 집계는 `lib/metrics/query.ts`(조회 함수)가 합니다. 자세한 내용과 아직 옮기지 않은 화면 목록은 `docs/metrics.md`를 보세요.
 - 같은 선수·시즌에 경기별 기록과 시즌 요약 기록이 함께 있으면 경기별 기록만 씁니다 (`lib/statRows.ts`).
 - 선수는 (배번, 이름)이 모두 같을 때만 같은 선수로 봅니다. 배번이 같아도 이름이 다르면 다른 선수입니다 (`lib/playerMatching.ts`). 배번 없는 경기 기록지에서 동명이인이 나오면 업로드가 중단되고 안내가 뜹니다.
 - 판단 유형 목록은 `lib/decisionTypes.ts` 하나뿐이며 DB enum과 같아야 합니다 (테스트가 확인).

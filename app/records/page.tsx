@@ -3,16 +3,12 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import SbEditCell from "@/app/components/SbEditCell";
-import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
+import { appendCareerSeasonIfNeeded } from "@/lib/careerStats";
+import { createMetricQuery, loadMetricDataset } from "@/lib/metrics/query";
+import { buildRecordsTables } from "@/lib/metrics/recordsTable";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
-import { buildPlayerIdentityKey } from "@/lib/playerIdentity";
-import { getLatestRosterUploadForSeason } from "@/lib/rosterSnapshot";
 import { ACTIVE_SEASON_COOKIE, normalizeSelectedSeason } from "@/lib/season";
-import { getSeasonVisibility, isLockedSeason } from "@/lib/seasonVisibility";
 import { t, Lang } from "@/lib/translations";
-import { formatIP, parseIP } from "@/lib/statFormatting";
-import { selectEffectiveBattingRows, selectEffectiveStatRows } from "@/lib/statRows";
-import { computeObp, eraFromInnings, formatRate, obpDenominator, whipFromInnings } from "@/lib/statFormulas";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,18 +20,6 @@ const C = {
   border: "var(--border)",
   borderSubtle: "rgba(255,255,255,0.06)",
 };
-
-function hasBattingActivity(record: any) {
-  return [record.pa, record.ab, record.runs, record.hits, record.doubles, record.triples, record.hr, record.rbi, record.bb, record.hbp, record.so, record.sb].some(
-    (value) => Number(value) > 0
-  );
-}
-
-function hasPitchingActivity(record: any) {
-  return [record.w, record.l, record.sv, record.hld, record.ip, record.ha, record.runs_allowed, record.er, record.bb, record.hbp, record.so, record.hr_allowed].some(
-    (value) => Number(value) > 0
-  );
-}
 
 export default async function RecordsPage({
   searchParams,
@@ -52,161 +36,17 @@ export default async function RecordsPage({
   const lang = (cookieStore.get("lang")?.value || "ko") as Lang;
   const preferredSeason = cookieStore.get(ACTIVE_SEASON_COOKIE)?.value;
 
-  const { data: rawPlayers } = await supabase.from("players").select("*").order("number");
-  const players = rawPlayers || [];
-  const playerById = new Map(players.map((p) => [p.id, p]));
-  const { data: allBattingRaw } = await supabase.from("batting_stats").select("*");
-  const { data: allPitchingRaw } = await supabase.from("pitching_stats").select("*");
-  const allBatting = selectEffectiveBattingRows(allBattingRaw);
-  const allPitching = selectEffectiveStatRows(allPitchingRaw);
-  const { data: allGames } = await supabase.from("games").select("id,season,created_at,date,opponent");
-  const { data: rosterUploads } = await supabase
-    .from("roster_uploads")
-    .select("filename,players_snapshot,source,uploaded_at")
-    .order("uploaded_at", { ascending: false });
+  // 기록 집계는 조회 함수(lib/metrics/query.ts)가 한다. 이 화면은 값을 받아 보여 주기만 한다.
+  const { dataset, visibility, seasonValues } = await loadMetricDataset(supabase, { preferredSeason });
+  const query = createMetricQuery(dataset);
 
-  const visibility = await getSeasonVisibility(
-    supabase,
-    [
-      ...(allBatting || []).map((r) => r.season),
-      ...(allPitching || []).map((r) => r.season),
-      preferredSeason,
-    ],
-    preferredSeason,
-    "2025"
-  );
   const seasons = appendCareerSeasonIfNeeded(
     visibility.seasons.length > 0 ? visibility.seasons : [preferredSeason || "2025"],
-    [...(allBatting || []).map((r) => r.season), ...(allPitching || []).map((r) => r.season)]
+    seasonValues
   );
   const season = normalizeSelectedSeason(params.season, seasons, preferredSeason || "2025", preferredSeason);
-  const isPlaceholderSeason = isLockedSeason(season, visibility.activatedSeasons);
 
-  const batting = isPlaceholderSeason
-    ? []
-    : filterRecordsForSeason(allBatting || [], season, { lockedSeasons: visibility.lockedSeasons });
-  const pitching = isPlaceholderSeason
-    ? []
-    : filterRecordsForSeason(allPitching || [], season, { lockedSeasons: visibility.lockedSeasons });
-  const latestRosterUpload = isPlaceholderSeason
-    ? null
-    : getLatestRosterUploadForSeason(rosterUploads || [], season);
-  const latestRosterSnapshot = latestRosterUpload?.snapshot || null;
-  const rosterUploadedAt = latestRosterUpload?.upload?.uploaded_at
-    ? new Date(latestRosterUpload.upload.uploaded_at).getTime()
-    : null;
-  const validGameIds = new Set(
-    (allGames || [])
-      .filter((g) => g.season === season)
-      .filter((g) => {
-        if (!rosterUploadedAt) return true;
-        if (!g.created_at) return false;
-        return new Date(g.created_at).getTime() >= rosterUploadedAt;
-      })
-      .map((g) => g.id)
-  );
-  const rosterKeys = new Set(
-    (latestRosterSnapshot?.players || []).map((p: any) => buildPlayerIdentityKey(p.name, p.number))
-  );
-  const shouldGateStatsToPostRosterGames = Boolean(latestRosterUpload);
-
-  // ── 타자 누적 합산 ──
-  const battingByPlayer = new Map<string, any>();
-  for (const b of batting) {
-    if (shouldGateStatsToPostRosterGames) {
-      if (!b.game_id || !validGameIds.has(b.game_id)) continue;
-    }
-    const player = playerById.get(b.player_id);
-    if (!player) continue;
-    const identityKey = buildPlayerIdentityKey(player.name, player.number);
-    if (rosterKeys.size > 0 && !rosterKeys.has(identityKey)) continue;
-    if (battingByPlayer.has(identityKey)) {
-      const acc = battingByPlayer.get(identityKey);
-      battingByPlayer.set(identityKey, {
-        ...acc,
-        player: acc.player.id > player.id ? acc.player : player,
-        player_id: acc.player.id > player.id ? acc.player.id : player.id,
-        pa: acc.pa + (b.pa || 0),
-        obp_den: obpDenominator(acc) + obpDenominator(b),
-        ab: acc.ab + (b.ab || 0),
-        runs: acc.runs + (b.runs || 0),
-        hits: acc.hits + (b.hits || 0),
-        doubles: acc.doubles + (b.doubles || 0),
-        triples: acc.triples + (b.triples || 0),
-        hr: acc.hr + (b.hr || 0),
-        rbi: acc.rbi + (b.rbi || 0),
-        bb: acc.bb + (b.bb || 0),
-        hbp: acc.hbp + (b.hbp || 0),
-        so: acc.so + (b.so || 0),
-        sb: acc.sb + (b.sb || 0),
-      });
-    } else {
-      battingByPlayer.set(identityKey, { ...b, player_id: player.id, player });
-    }
-  }
-  const uniqueBatting = Array.from(battingByPlayer.values()).filter(hasBattingActivity);
-
-  // ── 투수 누적 합산 ──
-  const pitchingByPlayer = new Map<string, any>();
-  for (const p of pitching) {
-    if (shouldGateStatsToPostRosterGames) {
-      if (!p.game_id || !validGameIds.has(p.game_id)) continue;
-    }
-    const player = playerById.get(p.player_id);
-    if (!player) continue;
-    const identityKey = buildPlayerIdentityKey(player.name, player.number);
-    if (rosterKeys.size > 0 && !rosterKeys.has(identityKey)) continue;
-    if (pitchingByPlayer.has(identityKey)) {
-      const acc = pitchingByPlayer.get(identityKey);
-      pitchingByPlayer.set(identityKey, {
-        ...acc,
-        player: acc.player.id > player.id ? acc.player : player,
-        player_id: acc.player.id > player.id ? acc.player.id : player.id,
-        w: acc.w + (p.w || 0),
-        l: acc.l + (p.l || 0),
-        sv: acc.sv + (p.sv || 0),
-        hld: acc.hld + (p.hld || 0),
-        ip: parseIP(acc.ip) + parseIP(p.ip),
-        ha: acc.ha + (p.ha || 0),
-        runs_allowed: acc.runs_allowed + (p.runs_allowed || 0),
-        er: acc.er + (p.er || 0),
-        bb: acc.bb + (p.bb || 0),
-        hbp: acc.hbp + (p.hbp || 0),
-        so: acc.so + (p.so || 0),
-        hr_allowed: acc.hr_allowed + (p.hr_allowed || 0),
-      });
-    } else {
-      pitchingByPlayer.set(identityKey, { ...p, player_id: player.id, player, ip: parseIP(p.ip) });
-    }
-  }
-  const uniquePitching = Array.from(pitchingByPlayer.values()).filter(hasPitchingActivity);
-
-  const battingWithPlayers = uniqueBatting
-    .map((b) => {
-      const player = b.player;
-      if (!player) return null;
-      const avg = b.ab > 0 ? (b.hits / b.ab).toFixed(3) : "---";
-      const obp = formatRate(computeObp(b), 3);
-      const slg =
-        b.ab > 0
-          ? ((b.hits - b.doubles - b.triples - b.hr + b.doubles * 2 + b.triples * 3 + b.hr * 4) / b.ab).toFixed(3)
-          : "---";
-      const ops = obp !== "---" && slg !== "---" ? (parseFloat(obp) + parseFloat(slg)).toFixed(3) : "---";
-      return { ...b, player, avg, obp, slg, ops, opsNum: parseFloat(ops) || 0 };
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => b.opsNum - a.opsNum);
-
-  const pitchingWithPlayers = uniquePitching
-    .map((p) => {
-      const player = p.player;
-      if (!player) return null;
-      const era = formatRate(eraFromInnings(p.er, p.ip));
-      const whip = formatRate(whipFromInnings(p.ha, p.bb, p.ip));
-      return { ...p, player, era, whip, eraNum: parseFloat(era) || 99 };
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => a.eraNum - b.eraNum);
+  const { batting: battingWithPlayers, pitching: pitchingWithPlayers } = buildRecordsTables(query, season);
 
   const batHeaders = [
     "#",
@@ -292,7 +132,7 @@ export default async function RecordsPage({
                 </tr>
               </thead>
               <tbody>
-                {battingWithPlayers.map((b: any, i: number) => (
+                {battingWithPlayers.map((b, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
                     <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>{b.player.number}</td>
                     <td style={{ padding: "12px", fontWeight: 700 }}>
@@ -393,14 +233,14 @@ export default async function RecordsPage({
                 </tr>
               </thead>
               <tbody>
-                {pitchingWithPlayers.map((p: any, i: number) => (
+                {pitchingWithPlayers.map((p, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.borderSubtle}` }}>
                     <td style={{ padding: "12px", color: C.whiteDim, fontWeight: 700 }}>{p.player.number}</td>
                     <td style={{ padding: "12px", fontWeight: 700 }}>{getPlayerDisplayName(p.player.name, lang)}</td>
                     <td style={{ padding: "12px", fontWeight: 700, color: p.w > 0 ? "#22c55e" : C.white }}>{p.w}</td>
                     <td style={{ padding: "12px", color: p.l > 0 ? C.red : C.white }}>{p.l}</td>
                     <td style={{ padding: "12px", color: p.sv > 0 ? "#eab308" : C.white }}>{p.sv}</td>
-                    <td style={{ padding: "12px" }}>{formatIP(p.ip)}</td>
+                    <td style={{ padding: "12px" }}>{p.ip}</td>
                     <td style={{ padding: "12px" }}>{p.ha}</td>
                     <td style={{ padding: "12px" }}>{p.er}</td>
                     <td style={{ padding: "12px", color: p.bb >= 10 ? C.red : C.white }}>{p.bb}</td>
