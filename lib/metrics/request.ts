@@ -13,8 +13,10 @@ export type MetricRequest = {
   by: "game" | "season";
   from?: string;
   to?: string;
-  minPa: number;
-  minIp: number;
+  /** 적지 않으면 undefined — qualify가 켜져 있으면 규정 타석·이닝을 쓴다 */
+  minPa?: number;
+  minIp?: number;
+  qualify: boolean;
   scope: QueryScope;
 };
 
@@ -30,7 +32,7 @@ export function parseMetricTarget(raw: string | null): MetricTarget | null {
 }
 
 const nonNegative = (raw: string | null) => {
-  if (raw === null || raw === "") return 0;
+  if (raw === null || raw === "") return undefined;
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : null;
 };
@@ -70,5 +72,8 @@ export function parseMetricRequest(params: ParamSource): Parsed {
   const scope = params.get("scope") ?? "roster";
   if (scope !== "roster" && scope !== "all") return { ok: false, error: "scope는 roster 또는 all이어야 합니다" };
 
-  return { ok: true, request: { mode, code: metric.code, target, season, by, from, to, minPa, minIp, scope } };
+  const qualifyRaw = params.get("qualify");
+  const qualify = qualifyRaw === "1" || qualifyRaw === "true";
+
+  return { ok: true, request: { mode, code: metric.code, target, season, by, from, to, minPa, minIp, qualify, scope } };
 }

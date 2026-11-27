@@ -3,7 +3,9 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import SbEditCell from "@/app/components/SbEditCell";
+import MetricValue from "@/app/components/metrics/MetricValue";
 import { appendCareerSeasonIfNeeded } from "@/lib/careerStats";
+import { metricShortName } from "@/lib/metrics";
 import { createMetricQuery, loadMetricDataset } from "@/lib/metrics/query";
 import { buildRecordsTables } from "@/lib/metrics/recordsTable";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
@@ -48,36 +50,20 @@ export default async function RecordsPage({
 
   const { batting: battingWithPlayers, pitching: pitchingWithPlayers } = buildRecordsTables(query, season);
 
-  const batHeaders = [
-    "#",
-    t("batting.name", lang),
-    t("batting.pa", lang),
-    t("batting.ab", lang),
-    t("batting.h", lang),
-    t("batting.doubles", lang),
-    t("batting.triples", lang),
-    t("batting.hr", lang),
-    t("batting.rbi", lang),
-    t("batting.bb", lang),
-    t("batting.so", lang),
-    t("batting.sb", lang),
-    t("batting.avg", lang),
-    t("batting.obp", lang),
-    "OPS",
+  // 표 머리글: 지표 이름은 사전에서 온다. 누르면 지표 설명 시트가 열린다
+  const column = (code: string) => ({ label: metricShortName(code, lang), code });
+  const batHeaders: Array<{ label: string; code?: string }> = [
+    { label: "#" },
+    { label: t("batting.name", lang) },
+    ...["PA", "AB", "H", "2B", "3B", "HR", "RBI", "BB", "SO", "SB", "AVG", "OBP"].map(column),
+    { label: "OPS", code: "OPS" },
   ];
-  const pitHeaders = [
-    "#",
-    t("batting.name", lang),
-    t("pitching.w", lang),
-    t("pitching.l", lang),
-    t("pitching.sv", lang),
-    t("pitching.ip", lang),
-    t("pitching.ha", lang),
-    t("pitching.er", lang),
-    t("pitching.bb", lang),
-    t("pitching.so", lang),
-    "ERA",
-    "WHIP",
+  const pitHeaders: Array<{ label: string; code?: string }> = [
+    { label: "#" },
+    { label: t("batting.name", lang) },
+    ...["W", "L", "SV", "IP", "HA", "ER", "BBA", "K"].map(column),
+    { label: "ERA", code: "ERA" },
+    { label: "WHIP", code: "WHIP" },
   ];
 
   const seasonLabel = season === "Career" ? t("site.career", lang) : `${season} ${t("site.season", lang)}`;
@@ -115,7 +101,7 @@ export default async function RecordsPage({
                 <tr style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
                   {batHeaders.map((h) => (
                     <th
-                      key={h}
+                      key={h.code ?? h.label}
                       style={{
                         padding: "14px 12px",
                         textAlign: "left",
@@ -126,7 +112,13 @@ export default async function RecordsPage({
                         letterSpacing: 1.2,
                       }}
                     >
-                      {h}
+                      {h.code ? (
+                        <MetricValue code={h.code} season={season}>
+                          {h.label}
+                        </MetricValue>
+                      ) : (
+                        h.label
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -162,9 +154,11 @@ export default async function RecordsPage({
                         color: parseFloat(b.avg) >= 0.3 ? "#22c55e" : parseFloat(b.avg) >= 0.2 ? "#eab308" : C.red,
                       }}
                     >
-                      {b.avg}
+                      <MetricValue code="AVG" value={b.avg} target={{ player: b.player.id }} season={season} />
                     </td>
-                    <td style={{ padding: "12px" }}>{b.obp}</td>
+                    <td style={{ padding: "12px" }}>
+                      <MetricValue code="OBP" value={b.obp} target={{ player: b.player.id }} season={season} />
+                    </td>
                     <td style={{ padding: "12px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 80, height: 6, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden" }}>
@@ -185,7 +179,7 @@ export default async function RecordsPage({
                             minWidth: 45,
                           }}
                         >
-                          {b.ops}
+                          <MetricValue code="OPS" value={b.ops} target={{ player: b.player.id }} season={season} />
                         </span>
                       </div>
                     </td>
@@ -216,7 +210,7 @@ export default async function RecordsPage({
                 <tr style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
                   {pitHeaders.map((h) => (
                     <th
-                      key={h}
+                      key={h.code ?? h.label}
                       style={{
                         padding: "14px 12px",
                         textAlign: "left",
@@ -227,7 +221,13 @@ export default async function RecordsPage({
                         letterSpacing: 1.2,
                       }}
                     >
-                      {h}
+                      {h.code ? (
+                        <MetricValue code={h.code} season={season}>
+                          {h.label}
+                        </MetricValue>
+                      ) : (
+                        h.label
+                      )}
                     </th>
                   ))}
                 </tr>
@@ -252,10 +252,12 @@ export default async function RecordsPage({
                           color: p.eraNum <= 3.0 ? "#22c55e" : p.eraNum <= 5.0 ? "#eab308" : C.red,
                         }}
                       >
-                        {p.era}
+                        <MetricValue code="ERA" value={p.era} target={{ player: p.player.id }} season={season} />
                       </span>
                     </td>
-                    <td style={{ padding: "12px" }}>{p.whip}</td>
+                    <td style={{ padding: "12px" }}>
+                      <MetricValue code="WHIP" value={p.whip} target={{ player: p.player.id }} season={season} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -1,4 +1,5 @@
 import { ThemeProvider } from '@/app/components/ThemeProvider';
+import CommandProvider from '@/app/components/command/CommandProvider';
 import MobileNav from '@/app/components/MobileNav';
 import Sidebar from '@/app/components/Sidebar';
 import Topbar from '@/app/components/Topbar';
@@ -61,14 +62,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             className="app-ambient-glow"
             style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }}
           />
-          <div className="layout-shell">
-            <Sidebar lang={lang} />
-            <div className="layout-content">
-              <Topbar lang={lang} />
-              <main className="layout-main">{children}</main>
+          <CommandProvider lang={lang}>
+            <div className="layout-shell">
+              <Sidebar lang={lang} />
+              <div className="layout-content">
+                <Topbar lang={lang} />
+                <main className="layout-main">{children}</main>
+              </div>
             </div>
-          </div>
-          <MobileNav lang={lang} />
+            <MobileNav lang={lang} />
+          </CommandProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -156,6 +156,23 @@ describe("rank", () => {
     expect(tied.entries.map((e) => e.rank)).toEqual([1, 2, 2]);
   });
 
+  it("규정 타석·이닝: 기록이 있는 경기 수 × 경기당 기준, 요약 행만 있는 시즌은 기준 없음", () => {
+    expect(query.qualification("2026")).toEqual({ games: 2, minPa: 3, minIp: 1 });
+    expect(query.qualification("2026", { scope: "all" })).toEqual({ games: 3, minPa: 5, minIp: 2 });
+    expect(query.qualification("2023")).toEqual({ games: 0, minPa: 0, minIp: 0 });
+
+    const era = query.rank("ERA", "2026", { qualify: true });
+    expect([era.minIp, era.games]).toEqual([1, 2]);
+    expect(era.entries.map((e) => [e.rank, e.player.name, e.qualified])).toEqual([
+      [1, "나선수", true],
+      [null, "가선수", false],
+    ]);
+    // 직접 적은 값이 먼저다
+    expect(query.rank("ERA", "2026", { qualify: true, minIp: 0 }).entries.every((e) => e.qualified)).toBe(true);
+    // 적지 않으면 기준 없음 (/records는 모두 보여 준다)
+    expect(query.rank("OPS", "2026").minPa).toBe(0);
+  });
+
   it("잠긴 시즌은 비어 있다", () => {
     const locked = createMetricQuery({ ...metricsFixture, activatedSeasons: [], lockedSeasons: ["2026"] });
     expect(locked.rank("OPS", "2026").entries).toEqual([]);
@@ -299,9 +316,10 @@ describe("GET /api/metrics 쿼리 해석", () => {
 
   it("정상 요청", () => {
     const parsed = parse("mode=rank&code=ops&season=2026&minPa=10");
-    expect(parsed).toMatchObject({ ok: true, request: { mode: "rank", code: "OPS", season: "2026", minPa: 10, minIp: 0, scope: "roster", target: { team: true } } });
+    expect(parsed).toMatchObject({ ok: true, request: { mode: "rank", code: "OPS", season: "2026", minPa: 10, minIp: undefined, qualify: false, scope: "roster", target: { team: true } } });
     expect(parse("mode=history&target=player:1&code=OBP&by=game&from=2026&to=2026-06-30")).toMatchObject({ ok: true, request: { by: "game", from: "2026", to: "2026-06-30" } });
     expect(parse("code=ERA&season=Career")).toMatchObject({ ok: true, request: { mode: "point" } });
+    expect(parse("mode=rank&code=ERA&season=2026&qualify=1&target=player:2")).toMatchObject({ ok: true, request: { qualify: true, target: { player: 2 } } });
   });
 
   it("잘못된 요청은 이유와 함께 거절한다", () => {

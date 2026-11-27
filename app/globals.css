@@ -969,3 +969,643 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* ══════════════════════════════════════════
+   검색 팔레트 · 지표 설명 시트
+   색은 모두 위에서 정한 변수만 쓴다. 휴대폰 폭(390px)을 먼저 맞추고 넓은 화면으로 늘린다.
+══════════════════════════════════════════ */
+:root,
+[data-theme="dark"] {
+  --scrim: rgba(4, 8, 20, 0.62);
+  --focus-ring: var(--brand-blue);
+}
+
+[data-theme="light"] {
+  --scrim: rgba(15, 23, 42, 0.38);
+  --focus-ring: var(--blue);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── 누를 수 있는 지표 숫자 ── */
+.metric-value {
+  position: relative;
+  display: inline-block;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  line-height: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--text-dim);
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: 1px;
+  border-radius: 6px;
+}
+
+/* 글자는 작아도 누르는 영역은 44px */
+.metric-value::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
+.metric-value:hover {
+  text-decoration-color: currentColor;
+}
+
+.metric-value:focus-visible,
+.cmdk-chip:focus-visible,
+.cmdk-close:focus-visible,
+.msheet-close:focus-visible,
+.msheet-toggle:focus-visible,
+.msheet-link:focus-visible,
+.msheet-row-name:focus-visible,
+.topbar-search:focus-visible,
+.mobile-nav-search:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── 탑바 검색 버튼 ── */
+button.topbar-search {
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-muted);
+  min-height: 44px;
+}
+
+.topbar-search-text {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-search-kbd {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border-ghost);
+  flex-shrink: 0;
+}
+
+@media (max-width: 880px) {
+  .topbar-search-kbd {
+    display: none;
+  }
+}
+
+/* ── 검색 팔레트 ── */
+.cmdk-scrim,
+.msheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--scrim);
+  display: flex;
+}
+
+.cmdk-scrim {
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0;
+}
+
+.cmdk {
+  width: 100%;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  border-radius: 0 0 var(--radius) var(--radius);
+  overflow: hidden;
+}
+
+.cmdk-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cmdk-input-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cmdk-input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 16px; /* iOS에서 입력창을 눌러도 화면이 확대되지 않는 최소 크기 */
+}
+
+.cmdk-input::placeholder {
+  color: var(--text-muted);
+}
+
+.cmdk-close,
+.msheet-close {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.cmdk-close:hover,
+.msheet-close:hover {
+  background: var(--inline-muted-surface);
+  color: var(--text-strong);
+}
+
+.cmdk-examples {
+  padding: 14px 16px 4px;
+}
+
+.cmdk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cmdk-chip {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--chip-border);
+  background: var(--chip-surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cmdk-chip:hover {
+  border-color: var(--coral);
+}
+
+.cmdk-list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 8px 12px;
+}
+
+.cmdk-group + .cmdk-group {
+  margin-top: 8px;
+}
+
+.cmdk-group-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding: 8px 8px 6px;
+}
+
+.cmdk-examples .cmdk-group-label {
+  padding: 0;
+}
+
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.cmdk-item.active {
+  background: var(--coral-dim);
+  box-shadow: inset 3px 0 0 var(--coral);
+}
+
+.cmdk-item-text {
+  min-width: 0;
+}
+
+.cmdk-item-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdk-item-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdk-badge,
+.msheet-code {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-ghost);
+}
+
+.cmdk-note {
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.cmdk-foot {
+  display: none;
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+@media (min-width: 881px) {
+  .cmdk-scrim {
+    padding: 12vh 24px 24px;
+  }
+
+  .cmdk {
+    max-width: 640px;
+    max-height: 70vh;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .cmdk-foot {
+    display: block;
+  }
+}
+
+/* ── 지표 설명 시트: 휴대폰은 아래에서, PC는 오른쪽 옆 패널 ── */
+.msheet-scrim {
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.msheet {
+  width: 100%;
+  max-height: 88dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: var(--shadow-lg);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: msheet-up 0.2s ease-out;
+}
+
+@keyframes msheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes msheet-side {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.msheet-grip {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border-ghost);
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+
+.msheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 8px 20px;
+  flex-shrink: 0;
+}
+
+.msheet-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.msheet-title {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--text-strong);
+  margin-top: 6px;
+}
+
+.msheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 20px 24px;
+}
+
+.msheet-summary {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  padding: 0 0 4px;
+}
+
+.msheet > .msheet-summary {
+  padding: 0 20px 24px;
+}
+
+.msheet-better {
+  color: var(--text-muted);
+}
+
+.msheet-numbers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.msheet-number {
+  background: var(--card-item);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.msheet-number.primary {
+  border-color: var(--coral);
+}
+
+.msheet-number-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.msheet-number-value {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-strong);
+  margin-top: 4px;
+}
+
+.msheet-number-value.small {
+  font-size: 16px;
+  line-height: 1.5;
+  padding-top: 6px;
+}
+
+.msheet-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.msheet-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.msheet-formula {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--text-strong);
+  margin-top: 6px;
+}
+
+.msheet-note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.msheet-toggle {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.msheet-chevron {
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.msheet-chevron.open {
+  transform: rotate(180deg);
+}
+
+.msheet-list {
+  list-style: none;
+  margin-top: 6px;
+}
+
+.msheet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.msheet-row.me {
+  background: var(--coral-dim);
+}
+
+.msheet-row-rank {
+  width: 24px;
+  color: var(--text-muted);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.msheet-row-date {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.msheet-row-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 44px;
+}
+
+a.msheet-row-name:hover {
+  text-decoration: underline;
+}
+
+.msheet-row-value {
+  font-weight: 700;
+  color: var(--text-strong);
+  flex-shrink: 0;
+}
+
+.msheet-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  margin-top: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border-ghost);
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.msheet-link:hover {
+  border-color: var(--coral);
+}
+
+@media (min-width: 881px) {
+  .msheet-scrim {
+    align-items: stretch;
+    justify-content: flex-end;
+  }
+
+  .msheet {
+    width: 420px;
+    max-height: none;
+    height: 100%;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    animation-name: msheet-side;
+  }
+
+  .msheet-grip {
+    display: none;
+  }
+
+  .msheet-head {
+    padding-top: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msheet {
+    animation: none;
+  }
+
+  .msheet-chevron {
+    transition: none;
+  }
+}
+
+/* ── AI 분석: 검색 팔레트에서 넘어온 질문 ── */
+.ask-banner {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--coral);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.ask-banner-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.ask-banner-question {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--text-strong);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.ask-banner-answer {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text);
+  margin-top: 10px;
+}
+
+.ask-banner-hint {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin-top: 8px;
+}

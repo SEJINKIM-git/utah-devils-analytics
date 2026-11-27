@@ -10,7 +10,9 @@ import {
   Zap,
   Upload,
   BarChart2,
+  Search,
 } from "lucide-react";
+import { useCommand } from "@/app/components/command/CommandProvider";
 import { ACTIVE_SEASON_COOKIE } from "@/lib/season";
 
 const NAV_ITEMS = [
@@ -27,6 +29,7 @@ export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const ko = lang === "ko";
+  const { openPalette } = useCommand();
   const season = searchParams.get("season") || (() => {
     if (typeof document === "undefined") return null;
     const match = document.cookie.match(new RegExp(`(?:^|; )${ACTIVE_SEASON_COOKIE}=([^;]+)`));
@@ -78,13 +81,14 @@ export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
                   flexDirection: "column",
                   alignItems: "center",
                   gap: 2,
-                  padding: "8px 12px",
+                  padding: "8px 4px",
                   borderRadius: 14,
                   textDecoration: "none",
                   color: active ? "var(--brand-coral)" : "var(--text-dim)",
                   background: active ? "rgba(255,180,171,0.08)" : "transparent",
                   transition: "color 0.15s, background 0.15s",
-                  minWidth: 54,
+                  minWidth: 44,
+                  minHeight: 44,
                 }}
               >
                 <Icon size={20} strokeWidth={1.8} />
@@ -111,6 +115,31 @@ export default function MobileNav({ lang }: { lang: "ko" | "en" }) {
               </Link>
             );
           })}
+          <button
+            type="button"
+            onClick={openPalette}
+            aria-haspopup="dialog"
+            data-testid="open-search-mobile"
+            className="mobile-nav-search"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              padding: "8px 4px",
+              borderRadius: 14,
+              border: 0,
+              background: "transparent",
+              color: "var(--text-dim)",
+              minWidth: 44,
+              minHeight: 44,
+              cursor: "pointer",
+              font: "inherit",
+            }}
+          >
+            <Search size={20} strokeWidth={1.8} aria-hidden="true" />
+            <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: 0.2 }}>{ko ? "검색" : "Search"}</span>
+          </button>
         </div>
       </nav>
 

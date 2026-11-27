@@ -1,6 +1,7 @@
 import AIButton from "@/app/components/AIButton";
 import SeasonChart from "@/app/components/SeasonChart";
 import PlayerGoals from "@/app/components/PlayerGoals";
+import MetricValue from "@/app/components/metrics/MetricValue";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
@@ -339,15 +340,15 @@ export default async function PlayerDetail({
 
   // 4 hero metric cards
   const metricCards = bat ? [
-    { label: "OPS", value: ops, color: "var(--coral)" },
-    { label: "타율 AVG", value: avg, color: "var(--green)" },
-    { label: "출루율 OBP", value: obp, color: "var(--blue)" },
-    { label: "도루 SB", value: String(bat.sb || 0), color: "#a78bfa" },
+    { label: "OPS", value: ops, color: "var(--coral)", code: "OPS" },
+    { label: "타율 AVG", value: avg, color: "var(--green)", code: "AVG" },
+    { label: "출루율 OBP", value: obp, color: "var(--blue)", code: "OBP" },
+    { label: "도루 SB", value: String(bat.sb || 0), color: "#a78bfa", code: "SB" },
   ] : pitch && pitch.ip > 0 ? [
-    { label: "ERA", value: era || "---", color: era && parseFloat(era) <= 3.5 ? "var(--green)" : "var(--coral)" },
-    { label: "WHIP", value: whip || "---", color: "var(--blue)" },
-    { label: `K/${ERA_BASE_INNINGS}이닝`, value: formatRate(perBaseInnings(pitch.so, pitch.ip), 1), color: "#a78bfa" },
-    { label: "이닝 IP", value: formatIP(pitch.ip), color: "#f59e0b" },
+    { label: "ERA", value: era || "---", color: era && parseFloat(era) <= 3.5 ? "var(--green)" : "var(--coral)", code: "ERA" },
+    { label: "WHIP", value: whip || "---", color: "var(--blue)", code: "WHIP" },
+    { label: `K/${ERA_BASE_INNINGS}이닝`, value: formatRate(perBaseInnings(pitch.so, pitch.ip), 1), color: "#a78bfa", code: `K${ERA_BASE_INNINGS}` },
+    { label: "이닝 IP", value: formatIP(pitch.ip), color: "#f59e0b", code: "IP" },
   ] : [];
 
   const getOpsGrade = (v: number) => {
@@ -399,7 +400,7 @@ export default async function PlayerDetail({
           {/* 4 metric cards */}
           {metricCards.length > 0 && (
             <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-              {metricCards.map(({ label, value, color }) => (
+              {metricCards.map(({ label, value, color, code }) => (
                 <div key={label} style={{
                   background: "var(--surface-raised)", borderRadius: "var(--radius-sm)",
                   padding: "20px 22px", position: "relative", overflow: "hidden",
@@ -408,7 +409,7 @@ export default async function PlayerDetail({
                     {label}
                   </div>
                   <div className="num" style={{ fontSize: 44, fontWeight: 800, color, lineHeight: 1 }}>
-                    {value}
+                    <MetricValue code={code} value={value} target={{ player: player.id }} season={currentSeason} />
                   </div>
                   <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3, background: color, opacity: 0.7 }} />
                 </div>
@@ -435,22 +436,24 @@ export default async function PlayerDetail({
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
                   {[
-                    { label: t("batting.pa", lang), value: bat.pa },
-                    { label: t("batting.ab", lang), value: bat.ab },
-                    { label: t("batting.h", lang), value: bat.hits, color: bat.hits >= 5 ? "var(--green)" : undefined },
-                    { label: t("batting.hr", lang), value: bat.hr, color: bat.hr > 0 ? "#eab308" : undefined },
-                    { label: t("batting.rbi", lang), value: bat.rbi },
-                    { label: t("batting.runs", lang), value: bat.runs },
-                    { label: t("batting.doubles", lang), value: bat.doubles },
-                    { label: t("batting.triples", lang), value: bat.triples },
-                    { label: t("batting.bb", lang), value: bat.bb, color: bat.bb >= 10 ? "var(--blue)" : undefined },
-                    { label: t("batting.hbp", lang), value: bat.hbp },
-                    { label: t("batting.so", lang), value: bat.so, color: bat.so >= 8 ? "var(--red)" : undefined },
-                    { label: t("batting.sb", lang), value: bat.sb, color: bat.sb >= 6 ? "#a78bfa" : undefined },
+                    { code: "PA", label: t("batting.pa", lang), value: bat.pa },
+                    { code: "AB", label: t("batting.ab", lang), value: bat.ab },
+                    { code: "H", label: t("batting.h", lang), value: bat.hits, color: bat.hits >= 5 ? "var(--green)" : undefined },
+                    { code: "HR", label: t("batting.hr", lang), value: bat.hr, color: bat.hr > 0 ? "#eab308" : undefined },
+                    { code: "RBI", label: t("batting.rbi", lang), value: bat.rbi },
+                    { code: "R", label: t("batting.runs", lang), value: bat.runs },
+                    { code: "2B", label: t("batting.doubles", lang), value: bat.doubles },
+                    { code: "3B", label: t("batting.triples", lang), value: bat.triples },
+                    { code: "BB", label: t("batting.bb", lang), value: bat.bb, color: bat.bb >= 10 ? "var(--blue)" : undefined },
+                    { code: "HBP", label: t("batting.hbp", lang), value: bat.hbp },
+                    { code: "SO", label: t("batting.so", lang), value: bat.so, color: bat.so >= 8 ? "var(--red)" : undefined },
+                    { code: "SB", label: t("batting.sb", lang), value: bat.sb, color: bat.sb >= 6 ? "#a78bfa" : undefined },
                   ].map((stat, i) => (
                     <div key={i} style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "12px 10px", textAlign: "center" as const }}>
                       <div style={{ fontSize: 10, color: "var(--text-faint)", textTransform: "uppercase" as const, letterSpacing: 0.8, marginBottom: 5 }}>{stat.label}</div>
-                      <div className="num" style={{ fontSize: 20, fontWeight: 800, color: stat.color || "var(--text)" }}>{stat.value}</div>
+                      <div className="num" style={{ fontSize: 20, fontWeight: 800, color: stat.color || "var(--text)" }}>
+                        <MetricValue code={stat.code} value={stat.value} target={{ player: player.id }} season={currentSeason} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -472,17 +475,19 @@ export default async function PlayerDetail({
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
                     {[
-                      { label: t("pitching.ip", lang), value: formatIP(pitch.ip) },
-                      { label: t("pitching.ha", lang), value: pitch.ha },
-                      { label: t("pitching.ra", lang), value: pitch.runs_allowed },
-                      { label: t("pitching.er", lang), value: pitch.er },
-                      { label: t("pitching.bb", lang), value: pitch.bb, color: pitch.bb >= 10 ? "var(--red)" : undefined },
-                      { label: t("pitching.so", lang), value: pitch.so, color: pitch.so >= 10 ? "var(--green)" : undefined },
-                      { label: t("pitching.hra", lang), value: pitch.hr_allowed },
+                      { code: "IP", label: t("pitching.ip", lang), value: formatIP(pitch.ip) },
+                      { code: "HA", label: t("pitching.ha", lang), value: pitch.ha },
+                      { code: "RA", label: t("pitching.ra", lang), value: pitch.runs_allowed },
+                      { code: "ER", label: t("pitching.er", lang), value: pitch.er },
+                      { code: "BBA", label: t("pitching.bb", lang), value: pitch.bb, color: pitch.bb >= 10 ? "var(--red)" : undefined },
+                      { code: "K", label: t("pitching.so", lang), value: pitch.so, color: pitch.so >= 10 ? "var(--green)" : undefined },
+                      { code: "HRA", label: t("pitching.hra", lang), value: pitch.hr_allowed },
                     ].map((stat, i) => (
                       <div key={i} style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "12px 10px", textAlign: "center" as const }}>
                         <div style={{ fontSize: 10, color: "var(--text-faint)", textTransform: "uppercase" as const, letterSpacing: 0.8, marginBottom: 5 }}>{stat.label}</div>
-                        <div className="num" style={{ fontSize: 20, fontWeight: 800, color: stat.color || "var(--text)" }}>{stat.value}</div>
+                        <div className="num" style={{ fontSize: 20, fontWeight: 800, color: stat.color || "var(--text)" }}>
+                        <MetricValue code={stat.code} value={stat.value} target={{ player: player.id }} season={currentSeason} />
+                      </div>
                       </div>
                     ))}
                   </div>

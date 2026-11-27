@@ -108,6 +108,7 @@ export type RankEntry = MetricPoint & {
   /** 공동 순위는 같은 번호 (1, 2, 2, 4). 규정 미달이거나 값이 없으면 null */
   rank: number | null;
   seq: number;
+  identityKey: string;
   player: MetricPlayer;
   /** 규정 타석·이닝을 채웠는지 */
   qualified: boolean;
@@ -119,6 +120,8 @@ export type RankResult = {
   kind: MetricKind;
   minPa: number;
   minIp: number;
+  /** 이 시즌·범위에서 기록이 있는 경기 수 (요약 행만 있는 시즌은 0) */
+  games: number;
   entries: RankEntry[];
   /** 팀 전체 값 (선수 기록을 모두 더해 계산) */
   team: MetricPoint;
@@ -133,7 +136,20 @@ export type HistoryItem = MetricPoint & {
 };
 
 export type HistoryOptions = QueryOptions & { from?: string; to?: string; by?: "game" | "season" };
-export type RankOptions = QueryOptions & { minPa?: number; minIp?: number };
+export type RankOptions = QueryOptions & {
+  minPa?: number;
+  minIp?: number;
+  /** true면 minPa·minIp를 적지 않은 쪽에 규정 타석·이닝(qualification)을 쓴다 */
+  qualify?: boolean;
+};
+
+/**
+ * 규정 타석·이닝. 5이닝 경기 기준으로 프로 규정(경기당 3.1타석, 1이닝)을 5/9로 줄여 반올림했다.
+ * 경기별 기록이 없는 시즌(요약 행만 있는 2022~2025)은 경기 수를 알 수 없어 기준을 두지 않는다.
+ * 동아리 내규로 정해진 값이 아니다 — 바꾸려면 이 두 숫자만 고치면 된다.
+ */
+export const QUALIFY_PA_PER_GAME = 1.5;
+export const QUALIFY_IP_PER_GAME = 0.5;
 
 // ── 합산 ─────────────────────────────────────────────────────────────────────
 const n = (value: Countable) => Number(value) || 0;
@@ -326,10 +342,24 @@ export function createMetricQuery(dataset: MetricDataset) {
       .reverse();
   }
 
+  /** 규정 타석·이닝: 기록이 있는 경기 수 × 경기당 기준 */
+  function qualification(season: string, options: QueryOptions = {}) {
+    const s = slice(season, options.scope ?? "roster");
+    const gameIds = new Set<string>();
+    for (const line of [...s.batting, ...s.pitching]) {
+      for (const row of line.rows) if (hasGame(row)) gameIds.add(String(row.game_id));
+    }
+    const games = gameIds.size;
+    return { games, minPa: Math.ceil(games * QUALIFY_PA_PER_GAME), minIp: Math.ceil(games * QUALIFY_IP_PER_GAME) };
+  }
+
   function rank(code: string, season: string, options: RankOptions = {}): RankResult {
     const metric = requireMetric(code);
-    const minPa = Math.max(0, Number(options.minPa) || 0);
-    const minIp = Math.max(0, Number(options.minIp) || 0);
+    const rule = qualification(season, options);
+    const pick = (given: number | undefined, auto: number) =>
+      given === undefined ? (options.qualify ? auto : 0) : Math.max(0, Number(given) || 0);
+    const minPa = pick(options.minPa, rule.minPa);
+    const minIp = pick(options.minIp, rule.minIp);
     const lines = linesFor(metric.kind, season, options.scope ?? "roster");
 
     const entries: RankEntry[] = lines.map((line) => {
@@ -337,7 +367,7 @@ export function createMetricQuery(dataset: MetricDataset) {
         metric.kind === "batting"
           ? (line.totals as BattingTotals).pa >= minPa
           : (line.totals as PitchingTotals).innings + 1e-9 >= minIp;
-      return { ...toPoint(metric.code, season, line.totals), rank: null, seq: line.seq, player: line.player, qualified };
+      return { ...toPoint(metric.code, season, line.totals), rank: null, seq: line.seq, identityKey: line.identityKey, player: line.player, qualified };
     });
 
     // 순위는 화면에 보이는 자릿수로 매긴다 — 같은 숫자로 보이면 공동 순위
@@ -360,7 +390,7 @@ export function createMetricQuery(dataset: MetricDataset) {
       previous = value;
     });
 
-    return { code: metric.code, season, kind: metric.kind, minPa, minIp, entries, team: point({ team: true }, metric.code, season, options) };
+    return { code: metric.code, season, kind: metric.kind, minPa, minIp, games: rule.games, entries, team: point({ team: true }, metric.code, season, options) };
   }
 
   function history(target: MetricTarget, code: string, options: HistoryOptions = {}): HistoryItem[] {
@@ -424,7 +454,7 @@ export function createMetricQuery(dataset: MetricDataset) {
       });
   }
 
-  return { point, history, rank, totals, seasons };
+  return { point, history, rank, totals, seasons, qualification, identityOf };
 }
 
 // ── DB에서 읽기 ───────────────────────────────────────────────────────────────

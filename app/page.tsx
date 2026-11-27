@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import Image from "next/image";
-import SearchBar from "@/app/components/SearchBar";
+import MetricValue from "@/app/components/metrics/MetricValue";
 import SeasonFilter from "@/app/components/SeasonFilter";
 import { appendCareerSeasonIfNeeded, filterRecordsForSeason } from "@/lib/careerStats";
 import { getPlayerDisplayName } from "@/lib/playerDisplay";
@@ -555,15 +555,8 @@ export default async function Dashboard({
       }}
     >
       <div style={{ padding: "28px 32px 48px" }}>
-        {/* ── Search + Season filter (full-width above grid) ── */}
+        {/* ── Season filter (검색은 탑바의 전역 검색 팔레트) ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
-          <SearchBar
-            players={seasonPlayers}
-            batting={uniqueBatting}
-            pitching={uniquePitching}
-            season={season}
-            lang={lang}
-          />
           <SeasonFilter
             seasons={seasons}
             basePath="/"
@@ -842,10 +835,11 @@ export default async function Dashboard({
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {teamAvg}
+                      <MetricValue code="AVG" value={teamAvg} season={season} />
                     </div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                      OBP {teamOBP} · SLG {teamSLG}
+                      OBP <MetricValue code="OBP" value={teamOBP} season={season} /> · SLG{" "}
+                      <MetricValue code="SLG" value={teamSLG} season={season} />
                     </div>
                   </div>
                   {perGameAvgList.length > 0 && (
@@ -908,7 +902,7 @@ export default async function Dashboard({
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {teamERA}
+                      <MetricValue code="ERA" value={teamERA} season={season} />
                     </div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
                       {lang === "ko"
@@ -1100,7 +1094,7 @@ export default async function Dashboard({
                             fontVariantNumeric: "tabular-nums",
                           }}
                         >
-                          {b.avg}
+                          <MetricValue code="AVG" value={b.avg} target={{ player: b.player.id }} season={season} />
                         </td>
                         <td
                           style={{
@@ -1124,7 +1118,7 @@ export default async function Dashboard({
                             fontVariantNumeric: "tabular-nums",
                           }}
                         >
-                          {b.obp}
+                          <MetricValue code="OBP" value={b.obp} target={{ player: b.player.id }} season={season} />
                         </td>
                         <td
                           style={{
@@ -1134,7 +1128,7 @@ export default async function Dashboard({
                             color: "var(--coral)",
                           }}
                         >
-                          {b.ops}
+                          <MetricValue code="OPS" value={b.ops} target={{ player: b.player.id }} season={season} />
                         </td>
                       </tr>
                     ))}

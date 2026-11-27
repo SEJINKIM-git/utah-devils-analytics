@@ -20,6 +20,8 @@ type TeamReport = {
   team_weaknesses?: string[];
   strategic_recommendations?: string[];
   key_matchup_tips?: string;
+  /** 검색 팔레트에서 넘어온 질문에 대한 답 */
+  question_answer?: string;
 };
 
 export default function TeamAnalysisPage() {
@@ -33,6 +35,8 @@ export default function TeamAnalysisPage() {
   const [lockedSeasons, setLockedSeasons] = useState<string[]>([]);
 
   const lang = getCookie("lang") === "en" ? "en" : "ko";
+  // 검색 팔레트의 "AI에게 물어보기"에서 넘어온 질문 (?q=)
+  const question = (searchParams.get("q") || "").trim().slice(0, 200);
 
   useEffect(() => {
     const requestedSeason = searchParams.get("season");
@@ -69,7 +73,7 @@ export default function TeamAnalysisPage() {
       const res = await fetch("/api/analyze-team", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lang, season }),
+        body: JSON.stringify({ lang, season, ...(question ? { question } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -176,6 +180,22 @@ export default function TeamAnalysisPage() {
               : `The ${season} team analysis stays blank until official records are uploaded.`}
           </div>
         )}
+        {question && (
+          <div className="ask-banner" role="status">
+            <div className="ask-banner-label">{lang === "ko" ? "넘어온 질문" : "Your question"}</div>
+            <div className="ask-banner-question">{question}</div>
+            {report?.question_answer ? (
+              <p className="ask-banner-answer">{report.question_answer}</p>
+            ) : (
+              <p className="ask-banner-hint">
+                {lang === "ko"
+                  ? "아래에서 팀 분석을 시작하면 이 질문의 답도 함께 받아요. 분석은 운영진 로그인이 필요해요."
+                  : "Start the team analysis below to get an answer to this question too. Analysis needs a staff login."}
+              </p>
+            )}
+          </div>
+        )}
+
         {!report && !loading && (
           <div style={{ textAlign: "center", padding: "60px 0" }}>
             <div style={{ fontSize: 56, marginBottom: 16 }}>🏟️</div>

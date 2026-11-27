@@ -15,6 +15,7 @@ import { createMetricQuery, loadMetricDataset } from "@/lib/metrics/query";
  *   GET /api/metrics?mode=point&target=player:12&code=OBP&season=2026
  *   GET /api/metrics?mode=history&target=player:12&code=OBP&by=game&from=2026&to=2026
  *   GET /api/metrics?mode=rank&code=OPS&season=2026&minPa=10
+ *   GET /api/metrics?mode=rank&code=OPS&season=2026&qualify=1&target=player:12   규정 타석 적용 + 그 선수의 순위
  *
  * 값은 모두 조회 함수(lib/metrics/query.ts)에서 나온다. 여기서 계산하지 않는다.
  */
@@ -38,8 +39,11 @@ export async function GET(request: NextRequest) {
     const metric = getMetric(req.code)!;
 
     if (req.mode === "rank") {
-      const result = query.rank(req.code, req.season, { minPa: req.minPa, minIp: req.minIp, scope: req.scope });
-      return Response.json({ mode: req.mode, metric, ...result });
+      const result = query.rank(req.code, req.season, { minPa: req.minPa, minIp: req.minIp, qualify: req.qualify, scope: req.scope });
+      // target이 선수면 그 선수의 줄을 함께 준다 (같은 사람의 다른 선수 id로 물어도 찾는다)
+      const identityKey = "player" in req.target ? query.identityOf(req.target.player) : null;
+      const me = identityKey ? result.entries.find((entry) => entry.identityKey === identityKey) ?? null : null;
+      return Response.json({ mode: req.mode, metric, target: req.target, me, ...result });
     }
     if (req.mode === "history") {
       const items = query.history(req.target, req.code, { from: req.from, to: req.to, by: req.by, scope: req.scope });
